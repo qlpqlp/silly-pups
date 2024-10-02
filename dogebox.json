@@ -1,23 +1,8 @@
 {
-  "id": "boxxen.test-pups",
-  "name": "s1w's test pup source",
-  "description": "A source for staging pup changes for Dogebox",
+  "id": "inevitable360.silly-pups",
+  "name": "inevitable360 silly test pup source",
+  "description": "A source for testing silly pup stuff for Dogebox",
   "pups": [
-    {
-      "location": "pup-server1"
-    },
-    {
-      "location": "pup-server2"
-    },
-    {
-      "location": "pup-server3"
-    },
-    {
-      "location": "tcp-server"
-    },
-    {
-      "location": "tcp-client"
-    },
     {
       "location": "gigawallet"
     },

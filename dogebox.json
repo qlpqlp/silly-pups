@@ -4,19 +4,7 @@
   "description": "A source for testing silly pup stuff for Dogebox",
   "pups": [
     {
-      "location": "gigawallet"
-    },
-    {
       "location": "dogebox-website"
-    },
-    {
-      "location": "dogemap"
-    },
-    {
-      "location": "dogenet"
-    },
-    {
-      "location": "identity"
     }
   ]
 }

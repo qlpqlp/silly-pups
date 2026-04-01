@@ -5,7 +5,7 @@ let
 
   memetracker_bin = pkgs.buildGoModule {
     pname = "memetracker";
-    version = "0.0.3";
+    version = "0.0.4";
     src = ./service;
     vendorHash = null;
     go = pkgs.go_1_24;
@@ -45,6 +45,7 @@ let
     export MTR_P2P_HOST="$P2P_HOST"
     export MTR_P2P_PORT="$P2P_PORT"
     export MTR_P2P_LOG="$P2P_LOG"
+    export MTR_P2P_PARALLEL="$P2P_PARALLEL"
     export MTR_STORAGE_DIR="$STORAGE_DIR"
 
     exec ${memetracker_bin}/bin/memetracker

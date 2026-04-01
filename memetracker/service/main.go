@@ -13,6 +13,7 @@ import (
 	"io"
 	"log"
 	"math/big"
+	mrand "math/rand"
 	"net"
 	"net/http"
 	"net/url"
@@ -21,20 +22,23 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 const (
-	MAGIC              = 0xC0C0C0C0
-	COMMAND_LEN        = 12
-	MSG_WITNESS_FLAG   = 1 << 30
-	MSG_TX             = 1
-	NODE_NETWORK       = 1 << 0
-	NODE_WITNESS       = 1 << 3
-	GETDATA_BATCH      = 48
-	MAX_TX_FETCH_INV   = 200
-	MEMPOOL_RESYNC_SEC = 90
-	SESSION_SEC        = 300
+	MAGIC               = 0xC0C0C0C0
+	COMMAND_LEN         = 12
+	MSG_WITNESS_FLAG    = 1 << 30
+	MSG_TX              = 1
+	NODE_NETWORK        = 1 << 0
+	NODE_WITNESS        = 1 << 3
+	GETDATA_BATCH       = 48
+	MAX_TX_FETCH_INV    = 200
+	MEMPOOL_RESYNC_SEC  = 90
+	MEMPOOL_WATCHER_SEC = 3
+	P2P_READ_IDLE_SEC   = 20
+	SESSION_SEC         = 300
 )
 
 var mainnetP2PKHVersion = byte(0x1E)
@@ -673,7 +677,7 @@ func buildVersionPayload(p2pPort int) []byte {
 	_, _ = rand.Read(nonceBytes)
 	nonce := binary.LittleEndian.Uint64(nonceBytes)
 
-	userAgent := "/memetracker-pup:0.0.3/"
+	userAgent := "/memetracker-pup:0.0.4/"
 	uaLen := len(userAgent)
 	ua := make([]byte, 1+uaLen)
 	ua[0] = byte(uaLen)
@@ -734,6 +738,22 @@ type Store struct {
 	retentionDays int
 
 	watchByHash map[string]*AddressData // hash160hex -> data
+
+	mempoolKick atomic.Bool // set after /track/ so P2P loop sends "mempool" again
+}
+
+func (s *Store) kickMempoolResync() {
+	s.mempoolKick.Store(true)
+}
+
+func (s *Store) takeMempoolKick() bool {
+	return s.mempoolKick.Swap(false)
+}
+
+func (s *Store) watcherCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.watchByHash)
 }
 
 func NewStore(storageDir string, listLimit int, retentionDays int) (*Store, error) {
@@ -852,6 +872,7 @@ func (s *Store) UpsertTracking(address string, hash160 []byte, callbackURL strin
 		if err := s.persistAddressLocked(ad); err != nil {
 			return alreadyMonitoring, nil, "", err
 		}
+		s.kickMempoolResync()
 		return alreadyMonitoring, ad.Txs, ad.CallbackURL, nil
 	}
 
@@ -866,6 +887,7 @@ func (s *Store) UpsertTracking(address string, hash160 []byte, callbackURL strin
 	if err := s.persistAddressLocked(ad); err != nil {
 		return false, nil, "", err
 	}
+	s.kickMempoolResync()
 	return false, ad.Txs, ad.CallbackURL, nil
 }
 
@@ -1127,7 +1149,34 @@ func chooseSeeds(network string) ([]string, int) {
 	return []string{"seed.testnet.dogecoin.org"}, 44556
 }
 
+func shufflePeerIPs(workerID int, ips []string) []string {
+	if len(ips) <= 1 {
+		return ips
+	}
+	out := make([]string, len(ips))
+	copy(out, ips)
+	rnd := mrand.New(mrand.NewSource(time.Now().UnixNano() + int64(workerID)*1_000_003))
+	rnd.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] })
+	return out
+}
+
+// mempoolSniffer runs several parallel P2P sessions (like the arcade pup rotating seeds/peers)
+// so inv/getdata gossip reaches MemeTracker faster and more reliably than a single connection.
 func mempoolSniffer(store *Store, network string, p2pHost string, p2pPort int, p2pLog int, mcol *MetricsCollector) {
+	parallel := envInt("MTR_P2P_PARALLEL", envInt("P2P_PARALLEL", 3))
+	if parallel < 1 {
+		parallel = 1
+	}
+	if parallel > 8 {
+		parallel = 8
+	}
+	processed := NewProcessedSet()
+	for w := 0; w < parallel; w++ {
+		go mempoolP2PWorker(w, parallel, store, network, p2pHost, p2pPort, p2pLog, mcol, processed)
+	}
+}
+
+func mempoolP2PWorker(workerID, parallel int, store *Store, network, p2pHost string, p2pPort, p2pLog int, mcol *MetricsCollector, processed *ProcessedSet) {
 	seeds, defaultPort := chooseSeeds(network)
 	if p2pPort == 0 {
 		p2pPort = defaultPort
@@ -1135,25 +1184,18 @@ func mempoolSniffer(store *Store, network string, p2pHost string, p2pPort int, p
 	if p2pHost != "" {
 		seeds = []string{p2pHost}
 	}
-
-	processed := NewProcessedSet()
-
 	logf := func(format string, args ...any) {
 		if p2pLog <= 0 {
 			return
 		}
-		log.Printf("[MTR-P2P] "+format, args...)
+		log.Printf("[MTR-P2P] [w%d] "+format, append([]any{workerID}, args...)...)
 	}
 
-	// Single outer loop; each peer session is blocking in this goroutine.
-	seedIdx := 0
-	for {
-		seedHost := seeds[seedIdx%len(seeds)]
-		seedIdx++
-
+	for round := 0; ; round++ {
+		seedHost := seeds[(round*parallel+workerID)%len(seeds)]
 		ips, err := net.LookupHost(seedHost)
 		if err != nil || len(ips) == 0 {
-			log.Printf("[MTR-P2P] DNS resolve failed seed=%s:%d err=%v", seedHost, p2pPort, err)
+			log.Printf("[MTR-P2P] [w%d] DNS resolve failed seed=%s:%d err=%v", workerID, seedHost, p2pPort, err)
 			time.Sleep(3 * time.Second)
 			continue
 		}
@@ -1161,7 +1203,7 @@ func mempoolSniffer(store *Store, network string, p2pHost string, p2pPort int, p
 			ips = ips[:12]
 		}
 
-		for _, peer := range ips {
+		for _, peer := range shufflePeerIPs(workerID, ips) {
 			if peer == "" {
 				continue
 			}
@@ -1177,185 +1219,215 @@ func mempoolSniffer(store *Store, network string, p2pHost string, p2pPort int, p
 
 			stateLastPeer := net.JoinHostPort(peer, strconv.Itoa(p2pPort))
 			mcol.SetPeer(stateLastPeer, true)
-			gotVerack := false
-			mempoolSent := false
-			lastMempoolResync := time.Time{}
-			start := time.Now()
-
-			logf("connected peer=%s sending version (handshake)", stateLastPeer)
-
-			_ = conn.SetDeadline(time.Now().Add(25 * time.Second))
-			_, _ = conn.Write(buildMessage("version", buildVersionPayload(p2pPort)))
-
-			for time.Since(start) < SESSION_SEC {
-				header, err := readExact(conn, 24)
-				if err != nil {
-					break
-				}
-				// Validate magic (little-endian in header)
-				magic := binary.LittleEndian.Uint32(header[0:4])
-				if magic != uint32(MAGIC) {
-					continue
-				}
-				cmdRaw := header[4:16]
-				cmd := strings.TrimRight(string(cmdRaw), "\x00")
-				size := binary.LittleEndian.Uint32(header[16:20])
-				payload := []byte{}
-				if size > 0 {
-					payload, err = readExact(conn, int(size))
-					if err != nil {
-						break
-					}
-				}
-
-				switch cmd {
-				case "version":
-					_, _ = conn.Write(buildMessage("verack", nil))
-				case "verack":
-					gotVerack = true
-					if !mempoolSent {
-						_, _ = conn.Write(buildMessage("mempool", nil))
-						mempoolSent = true
-						lastMempoolResync = time.Now()
-						logf("sent mempool request to peer=%s", stateLastPeer)
-					}
-				case "ping":
-					_, _ = conn.Write(buildMessage("pong", payload))
-				case "tx":
-					txidEarly := txidHex(payload)
-					mcol.observeMempoolTxid(txidEarly)
-
-					// Fast path: if no watchers, skip parsing.
-					store.mu.RLock()
-					hasWatchers := len(store.watchByHash) > 0
-					store.mu.RUnlock()
-					if !hasWatchers {
-						continue
-					}
-
-					outs, _, err := parseTxOutputs(payload)
-					if err != nil {
-						continue
-					}
-					txid := txidHex(payload)
-					wtxid := wtxidHex(payload)
-
-					if processed.Has(txid) || processed.Has(wtxid) {
-						continue
-					}
-
-					// Sum amounts per watched address-hash.
-					amtByHash := make(map[string]int64)
-					store.mu.RLock()
-					for _, o := range outs {
-						h160, ok := scriptPubKeyHash160(o.script)
-						if !ok {
-							continue
-						}
-						hashHex := hex.EncodeToString(h160)
-						if _, watching := store.watchByHash[hashHex]; watching {
-							amtByHash[hashHex] += o.valueSats
-						}
-					}
-					store.mu.RUnlock()
-
-					if len(amtByHash) == 0 {
-						continue
-					}
-
-					// Record payments and mark tx as processed (only when matched).
-					dt := time.Now().UTC()
-					matchedAny := false
-					for hashHex, sats := range amtByHash {
-						if sats <= 0 {
-							continue
-						}
-						amountDoge := float64(sats) / 1e8
-						if store.AddTx(hashHex, txid, dt, amountDoge) {
-							matchedAny = true
-							addr, cbURL, ok := store.CallbackTarget(hashHex)
-							if ok && cbURL != "" {
-								go notifyCallback(cbURL, PaymentCallbackPayload{
-									Address:    addr,
-									Txid:       txid,
-									AmountDoge: amountDoge,
-									Datetime:   dt.Format(time.RFC3339),
-								})
-							}
-						}
-					}
-					if matchedAny {
-						processed.Add(txid)
-						processed.Add(wtxid)
-					}
-
-				case "inv":
-					if !gotVerack || !mempoolSent {
-						continue
-					}
-					if len(payload) == 0 {
-						continue
-					}
-					invs, err := parseInvPayload(payload)
-					if err != nil {
-						continue
-					}
-
-					for _, it := range invs {
-						if invTypeIsTx(it.invType) {
-							mcol.observeMempoolTxid(reverseBytesToHex(it.hash))
-						}
-					}
-
-					store.mu.RLock()
-					hasWatchers := len(store.watchByHash) > 0
-					store.mu.RUnlock()
-					if !hasWatchers {
-						continue
-					}
-
-					fetch := make([]invItem, 0, MAX_TX_FETCH_INV)
-					invSeen := make(map[string]struct{})
-					for _, it := range invs {
-						if !invTypeIsTx(it.invType) {
-							continue
-						}
-						txHashHex := reverseBytesToHex(it.hash)
-						if _, ok := invSeen[txHashHex]; ok {
-							continue
-						}
-						invSeen[txHashHex] = struct{}{}
-						if processed.Has(txHashHex) {
-							continue
-						}
-						fetch = append(fetch, it)
-						if len(fetch) >= MAX_TX_FETCH_INV {
-							break
-						}
-					}
-
-					for i := 0; i < len(fetch); i += GETDATA_BATCH {
-						j := i + GETDATA_BATCH
-						if j > len(fetch) {
-							j = len(fetch)
-						}
-						pl := buildGetdataPayload(fetch[i:j])
-						_, _ = conn.Write(buildMessage("getdata", pl))
-					}
-				}
-
-				// Periodic mempool refresh.
-				if gotVerack && mempoolSent && time.Since(lastMempoolResync) >= time.Duration(MEMPOOL_RESYNC_SEC)*time.Second {
-					_, _ = conn.Write(buildMessage("mempool", nil))
-					lastMempoolResync = time.Now()
-				}
-			}
-
+			memetrackerP2PSession(conn, stateLastPeer, store, processed, mcol, p2pPort, logf)
 			mcol.SetPeer(stateLastPeer, false)
 			_ = conn.Close()
 		}
 
 		time.Sleep(5 * time.Second)
+	}
+}
+
+func memetrackerP2PSession(conn net.Conn, stateLastPeer string, store *Store, processed *ProcessedSet, mcol *MetricsCollector, p2pPort int, logf func(string, ...any)) {
+	gotVerack := false
+	mempoolSent := false
+	lastMempoolResync := time.Time{}
+	start := time.Now()
+
+	logf("connected peer=%s sending version (handshake)", stateLastPeer)
+	_ = conn.SetDeadline(time.Now().Add(25 * time.Second))
+	_, _ = conn.Write(buildMessage("version", buildVersionPayload(p2pPort)))
+
+	for time.Since(start) < SESSION_SEC {
+		_ = conn.SetReadDeadline(time.Now().Add(P2P_READ_IDLE_SEC * time.Second))
+		header, err := readExact(conn, 24)
+		if err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				_ = conn.SetReadDeadline(time.Time{})
+				if gotVerack && mempoolSent {
+					if store.takeMempoolKick() {
+						_, _ = conn.Write(buildMessage("mempool", nil))
+						lastMempoolResync = time.Now()
+						logf("mempool (after /track/ or resync request)")
+					}
+					nw := store.watcherCount()
+					interval := MEMPOOL_RESYNC_SEC
+					if nw > 0 {
+						interval = MEMPOOL_WATCHER_SEC
+					}
+					if time.Since(lastMempoolResync) >= time.Duration(interval)*time.Second {
+						_, _ = conn.Write(buildMessage("mempool", nil))
+						lastMempoolResync = time.Now()
+						logf("mempool periodic watchers=%d interval=%ds", nw, interval)
+					}
+				}
+				continue
+			}
+			break
+		}
+		_ = conn.SetReadDeadline(time.Time{})
+		magic := binary.LittleEndian.Uint32(header[0:4])
+		if magic != uint32(MAGIC) {
+			continue
+		}
+		cmdRaw := header[4:16]
+		cmd := strings.TrimRight(string(cmdRaw), "\x00")
+		size := binary.LittleEndian.Uint32(header[16:20])
+		payload := []byte{}
+		if size > 0 {
+			payload, err = readExact(conn, int(size))
+			if err != nil {
+				break
+			}
+		}
+
+		switch cmd {
+		case "version":
+			_, _ = conn.Write(buildMessage("verack", nil))
+		case "verack":
+			gotVerack = true
+			if !mempoolSent {
+				_, _ = conn.Write(buildMessage("mempool", nil))
+				mempoolSent = true
+				lastMempoolResync = time.Now()
+				logf("sent mempool request to peer=%s", stateLastPeer)
+			}
+		case "ping":
+			_, _ = conn.Write(buildMessage("pong", payload))
+		case "tx":
+			txidEarly := txidHex(payload)
+			mcol.observeMempoolTxid(txidEarly)
+
+			store.mu.RLock()
+			hasWatchers := len(store.watchByHash) > 0
+			store.mu.RUnlock()
+			if !hasWatchers {
+				continue
+			}
+
+			outs, _, err := parseTxOutputs(payload)
+			if err != nil {
+				log.Printf("[MTR-P2P] parse tx %s: %v", txidEarly, err)
+				continue
+			}
+			txid := txidHex(payload)
+			wtxid := wtxidHex(payload)
+
+			if processed.Has(txid) || processed.Has(wtxid) {
+				continue
+			}
+
+			amtByHash := make(map[string]int64)
+			store.mu.RLock()
+			for _, o := range outs {
+				h160, ok := scriptPubKeyHash160(o.script)
+				if !ok {
+					continue
+				}
+				hashHex := hex.EncodeToString(h160)
+				if _, watching := store.watchByHash[hashHex]; watching {
+					amtByHash[hashHex] += o.valueSats
+				}
+			}
+			store.mu.RUnlock()
+
+			if len(amtByHash) == 0 {
+				continue
+			}
+
+			dt := time.Now().UTC()
+			matchedAny := false
+			for hashHex, sats := range amtByHash {
+				if sats <= 0 {
+					continue
+				}
+				amountDoge := float64(sats) / 1e8
+				if store.AddTx(hashHex, txid, dt, amountDoge) {
+					matchedAny = true
+					addr, cbURL, ok := store.CallbackTarget(hashHex)
+					if ok && cbURL != "" {
+						go notifyCallback(cbURL, PaymentCallbackPayload{
+							Address:    addr,
+							Txid:       txid,
+							AmountDoge: amountDoge,
+							Datetime:   dt.Format(time.RFC3339),
+						})
+					}
+				}
+			}
+			if matchedAny {
+				processed.Add(txid)
+				processed.Add(wtxid)
+			}
+
+		case "inv":
+			if !gotVerack || !mempoolSent {
+				continue
+			}
+			if len(payload) == 0 {
+				continue
+			}
+			invs, err := parseInvPayload(payload)
+			if err != nil {
+				continue
+			}
+
+			for _, it := range invs {
+				if invTypeIsTx(it.invType) {
+					mcol.observeMempoolTxid(reverseBytesToHex(it.hash))
+				}
+			}
+
+			store.mu.RLock()
+			hasWatchers := len(store.watchByHash) > 0
+			store.mu.RUnlock()
+			if !hasWatchers {
+				continue
+			}
+
+			// Same strategy as arcade/server.py: getdata all new tx invs (dedupe by inv type+hash), not only when already seen as txid.
+			fetch := make([]invItem, 0, MAX_TX_FETCH_INV)
+			invSeen := make(map[string]struct{})
+			for _, it := range invs {
+				if !invTypeIsTx(it.invType) {
+					continue
+				}
+				invKey := fmt.Sprintf("%x:%x", it.invType, it.hash)
+				if _, ok := invSeen[invKey]; ok {
+					continue
+				}
+				invSeen[invKey] = struct{}{}
+				txHashHex := reverseBytesToHex(it.hash)
+				if processed.Has(txHashHex) {
+					continue
+				}
+				fetch = append(fetch, it)
+				if len(fetch) >= MAX_TX_FETCH_INV {
+					break
+				}
+			}
+
+			for i := 0; i < len(fetch); i += GETDATA_BATCH {
+				j := i + GETDATA_BATCH
+				if j > len(fetch) {
+					j = len(fetch)
+				}
+				pl := buildGetdataPayload(fetch[i:j])
+				_, _ = conn.Write(buildMessage("getdata", pl))
+			}
+		}
+
+		if gotVerack && mempoolSent {
+			nw := store.watcherCount()
+			interval := MEMPOOL_RESYNC_SEC
+			if nw > 0 {
+				interval = MEMPOOL_WATCHER_SEC
+			}
+			if time.Since(lastMempoolResync) >= time.Duration(interval)*time.Second {
+				_, _ = conn.Write(buildMessage("mempool", nil))
+				lastMempoolResync = time.Now()
+			}
+		}
 	}
 }
 

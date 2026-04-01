@@ -50,7 +50,7 @@ var mainnetDNSSeeds = []string{
 	"seed.dogecoin.net",
 	"seed.multidoge.org",
 	"seed2.multidoge.org",
-	"seed.dogecoin.com",
+	// seed.dogecoin.com omitted: often NXDOMAIN; remaining seeds match chainparams.
 }
 
 // ------- Utilities -------
@@ -612,6 +612,88 @@ func readExact(conn net.Conn, size int) ([]byte, error) {
 	return out, nil
 }
 
+// Dogecoin mainnet P2P message magic is 0xc0c0c0c0 as a uint32; on the wire it is 4 bytes little-endian.
+func dogeMagicWireHexLE() string {
+	var b [4]byte
+	binary.LittleEndian.PutUint32(b[:], uint32(MAGIC))
+	return hex.EncodeToString(b[:])
+}
+
+func hexSnippet(b []byte, max int) string {
+	if len(b) <= max {
+		return hex.EncodeToString(b)
+	}
+	return hex.EncodeToString(b[:max]) + fmt.Sprintf("…(%d more bytes)", len(b)-max)
+}
+
+// Summarize our outgoing version payload (same layout as buildVersionPayload).
+func summarizeOutgoingVersionPayload(p []byte, destPort int) string {
+	if len(p) < 81 {
+		return fmt.Sprintf("short_payload_len=%d", len(p))
+	}
+	ver := int32(binary.LittleEndian.Uint32(p[0:4]))
+	services := binary.LittleEndian.Uint64(p[4:12])
+	ts := int64(binary.LittleEndian.Uint64(p[12:20]))
+	off := 20 + 26 + 26 // after addr_recv, addr_from
+	if len(p) < off+8 {
+		return fmt.Sprintf("truncated_at=%d", len(p))
+	}
+	nonce := binary.LittleEndian.Uint64(p[off : off+8])
+	off += 8
+	if off >= len(p) {
+		return fmt.Sprintf("bad_ua_off len=%d", len(p))
+	}
+	uaLen := int(p[off])
+	off++
+	if off+uaLen+4+1 > len(p) {
+		return fmt.Sprintf("bad_ua len=%d uaLen=%d", len(p), uaLen)
+	}
+	ua := string(p[off : off+uaLen])
+	off += uaLen
+	startH := int32(binary.LittleEndian.Uint32(p[off : off+4]))
+	relay := p[off+4]
+	return fmt.Sprintf("proto=%d services=0x%x(NODE_NETWORK=%d NODE_WITNESS=%d) timestamp_unix=%d nonce=0x%x user_agent=%q start_height=%d relay=%t addr_port_big_endian=%d",
+		ver, services, (services&NODE_NETWORK)>>0, (services&NODE_WITNESS)>>3, ts, nonce, ua, startH, relay != 0, destPort)
+}
+
+// First fields of peer's version message (variable user_agent; we only decode fixed prefix + try UA).
+func summarizePeerVersionPayload(p []byte) string {
+	if len(p) < 20 {
+		return fmt.Sprintf("len=%d (too short for version prefix)", len(p))
+	}
+	ver := int32(binary.LittleEndian.Uint32(p[0:4]))
+	services := binary.LittleEndian.Uint64(p[4:12])
+	ts := int64(binary.LittleEndian.Uint64(p[12:20]))
+	off := 20 + 26 + 26
+	if len(p) < off+8 {
+		return fmt.Sprintf("proto=%d services=0x%x ts_unix=%d (truncated before nonce, len=%d)", ver, services, ts, len(p))
+	}
+	nonce := binary.LittleEndian.Uint64(p[off : off+8])
+	off += 8
+	ua := ""
+	if off >= len(p) {
+		ua = "(no user_agent)"
+	} else {
+		off2 := off
+		uaLen64, err := readVarInt(p, &off2)
+		if err != nil || uaLen64 > 4096 || off2+int(uaLen64) > len(p) {
+			ua = fmt.Sprintf("(user_agent_compact err=%v n=%d)", err, uaLen64)
+		} else {
+			ua = string(p[off2 : off2+int(uaLen64)])
+			off2 += int(uaLen64)
+			off = off2
+		}
+	}
+	var startH int32
+	var relay byte
+	if off+5 <= len(p) {
+		startH = int32(binary.LittleEndian.Uint32(p[off : off+4]))
+		relay = p[off+4]
+	}
+	return fmt.Sprintf("peer_proto=%d services=0x%x ts_unix=%d nonce=0x%x user_agent=%q start_height=%d relay=%t",
+		ver, services, ts, nonce, ua, startH, relay != 0)
+}
+
 func parseInvPayload(payload []byte) ([]invItem, error) {
 	off := 0
 	n64, err := readVarInt(payload, &off)
@@ -677,7 +759,7 @@ func buildVersionPayload(p2pPort int) []byte {
 	_, _ = rand.Read(nonceBytes)
 	nonce := binary.LittleEndian.Uint64(nonceBytes)
 
-	userAgent := "/memetracker-pup:0.0.4/"
+	userAgent := "/memetracker-pup:0.0.5/"
 	uaLen := len(userAgent)
 	ua := make([]byte, 1+uaLen)
 	ua[0] = byte(uaLen)
@@ -1190,6 +1272,12 @@ func mempoolP2PWorker(workerID, parallel int, store *Store, network, p2pHost str
 		}
 		log.Printf("[MTR-P2P] [w%d] "+format, append([]any{workerID}, args...)...)
 	}
+	logv := func(format string, args ...any) {
+		if p2pLog < 2 {
+			return
+		}
+		log.Printf("[MTR-P2P] [w%d:v] "+format, append([]any{workerID}, args...)...)
+	}
 
 	for round := 0; ; round++ {
 		seedHost := seeds[(round*parallel+workerID)%len(seeds)]
@@ -1203,7 +1291,11 @@ func mempoolP2PWorker(workerID, parallel int, store *Store, network, p2pHost str
 			ips = ips[:12]
 		}
 
-		for _, peer := range shufflePeerIPs(workerID, ips) {
+		// Stride peers by worker so parallel goroutines do not all dial the same IP at once
+		// (peers often drop duplicate inbound links from the same host).
+		shuffled := shufflePeerIPs(workerID, ips)
+		for idx := workerID; idx < len(shuffled); idx += parallel {
+			peer := shuffled[idx]
 			if peer == "" {
 				continue
 			}
@@ -1215,11 +1307,13 @@ func mempoolP2PWorker(workerID, parallel int, store *Store, network, p2pHost str
 				mcol.SetPeer("", false)
 				continue
 			}
-			_ = conn.SetDeadline(time.Now().Add(25 * time.Second))
+			// Do not SetDeadline on the whole conn: sessions run up to SESSION_SEC; a short
+			// absolute deadline caused peers to be abandoned and payments missed.
+			_ = conn.SetDeadline(time.Time{})
 
 			stateLastPeer := net.JoinHostPort(peer, strconv.Itoa(p2pPort))
 			mcol.SetPeer(stateLastPeer, true)
-			memetrackerP2PSession(conn, stateLastPeer, store, processed, mcol, p2pPort, logf)
+			memetrackerP2PSession(conn, stateLastPeer, store, processed, mcol, p2pPort, logf, logv)
 			mcol.SetPeer(stateLastPeer, false)
 			_ = conn.Close()
 		}
@@ -1228,22 +1322,38 @@ func mempoolP2PWorker(workerID, parallel int, store *Store, network, p2pHost str
 	}
 }
 
-func memetrackerP2PSession(conn net.Conn, stateLastPeer string, store *Store, processed *ProcessedSet, mcol *MetricsCollector, p2pPort int, logf func(string, ...any)) {
+func memetrackerP2PSession(conn net.Conn, stateLastPeer string, store *Store, processed *ProcessedSet, mcol *MetricsCollector, p2pPort int, logf, logv func(string, ...any)) {
 	gotVerack := false
 	mempoolSent := false
 	lastMempoolResync := time.Time{}
 	start := time.Now()
+	var sessionExit error // set on non-timeout read/write failure or bad checksum
 
-	logf("connected peer=%s sending version (handshake)", stateLastPeer)
-	_ = conn.SetDeadline(time.Now().Add(25 * time.Second))
-	_, _ = conn.Write(buildMessage("version", buildVersionPayload(p2pPort)))
+	logf("connected peer=%s handshake start (Dogecoin P2P magic_u32le=0x%x wire_magic_4b_le_hex=%s)", stateLastPeer, MAGIC, dogeMagicWireHexLE())
+	verOut := buildVersionPayload(p2pPort)
+	verMsg := buildMessage("version", verOut)
+	logf("sending VERSION cmd payload_len=%d total_msg_bytes=%d — %s", len(verOut), len(verMsg), summarizeOutgoingVersionPayload(verOut, p2pPort))
+	logv("outgoing version raw payload hex (first 128b)=%s", hexSnippet(verOut, 128))
+	logv("message framing: all header fields little-endian except command is 12-byte ASCII null-padded; payload length u32le; checksum=first4bytes(sha256(sha256(payload)))")
 
+	_ = conn.SetDeadline(time.Time{})
+	_ = conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
+	_, werr := conn.Write(verMsg)
+	_ = conn.SetWriteDeadline(time.Time{})
+	if werr != nil {
+		logf("write version failed: %v", werr)
+		return
+	}
+	logv("wrote version message ok")
+
+readLoop:
 	for time.Since(start) < SESSION_SEC {
 		_ = conn.SetReadDeadline(time.Now().Add(P2P_READ_IDLE_SEC * time.Second))
 		header, err := readExact(conn, 24)
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
 				_ = conn.SetReadDeadline(time.Time{})
+				logv("read deadline (%ds idle) no header yet — gotVerack=%v mempoolSent=%v", P2P_READ_IDLE_SEC, gotVerack, mempoolSent)
 				if gotVerack && mempoolSent {
 					if store.takeMempoolKick() {
 						_, _ = conn.Write(buildMessage("mempool", nil))
@@ -1263,45 +1373,107 @@ func memetrackerP2PSession(conn net.Conn, stateLastPeer string, store *Store, pr
 				}
 				continue
 			}
-			break
+			sessionExit = err
+			logf("read message header failed peer=%s err=%v (gotVerack=%v mempoolSent=%v)", stateLastPeer, err, gotVerack, mempoolSent)
+			logv("header read fatal: %#v", err)
+			break readLoop
 		}
 		_ = conn.SetReadDeadline(time.Time{})
+
 		magic := binary.LittleEndian.Uint32(header[0:4])
-		if magic != uint32(MAGIC) {
-			continue
-		}
 		cmdRaw := header[4:16]
 		cmd := strings.TrimRight(string(cmdRaw), "\x00")
 		size := binary.LittleEndian.Uint32(header[16:20])
+		chkWire := header[20:24]
+
+		logv("recv header24: magic_u32le=0x%x cmd12=%q payload_len_u32le=%d checksum4=%x cmd_raw_bytes=%q",
+			magic, cmd, size, chkWire, hex.EncodeToString(cmdRaw))
+
+		if magic != uint32(MAGIC) {
+			logf("wrong magic peer=%s got_u32le=0x%x want_u32le=0x%x (LE bytes got_hex=%s want_hex=%s) — skipping 24b, stream may be misaligned (TLS/wrong chain?)",
+				stateLastPeer, magic, MAGIC, hex.EncodeToString(header[0:4]), dogeMagicWireHexLE())
+			logv("full_header24_hex=%s", hex.EncodeToString(header))
+			continue
+		}
+
+		if size > 32*1024*1024 {
+			logf("reject absurd payload_len peer=%s cmd=%s size=%d", stateLastPeer, cmd, size)
+			sessionExit = fmt.Errorf("absurd payload size %d", size)
+			break readLoop
+		}
+
 		payload := []byte{}
 		if size > 0 {
+			logv("reading payload %d bytes for cmd=%s", size, cmd)
 			payload, err = readExact(conn, int(size))
 			if err != nil {
-				break
+				sessionExit = err
+				logf("read payload failed peer=%s cmd=%s want=%d err=%v", stateLastPeer, cmd, size, err)
+				logv("payload partial hex=%s", hexSnippet(payload, 64))
+				break readLoop
 			}
 		}
 
+		hash2 := sha256d(payload)
+		wantSum := hash2[:4]
+		if !bytes.Equal(chkWire, wantSum) {
+			sessionExit = fmt.Errorf("checksum mismatch")
+			logf("P2P checksum mismatch peer=%s cmd=%s payload_len=%d wire_checksum4=%x computed_double_sha256_4=%x — closing",
+				stateLastPeer, cmd, len(payload), chkWire, wantSum)
+			logv("payload_head_hex=%s", hexSnippet(payload, 256))
+			break readLoop
+		}
+		logv("checksum ok cmd=%s payload_len=%d", cmd, len(payload))
+
 		switch cmd {
 		case "version":
-			_, _ = conn.Write(buildMessage("verack", nil))
+			logf("recv VERSION from peer=%s — %s", stateLastPeer, summarizePeerVersionPayload(payload))
+			logv("peer version payload head hex=%s", hexSnippet(payload, 256))
+			ack := buildMessage("verack", nil)
+			_, werr := conn.Write(ack)
+			if werr != nil {
+				sessionExit = werr
+				logf("write verack failed: %v", werr)
+				break readLoop
+			}
+			logf("sent VERACK (%d bytes) awaiting peer VERACK", len(ack))
+			logv("verack message hex=%s", hex.EncodeToString(ack))
 		case "verack":
 			gotVerack = true
+			logf("recv VERACK from peer=%s — handshake version negotiation complete (little-endian fields were already validated on VERSION)", stateLastPeer)
 			if !mempoolSent {
-				_, _ = conn.Write(buildMessage("mempool", nil))
+				mem := buildMessage("mempool", nil)
+				_, werr := conn.Write(mem)
+				if werr != nil {
+					sessionExit = werr
+					logf("write mempool failed: %v", werr)
+					break readLoop
+				}
 				mempoolSent = true
 				lastMempoolResync = time.Now()
-				logf("sent mempool request to peer=%s", stateLastPeer)
+				logf("sent MEMPOOL request to peer=%s (%d bytes) — expecting inv/tx for relayed txs", stateLastPeer, len(mem))
+				logv("mempool msg hex=%s", hex.EncodeToString(mem))
 			}
 		case "ping":
-			_, _ = conn.Write(buildMessage("pong", payload))
+			logv("recv PING payload_len=%d", len(payload))
+			pong := buildMessage("pong", payload)
+			_, werr := conn.Write(pong)
+			if werr != nil {
+				sessionExit = werr
+				logf("write pong failed: %v", werr)
+				break readLoop
+			}
+			logv("sent PONG %d bytes", len(pong))
 		case "tx":
 			txidEarly := txidHex(payload)
 			mcol.observeMempoolTxid(txidEarly)
+			logv("recv TX raw len=%d txid_le=%s", len(payload), txidEarly)
 
 			store.mu.RLock()
 			hasWatchers := len(store.watchByHash) > 0
 			store.mu.RUnlock()
 			if !hasWatchers {
+				logv("tx %s ignored (no watched addresses)", txidEarly)
 				continue
 			}
 
@@ -1358,19 +1530,35 @@ func memetrackerP2PSession(conn net.Conn, stateLastPeer string, store *Store, pr
 			if matchedAny {
 				processed.Add(txid)
 				processed.Add(wtxid)
+				logf("tx matched watched address(es) peer=%s txid=%s", stateLastPeer, txid)
+			} else {
+				logv("tx %s had watched outputs but nothing new stored (e.g. duplicate)", txid)
 			}
 
 		case "inv":
 			if !gotVerack || !mempoolSent {
+				logv("INV dropped (handshake incomplete) gotVerack=%v mempoolSent=%v", gotVerack, mempoolSent)
 				continue
 			}
 			if len(payload) == 0 {
+				logv("INV empty payload")
 				continue
 			}
 			invs, err := parseInvPayload(payload)
 			if err != nil {
+				logf("INV parse error peer=%s: %v", stateLastPeer, err)
+				logv("inv payload head hex=%s", hexSnippet(payload, 128))
 				continue
 			}
+			txLike := 0
+			for _, it := range invs {
+				if invTypeIsTx(it.invType) {
+					txLike++
+				}
+			}
+			logf("recv INV peer=%s entries=%d tx_like=%d (inv vector: type u32le + hash 32 bytes wire order per entry; hash is internal byte order)",
+				stateLastPeer, len(invs), txLike)
+			logv("inv payload_len=%d parse_ok entries=%d", len(payload), len(invs))
 
 			for _, it := range invs {
 				if invTypeIsTx(it.invType) {
@@ -1407,14 +1595,32 @@ func memetrackerP2PSession(conn net.Conn, stateLastPeer string, store *Store, pr
 				}
 			}
 
+			getdataFail := false
 			for i := 0; i < len(fetch); i += GETDATA_BATCH {
 				j := i + GETDATA_BATCH
 				if j > len(fetch) {
 					j = len(fetch)
 				}
 				pl := buildGetdataPayload(fetch[i:j])
-				_, _ = conn.Write(buildMessage("getdata", pl))
+				gd := buildMessage("getdata", pl)
+				if _, werr := conn.Write(gd); werr != nil {
+					sessionExit = werr
+					logf("write getdata failed peer=%s: %v", stateLastPeer, werr)
+					getdataFail = true
+					break
+				}
+				logv("sent GETDATA batch [%d:%d) n=%d msg_bytes=%d (tx hashes in getdata use same wire order as inv)", i, j, j-i, len(gd))
 			}
+			if getdataFail {
+				break readLoop
+			}
+			if len(fetch) > 0 {
+				logf("getdata dispatched total_tx_inv=%d peer=%s", len(fetch), stateLastPeer)
+			}
+
+		default:
+			logf("recv cmd=%q peer=%s payload_len=%d (magic+checksum validated; not handled in switch)", cmd, stateLastPeer, len(payload))
+			logv("unhandled payload head hex=%s", hexSnippet(payload, 128))
 		}
 
 		if gotVerack && mempoolSent {
@@ -1424,10 +1630,25 @@ func memetrackerP2PSession(conn net.Conn, stateLastPeer string, store *Store, pr
 				interval = MEMPOOL_WATCHER_SEC
 			}
 			if time.Since(lastMempoolResync) >= time.Duration(interval)*time.Second {
-				_, _ = conn.Write(buildMessage("mempool", nil))
+				_, werr := conn.Write(buildMessage("mempool", nil))
+				if werr != nil {
+					sessionExit = werr
+					logf("periodic mempool write failed: %v", werr)
+					break readLoop
+				}
 				lastMempoolResync = time.Now()
+				logv("periodic MEMPOOL resent interval=%ds watchers=%d", interval, nw)
 			}
 		}
+	}
+
+	_ = conn.SetReadDeadline(time.Time{})
+	if sessionExit != nil {
+		logf("session end peer=%s gotVerack=%v mempoolSent=%v duration=%s err=%v",
+			stateLastPeer, gotVerack, mempoolSent, time.Since(start).Truncate(time.Millisecond), sessionExit)
+	} else {
+		logf("session end peer=%s gotVerack=%v mempoolSent=%v duration=%s (session cap %ds, no wire error)",
+			stateLastPeer, gotVerack, mempoolSent, time.Since(start).Truncate(time.Millisecond), SESSION_SEC)
 	}
 }
 

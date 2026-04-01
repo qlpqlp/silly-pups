@@ -5,7 +5,7 @@ let
 
   memetracker_bin = pkgs.buildGoModule {
     pname = "memetracker";
-    version = "0.0.4";
+    version = "0.0.5";
     src = ./service;
     vendorHash = null;
     go = pkgs.go_1_24;

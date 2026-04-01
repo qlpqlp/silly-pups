@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "meta": {
     "name": "GigaWallet Pro",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "logoPath": "logo.png",
     "shortDescription": "A Dogecoin payment gateway for business apps",
     "longDescription": "Dogecoin GigaWallet Pro is a backend service which provides a convenient integration API for platforms such as online shops, exchanges, social media platforms etc, to transact Dogecoin on behalf of their users.",
@@ -90,8 +90,12 @@
         "fields": [
           {
             "name": "NETWORK",
-            "label": "Network (mainnet/testnet)",
-            "type": "text",
+            "label": "Dogecoin network",
+            "type": "select",
+            "options": [
+              { "value": "mainnet", "label": "Mainnet" },
+              { "value": "testnet", "label": "Testnet" }
+            ],
             "default": "mainnet"
           }
         ]
@@ -158,7 +162,7 @@
   "interfaces": [
     {
       "name": "gigawallet-public",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "permissionGroups": [
         {
           "name": "Public API",
@@ -175,7 +179,7 @@
     },
     {
       "name": "gigawallet-admin",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "permissionGroups": [
         {
           "name": "Admin API",
@@ -190,7 +194,7 @@
   "dependencies": [
     {
       "interfaceName": "core-rpc",
-      "interfaceVersion": "0.0.1",
+      "interfaceVersion": "0.0.2",
       "permissionGroups": ["RPC"],
       "optional": true,
       "source": {
@@ -202,7 +206,7 @@
     },
     {
       "interfaceName": "core-zmq",
-      "interfaceVersion": "0.0.1",
+      "interfaceVersion": "0.0.2",
       "permissionGroups": ["ZMQ"],
       "optional": true,
       "source": {

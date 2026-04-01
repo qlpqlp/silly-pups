@@ -5,7 +5,7 @@ let
 
   memetracker_bin = pkgs.buildGoModule {
     pname = "memetracker";
-    version = "0.0.1";
+    version = "0.0.3";
     src = ./service;
     vendorHash = null;
     go = pkgs.go_1_24;
@@ -25,7 +25,7 @@ let
   memetracker = pkgs.writeShellScriptBin "run.sh" ''
     set -e
 
-    PUBLIC_PORT="''${PUBLIC_PORT:-8084}"
+    PUBLIC_PORT="''${PUBLIC_PORT:-33555}"
     NETWORK="''${NETWORK:-mainnet}"
     LIST_LIMIT="''${LIST_LIMIT:-10}"
     RETENTION_DAYS="''${RETENTION_DAYS:-7}"

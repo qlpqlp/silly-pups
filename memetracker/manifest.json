@@ -2,10 +2,10 @@
   "manifestVersion": 1,
   "meta": {
     "name": "MemeTracker",
-    "version": "0.0.1",
+    "version": "0.0.3",
     "logoPath": "logo.png",
     "shortDescription": "Track Dogecoin payments to an address (mempool)",
-    "longDescription": "MemeTracker is a Go-based Dogecoin mempool tracker. Call GET /track/<address> to start monitoring a P2PKH payout address. It returns the recent tracked transactions stored in the tracker DB (limited by config). Tracking addresses are retained for a configurable number of days after the last time they were requested; after that they are removed along with their stored transactions.",
+    "longDescription": "MemeTracker is a Go-based Dogecoin mempool tracker. Open the web UI at http://[DogeBOX-IP]:33555 (default HTTP port) for usage and example URLs, or call GET /track/<P2PKH address> on that port to start monitoring a payout address. Responses include recent matching transactions (limited by config). Addresses are retained for a configurable number of days after the last /track request, then removed with their stored transactions.",
     "upstreamVersions": {
       "Go": "1.24"
     }
@@ -20,7 +20,7 @@
             "name": "PUBLIC_PORT",
             "label": "HTTP Port",
             "type": "text",
-            "default": "8084"
+            "default": "33555"
           },
           {
             "name": "NETWORK",
@@ -71,7 +71,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "2785f695fce2ba82917c81f6a24ac132817cb6e74a6a3ee2a78702851e120ff4"
+      "nixFileSha256": "c17594da0af70b515c8ee7081ae163ad1c7dea5b54d6f7b801a6d78d9d4f8917"
     },
     "services": [
       {
@@ -87,12 +87,12 @@
       {
         "name": "public-port",
         "type": "http",
-        "port": 8084,
+        "port": 33555,
         "interfaces": [
           "memetracker-public"
         ],
         "listenOnHost": true,
-        "webUI": false
+        "webUI": true
       }
     ],
     "requiresInternet": true
@@ -100,21 +100,60 @@
   "interfaces": [
     {
       "name": "memetracker-public",
-      "version": "0.0.1",
+      "version": "0.0.3",
       "permissionGroups": [
         {
-          "name": "Public Track API",
-          "description": "Start tracking and fetch recent mempool transactions for a Dogecoin address",
+          "name": "MemeTracker HTTP",
+          "description": "Web UI, health check, and track API for P2PKH Dogecoin addresses",
           "severity": 1,
           "routes": [
+            "/",
+            "/healthz",
             "/track/*"
           ],
-          "port": 8084
+          "port": 33555
         }
       ]
     }
   ],
   "dependencies": [],
-  "metrics": null
+  "metrics": [
+    {
+      "name": "tracked_transactions",
+      "label": "Tracked transactions stored",
+      "type": "int",
+      "history": 30
+    },
+    {
+      "name": "watched_addresses",
+      "label": "Watched addresses",
+      "type": "int",
+      "history": 30
+    },
+    {
+      "name": "mempool_tx_count",
+      "label": "Mempool tx observed (unique)",
+      "type": "int",
+      "history": 30
+    },
+    {
+      "name": "p2p_connected",
+      "label": "P2P connected",
+      "type": "string",
+      "history": 1
+    },
+    {
+      "name": "p2p_peer_detail",
+      "label": "P2P peer details",
+      "type": "string",
+      "history": 1
+    },
+    {
+      "name": "latest_tracked_payment",
+      "label": "Latest tracked payment",
+      "type": "string",
+      "history": 1
+    }
+  ]
 }
 

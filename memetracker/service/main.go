@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"io"
 	"log"
 	"math/big"
@@ -672,7 +673,7 @@ func buildVersionPayload(p2pPort int) []byte {
 	_, _ = rand.Read(nonceBytes)
 	nonce := binary.LittleEndian.Uint64(nonceBytes)
 
-	userAgent := "/memetracker-pup:0.0.1/"
+	userAgent := "/memetracker-pup:0.0.3/"
 	uaLen := len(userAgent)
 	ua := make([]byte, 1+uaLen)
 	ua[0] = byte(uaLen)
@@ -919,6 +920,146 @@ func (s *Store) GetRecent(address string, hash160 []byte) ([]TxRecord, bool) {
 	return ad.Txs, true
 }
 
+func (s *Store) metricsSnapshot() (watched int, totalTx int, latestPayment string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	watched = len(s.watchByHash)
+	var latest time.Time
+	for _, ad := range s.watchByHash {
+		totalTx += len(ad.Txs)
+		for _, tx := range ad.Txs {
+			if tx.Txid == "" {
+				continue
+			}
+			t, err := time.Parse(time.RFC3339, tx.Datetime)
+			if err != nil {
+				continue
+			}
+			if t.After(latest) {
+				latest = t
+				short := tx.Txid
+				if len(short) > 14 {
+					short = short[:8] + "…" + short[len(short)-4:]
+				}
+				latestPayment = fmt.Sprintf("%s  %.8f DOGE  %s", short, tx.AmountDoge, tx.Datetime)
+			}
+		}
+	}
+	if latestPayment == "" {
+		latestPayment = "—"
+	}
+	return
+}
+
+// ------- Dogebox metrics (same contract as CORE monitor) -------
+
+type MetricsCollector struct {
+	mu            sync.RWMutex
+	peerAddr      string
+	peerConnected bool
+	mempoolTxIDs  map[string]struct{}
+	maxMempoolIDs int
+}
+
+func NewMetricsCollector(maxMempool int) *MetricsCollector {
+	if maxMempool <= 0 {
+		maxMempool = 50000
+	}
+	return &MetricsCollector{
+		mempoolTxIDs:  make(map[string]struct{}),
+		maxMempoolIDs: maxMempool,
+	}
+}
+
+func (m *MetricsCollector) SetPeer(addr string, connected bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.peerAddr = addr
+	m.peerConnected = connected
+}
+
+func (m *MetricsCollector) observeMempoolTxid(txid string) {
+	if txid == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.mempoolTxIDs[txid]; ok {
+		return
+	}
+	for len(m.mempoolTxIDs) >= m.maxMempoolIDs {
+		for k := range m.mempoolTxIDs {
+			delete(m.mempoolTxIDs, k)
+			break
+		}
+	}
+	m.mempoolTxIDs[txid] = struct{}{}
+}
+
+func (m *MetricsCollector) snapshot() (peer string, connected bool, mempoolN int) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.peerAddr, m.peerConnected, len(m.mempoolTxIDs)
+}
+
+func submitDogeboxMetrics(store *Store, col *MetricsCollector) {
+	host := strings.TrimSpace(os.Getenv("DBX_HOST"))
+	port := strings.TrimSpace(os.Getenv("DBX_PORT"))
+	if host == "" || port == "" {
+		return
+	}
+
+	watched, totalTx, latestPay := store.metricsSnapshot()
+	peer, p2pOn, mempoolN := col.snapshot()
+
+	p2pConnected := "no"
+	if p2pOn {
+		p2pConnected = "yes"
+	}
+	peerDetail := "not connected"
+	switch {
+	case p2pOn && peer != "":
+		peerDetail = fmt.Sprintf("active peer: %s", peer)
+	case peer != "":
+		peerDetail = fmt.Sprintf("last peer: %s (idle)", peer)
+	}
+
+	payload := map[string]interface{}{
+		"tracked_transactions":   map[string]interface{}{"value": totalTx},
+		"watched_addresses":      map[string]interface{}{"value": watched},
+		"mempool_tx_count":       map[string]interface{}{"value": mempoolN},
+		"p2p_connected":          map[string]interface{}{"value": p2pConnected},
+		"p2p_peer_detail":        map[string]interface{}{"value": peerDetail},
+		"latest_tracked_payment": map[string]interface{}{"value": latestPay},
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("[MTR-METRICS] marshal: %v", err)
+		return
+	}
+
+	url := fmt.Sprintf("http://%s:%s/dbx/metrics", host, port)
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		log.Printf("[MTR-METRICS] request: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("[MTR-METRICS] post: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		log.Printf("[MTR-METRICS] status=%d body=%s", resp.StatusCode, string(b))
+	}
+}
+
 // ------- P2P watcher -------
 
 type ProcessedSet struct {
@@ -986,7 +1127,7 @@ func chooseSeeds(network string) ([]string, int) {
 	return []string{"seed.testnet.dogecoin.org"}, 44556
 }
 
-func mempoolSniffer(store *Store, network string, p2pHost string, p2pPort int, p2pLog int) {
+func mempoolSniffer(store *Store, network string, p2pHost string, p2pPort int, p2pLog int, mcol *MetricsCollector) {
 	seeds, defaultPort := chooseSeeds(network)
 	if p2pPort == 0 {
 		p2pPort = defaultPort
@@ -1029,11 +1170,13 @@ func mempoolSniffer(store *Store, network string, p2pHost string, p2pPort int, p
 			conn, err := net.DialTimeout("tcp", net.JoinHostPort(peer, strconv.Itoa(p2pPort)), 8*time.Second)
 			if err != nil {
 				logf("connect failed: %v", err)
+				mcol.SetPeer("", false)
 				continue
 			}
 			_ = conn.SetDeadline(time.Now().Add(25 * time.Second))
 
 			stateLastPeer := net.JoinHostPort(peer, strconv.Itoa(p2pPort))
+			mcol.SetPeer(stateLastPeer, true)
 			gotVerack := false
 			mempoolSent := false
 			lastMempoolResync := time.Time{}
@@ -1079,6 +1222,9 @@ func mempoolSniffer(store *Store, network string, p2pHost string, p2pPort int, p
 				case "ping":
 					_, _ = conn.Write(buildMessage("pong", payload))
 				case "tx":
+					txidEarly := txidHex(payload)
+					mcol.observeMempoolTxid(txidEarly)
+
 					// Fast path: if no watchers, skip parsing.
 					store.mu.RLock()
 					hasWatchers := len(store.watchByHash) > 0
@@ -1147,13 +1293,6 @@ func mempoolSniffer(store *Store, network string, p2pHost string, p2pPort int, p
 					if !gotVerack || !mempoolSent {
 						continue
 					}
-					store.mu.RLock()
-					hasWatchers := len(store.watchByHash) > 0
-					store.mu.RUnlock()
-					if !hasWatchers {
-						// Avoid wasting bandwidth when no addresses are being tracked.
-						continue
-					}
 					if len(payload) == 0 {
 						continue
 					}
@@ -1162,14 +1301,26 @@ func mempoolSniffer(store *Store, network string, p2pHost string, p2pPort int, p
 						continue
 					}
 
+					for _, it := range invs {
+						if invTypeIsTx(it.invType) {
+							mcol.observeMempoolTxid(reverseBytesToHex(it.hash))
+						}
+					}
+
+					store.mu.RLock()
+					hasWatchers := len(store.watchByHash) > 0
+					store.mu.RUnlock()
+					if !hasWatchers {
+						continue
+					}
+
 					fetch := make([]invItem, 0, MAX_TX_FETCH_INV)
 					invSeen := make(map[string]struct{})
-					// Per inv message, request only tx-like items we haven't already processed.
 					for _, it := range invs {
 						if !invTypeIsTx(it.invType) {
 							continue
 						}
-						txHashHex := reverseBytesToHex(it.hash) // inv hash is already wire-endian; match arcade
+						txHashHex := reverseBytesToHex(it.hash)
 						if _, ok := invSeen[txHashHex]; ok {
 							continue
 						}
@@ -1200,6 +1351,7 @@ func mempoolSniffer(store *Store, network string, p2pHost string, p2pPort int, p
 				}
 			}
 
+			mcol.SetPeer(stateLastPeer, false)
 			_ = conn.Close()
 		}
 
@@ -1257,10 +1409,162 @@ func deriveCallbackURL(r *http.Request, address string) string {
 	return fmt.Sprintf("%s://%s/%s/", scheme, net.JoinHostPort(host, strconv.Itoa(port)), url.PathEscape(address))
 }
 
+var landingPageTmpl = template.Must(template.New("memetracker-landing").Parse(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MemeTracker</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --text: #e7ecf3;
+      --muted: #8b9aab;
+      --accent: #f2a900;
+      --accent2: #c2a633;
+      --border: rgba(255, 255, 255, 0.08);
+      --radius: 12px;
+      --font: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f4f6fa;
+        --surface: #fff;
+        --text: #1a1d23;
+        --muted: #5c6570;
+        --border: rgba(0,0,0,.08);
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--font);
+      background: radial-gradient(1200px 600px at 10% -10%, rgba(242,169,0,.12), transparent 50%),
+        radial-gradient(800px 400px at 100% 0%, rgba(194,166,51,.1), transparent 45%),
+        var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+    }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 2.5rem 1.25rem 3rem; }
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin: 0 0 .35rem;
+    }
+    .lead { color: var(--muted); margin: 0 0 1.75rem; font-size: 1.05rem; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.35rem;
+      margin-bottom: 1rem;
+      box-shadow: 0 8px 32px rgba(0,0,0,.12);
+    }
+    .card h2 {
+      margin: 0 0 .65rem;
+      font-size: .82rem;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--accent2);
+    }
+    code, .mono {
+      font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, monospace;
+      font-size: .88em;
+    }
+    .url {
+      display: block;
+      word-break: break-all;
+      padding: .65rem .75rem;
+      background: rgba(0,0,0,.2);
+      border-radius: 8px;
+      margin: .35rem 0 0;
+      border: 1px solid var(--border);
+    }
+    @media (prefers-color-scheme: light) {
+      .url { background: rgba(0,0,0,.04); }
+    }
+    ul { margin: .4rem 0 0; padding-left: 1.2rem; }
+    li { margin: .35rem 0; }
+    .pill {
+      display: inline-block;
+      font-size: .72rem;
+      font-weight: 600;
+      padding: .2rem .5rem;
+      border-radius: 999px;
+      background: rgba(242,169,0,.2);
+      color: var(--accent);
+      margin-left: .35rem;
+      vertical-align: middle;
+    }
+    footer { margin-top: 2rem; font-size: .85rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>MemeTracker <span class="pill">Dogebox</span></h1>
+    <p class="lead">Mempool-style watcher for P2PKH Dogecoin addresses. Use the HTTP API on the port configured for this pup (default <strong>33555</strong>).</p>
+
+    <div class="card">
+      <h2>Base URL</h2>
+      <p style="margin:0">Requests use your Dogebox host and this service port:</p>
+      <span class="mono url">{{ .BaseURL }}</span>
+    </div>
+
+    <div class="card">
+      <h2>Endpoints</h2>
+      <ul>
+        <li><span class="mono">GET {{ .BaseURL }}/</span> — This page.</li>
+        <li><span class="mono">GET {{ .BaseURL }}/healthz</span> — JSON health check.</li>
+        <li><span class="mono">GET {{ .BaseURL }}/track/&lt;P2PKH address&gt;</span> — Start or refresh tracking; returns JSON with recent matching mempool-related transactions.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Example</h2>
+      <p style="margin:0">Replace with a valid mainnet P2PKH address:</p>
+      <span class="mono url">{{ .BaseURL }}/track/YOUR_DOGE_ADDRESS</span>
+    </div>
+
+    <footer>Peering uses Dogecoin P2P (seeds or <span class="mono">P2P_HOST</span>). Retention and limits are set in Dogebox pup configuration.</footer>
+  </div>
+</body>
+</html>`))
+
+func publicBaseURL(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if p := strings.ToLower(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))); p == "https" {
+		scheme = "https"
+	}
+	host := r.Host
+	if host == "" {
+		host = net.JoinHostPort(envString("MTR_HTTP_BIND", "0.0.0.0"), strconv.Itoa(envInt("MTR_HTTP_PORT", envInt("PUBLIC_PORT", 33555))))
+	}
+	return scheme + "://" + host
+}
+
+func handleLanding(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	data := map[string]string{"BaseURL": publicBaseURL(r)}
+	if err := landingPageTmpl.Execute(w, data); err != nil {
+		log.Printf("[MTR] landing template: %v", err)
+	}
+}
+
 func main() {
 	log.SetOutput(os.Stderr)
 
-	publicPort := envInt("MTR_HTTP_PORT", envInt("PUBLIC_PORT", 8084))
+	publicPort := envInt("MTR_HTTP_PORT", envInt("PUBLIC_PORT", 33555))
 	bindIP := envString("MTR_HTTP_BIND", envString("DBX_PUP_IP", "0.0.0.0"))
 	network := strings.ToLower(envString("MTR_NETWORK", envString("NETWORK", "mainnet")))
 	listLimit := envInt("MTR_LIST_LIMIT", envInt("LIST_LIMIT", 10))
@@ -1285,7 +1589,16 @@ func main() {
 		}
 	}()
 
-	go mempoolSniffer(store, network, p2pHost, p2pPort, p2pLog)
+	mcol := NewMetricsCollector(50000)
+	go mempoolSniffer(store, network, p2pHost, p2pPort, p2pLog, mcol)
+
+	go func() {
+		t := time.NewTicker(10 * time.Second)
+		defer t.Stop()
+		for range t.C {
+			submitDogeboxMetrics(store, mcol)
+		}
+	}()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -1333,6 +1646,14 @@ func main() {
 			"transactions":       recents,
 		}
 		_ = json.NewEncoder(w).Encode(resp)
+	})
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		handleLanding(w, r)
 	})
 
 	srv := &http.Server{

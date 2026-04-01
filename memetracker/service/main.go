@@ -1,3 +1,7 @@
+// MemeTracker connects to Dogecoin peers only to observe the relay mempool: after
+// handshake it sends the mempool message, then handles inv (requesting getdata only
+// for MSG_TX / witness-tx inventory types), tx, and ping. It does not sync blocks,
+// headers, or chain state—unlike monolithic SPV samples that also parse blocks.
 package main
 
 import (
@@ -30,7 +34,7 @@ const (
 	MAGIC               = 0xC0C0C0C0
 	COMMAND_LEN         = 12
 	MSG_WITNESS_FLAG    = 1 << 30
-	MSG_TX              = 1
+	MSG_TX              = 1 // inventory type for transactions (and MSG_TX|MSG_WITNESS_FLAG for segwit); never MSG_BLOCK
 	NODE_NETWORK        = 1 << 0
 	NODE_WITNESS        = 1 << 3
 	GETDATA_BATCH       = 48
@@ -158,8 +162,12 @@ func decodePayoutToHash160(address string, network string) ([]byte, error) {
 
 // ------- Tx parsing -------
 
+// maxVarIntSlice is the largest count we allow when advancing an offset into a buffer
+// (avoids uint64→int overflow that can make the offset negative and panic in readVarInt).
+const maxVarIntSlice = uint64(32 * 1024 * 1024)
+
 func readVarInt(data []byte, off *int) (uint64, error) {
-	if *off >= len(data) {
+	if *off < 0 || *off >= len(data) {
 		return 0, errors.New("eof")
 	}
 	b0 := data[*off]
@@ -190,6 +198,27 @@ func readVarInt(data []byte, off *int) (uint64, error) {
 	v := binary.LittleEndian.Uint64(data[*off:])
 	*off += 8
 	return v, nil
+}
+
+func offsetFits(off int, n uint64, bufLen int) bool {
+	if off < 0 || off > bufLen {
+		return false
+	}
+	if n > maxVarIntSlice || n > uint64(bufLen-off) {
+		return false
+	}
+	if n > uint64(^uint(0)>>1) {
+		return false
+	}
+	return true
+}
+
+func offsetAdd(off *int, n uint64, bufLen int) bool {
+	if !offsetFits(*off, n, bufLen) {
+		return false
+	}
+	*off += int(n)
+	return true
 }
 
 func scriptPubKeyHash160(script []byte) ([]byte, bool) {
@@ -267,7 +296,7 @@ func parseTxOutputs(raw []byte) ([]txOutput, bool, error) {
 		if err != nil {
 			return nil, isSegwit, err
 		}
-		if off+int(slen) > len(raw) {
+		if !offsetFits(off, slen, len(raw)) {
 			return nil, isSegwit, errors.New("truncated_scriptSig")
 		}
 		off += int(slen)
@@ -296,11 +325,12 @@ func parseTxOutputs(raw []byte) ([]txOutput, bool, error) {
 		if err != nil {
 			return nil, isSegwit, err
 		}
-		if off+int(slen) > len(raw) {
+		if !offsetFits(off, slen, len(raw)) {
 			return nil, isSegwit, errors.New("truncated_pk_script")
 		}
-		script := raw[off : off+int(slen)]
-		off += int(slen)
+		ns := int(slen)
+		script := raw[off : off+ns]
+		off += ns
 
 		cp := make([]byte, len(script))
 		copy(cp, script)
@@ -319,7 +349,7 @@ func parseTxOutputs(raw []byte) ([]txOutput, bool, error) {
 				if err != nil {
 					return nil, isSegwit, err
 				}
-				if off+int(elen) > len(raw) {
+				if !offsetFits(off, elen, len(raw)) {
 					return nil, isSegwit, errors.New("truncated_witness")
 				}
 				off += int(elen)
@@ -346,59 +376,6 @@ func txidHex(raw []byte) string {
 		off += 2
 	}
 	bodyStart := off
-
-	// Skip inputs
-	nin, err := readVarInt(raw, &off)
-	if err != nil {
-		sum := sha256d(raw)
-		rev := make([]byte, 32)
-		for i := 0; i < 32; i++ {
-			rev[i] = sum[31-i]
-		}
-		return hex.EncodeToString(rev)
-	}
-	for i := 0; i < int(nin); i++ {
-		if off+36 > len(raw) {
-			sum := sha256d(raw)
-			rev := make([]byte, 32)
-			for i := 0; i < 32; i++ {
-				rev[i] = sum[31-i]
-			}
-			return hex.EncodeToString(rev)
-		}
-		off += 32 + 4 // outpoint + sequence
-		slen, err := readVarInt(raw, &off)
-		if err != nil {
-			sum := sha256d(raw)
-			rev := make([]byte, 32)
-			for i := 0; i < 32; i++ {
-				rev[i] = sum[31-i]
-			}
-			return hex.EncodeToString(rev)
-		}
-		off += int(slen)
-		if off+4 > len(raw) {
-			sum := sha256d(raw)
-			rev := make([]byte, 32)
-			for i := 0; i < 32; i++ {
-				rev[i] = sum[31-i]
-			}
-			return hex.EncodeToString(rev)
-		}
-		off += 4 // locktime? (actually sequence already skipped; but this port is close enough for our usage)
-	}
-
-	// NOTE: To keep this implementation reliable, we do NOT use the simplistic off handling above.
-	// Instead, use a safer approach: derive txid from the non-witness preimage by re-parsing structure.
-	// We re-implement the python logic closely below.
-
-	// Re-parse correctly:
-	off = 4
-	isSegwit = len(raw) >= off+2 && raw[off] == 0 && raw[off+1] == 1
-	if isSegwit {
-		off += 2
-	}
-	bodyStart = off
 	nin64, err := readVarInt(raw, &off)
 	if err != nil {
 		sum := sha256d(raw)
@@ -408,9 +385,17 @@ func txidHex(raw []byte) string {
 		}
 		return hex.EncodeToString(rev)
 	}
-	nin = nin64
+	nin := nin64
+	if nin > uint64(len(raw)) {
+		sum := sha256d(raw)
+		rev := make([]byte, 32)
+		for i := 0; i < 32; i++ {
+			rev[i] = sum[31-i]
+		}
+		return hex.EncodeToString(rev)
+	}
 
-	// inputs: [outpoint(32)+scriptLen+script+sequence(4)] repeated
+	// inputs: [prevout(32)+vout(4)+scriptLen+script+sequence(4)] repeated
 	for i := 0; i < int(nin); i++ {
 		if off+36 > len(raw) {
 			sum := sha256d(raw)
@@ -420,11 +405,17 @@ func txidHex(raw []byte) string {
 			}
 			return hex.EncodeToString(rev)
 		}
-		// skip outpoint
-		off += 32
-		// script length + script
+		off += 36 // prevout hash + vout index
 		slen64, err := readVarInt(raw, &off)
 		if err != nil {
+			sum := sha256d(raw)
+			rev := make([]byte, 32)
+			for i := 0; i < 32; i++ {
+				rev[i] = sum[31-i]
+			}
+			return hex.EncodeToString(rev)
+		}
+		if !offsetFits(off, slen64, len(raw)) {
 			sum := sha256d(raw)
 			rev := make([]byte, 32)
 			for i := 0; i < 32; i++ {
@@ -454,6 +445,14 @@ func txidHex(raw []byte) string {
 		}
 		return hex.EncodeToString(rev)
 	}
+	if nout64 > uint64(len(raw)) {
+		sum := sha256d(raw)
+		rev := make([]byte, 32)
+		for i := 0; i < 32; i++ {
+			rev[i] = sum[31-i]
+		}
+		return hex.EncodeToString(rev)
+	}
 	for i := 0; i < int(nout64); i++ {
 		if off+8 > len(raw) {
 			sum := sha256d(raw)
@@ -466,6 +465,14 @@ func txidHex(raw []byte) string {
 		off += 8
 		slen64, err := readVarInt(raw, &off)
 		if err != nil {
+			sum := sha256d(raw)
+			rev := make([]byte, 32)
+			for i := 0; i < 32; i++ {
+				rev[i] = sum[31-i]
+			}
+			return hex.EncodeToString(rev)
+		}
+		if !offsetFits(off, slen64, len(raw)) {
 			sum := sha256d(raw)
 			rev := make([]byte, 32)
 			for i := 0; i < 32; i++ {
@@ -508,6 +515,14 @@ func txidHex(raw []byte) string {
 					}
 					return hex.EncodeToString(rev)
 				}
+				if !offsetFits(rest, el64, len(raw)) {
+					sum := sha256d(raw)
+					rev := make([]byte, 32)
+					for i := 0; i < 32; i++ {
+						rev[i] = sum[31-i]
+					}
+					return hex.EncodeToString(rev)
+				}
 				rest += int(el64)
 			}
 		}
@@ -521,10 +536,26 @@ func txidHex(raw []byte) string {
 
 	var preimage []byte
 	if isSegwit {
+		if bodyStart > endOutputs || endOutputs > len(raw) {
+			sum := sha256d(raw)
+			rev := make([]byte, 32)
+			for i := 0; i < 32; i++ {
+				rev[i] = sum[31-i]
+			}
+			return hex.EncodeToString(rev)
+		}
 		// preimage = version(4) + body(non-witness, from body_start to end_outputs) + locktime
 		preimage = append(append([]byte{}, raw[0:4]...), raw[bodyStart:endOutputs]...)
 		preimage = append(preimage, locktime...)
 	} else {
+		if endOutputs > len(raw) {
+			sum := sha256d(raw)
+			rev := make([]byte, 32)
+			for i := 0; i < 32; i++ {
+				rev[i] = sum[31-i]
+			}
+			return hex.EncodeToString(rev)
+		}
 		preimage = append(append([]byte{}, raw[0:endOutputs]...), locktime...)
 	}
 
@@ -759,7 +790,7 @@ func buildVersionPayload(p2pPort int) []byte {
 	_, _ = rand.Read(nonceBytes)
 	nonce := binary.LittleEndian.Uint64(nonceBytes)
 
-	userAgent := "/memetracker-pup:0.0.6/"
+	userAgent := "/memetracker-pup:0.1.6/"
 	uaLen := len(userAgent)
 	ua := make([]byte, 1+uaLen)
 	ua[0] = byte(uaLen)

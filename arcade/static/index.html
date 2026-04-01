@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Arcade Launcher</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#0d0221; --panel:#1a0b2e; --neon:#ffee55; --cyan:#5dffc3; --pink:#ff6ec7; }
+    * { box-sizing: border-box; }
+    html, body { margin:0; min-height:100%; background:var(--bg); color:var(--neon); font-family:"Press Start 2P", monospace; font-size:12px; }
+    body::before {
+      content:""; position:fixed; inset:0;
+      background:repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,.18) 2px, rgba(0,0,0,.18) 4px);
+      pointer-events:none; z-index:2; opacity:.35;
+    }
+    .wrap { position:relative; z-index:3; max-width:920px; margin:0 auto; padding:28px 16px 48px; }
+    h1 { font-size:clamp(14px,3vw,22px); text-align:center; text-shadow:0 0 12px rgba(255,238,85,.6); letter-spacing:1px; margin:0 0 8px; }
+    .sub { text-align:center; color:var(--cyan); font-size:10px; line-height:1.6; opacity:.9; margin-bottom:28px; }
+    .grid { display:grid; gap:16px; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); }
+    .card {
+      border:3px solid var(--neon); border-radius:4px; background:var(--panel);
+      box-shadow:0 0 16px rgba(255,238,85,.15), inset 0 0 40px rgba(93,255,195,.05);
+      padding:14px; display:flex; flex-direction:column; gap:10px;
+    }
+    .card h2 { margin:0; font-size:11px; color:var(--cyan); line-height:1.4; }
+    .card p { margin:0; color:#e8e0ff; font-size:9px; line-height:1.7; flex:1; opacity:.92; }
+    .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:4px; }
+    .actions a {
+      flex:1; min-width:108px; text-align:center; padding:10px 8px; font-size:9px;
+      border:2px solid var(--pink); color:#fff7ff; text-decoration:none; border-radius:4px;
+      background:rgba(255,110,199,.12); text-shadow:0 1px 2px #000;
+    }
+    .actions a:hover { border-color:var(--cyan); color:var(--cyan); }
+    .actions a.primary { border-color:var(--cyan); background:rgba(93,255,195,.1); }
+    .err { color:#ff6b6b; text-align:center; font-size:9px; margin-top:12px; }
+    .scan { color:rgba(232,224,255,.55); font-size:8px; text-align:center; margin-top:20px; line-height:1.8; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>DOGEBOX ARCADE</h1>
+    <div class="sub">SELECT A CABINET — EACH GAME USES ITS OWN PAYOUT IN CONFIG</div>
+    <div id="grid" class="grid"></div>
+    <div id="err" class="err" style="display:none"></div>
+    <div class="scan">TIP: ADD A FOLDER UNDER <span style="color:var(--cyan)">static/games/your-id/</span> WITH <span style="color:var(--cyan)">game.json</span> + <span style="color:var(--cyan)">index.html</span></div>
+  </div>
+  <script>
+    const grid = document.getElementById('grid');
+    const errEl = document.getElementById('err');
+    async function go() {
+      try {
+        const r = await fetch('/api/games', { cache: 'no-store' });
+        if (!r.ok) throw new Error('bad response');
+        const list = await r.json();
+        if (!Array.isArray(list) || !list.length) {
+          errEl.style.display = 'block';
+          errEl.textContent = 'NO GAMES FOUND — ADD static/games/*/game.json';
+          return;
+        }
+        grid.innerHTML = '';
+        for (const g of list) {
+          const id = g.id || '';
+          const title = g.title || id;
+          const desc = g.description || '';
+          const path = g.path || `/games/${id}/index.html`;
+          const demo = g.demo_path || `/games/${id}/demo.html`;
+          const card = document.createElement('div');
+          card.className = 'card';
+          card.innerHTML =
+            '<h2>' + title.replace(/</g,'&lt;') + '</h2>' +
+            '<p>' + desc.replace(/</g,'&lt;') + '</p>' +
+            '<div class="actions">' +
+              '<a class="primary" href="' + path + '" target="_blank" rel="noopener">PLAY</a>' +
+              '<a href="' + demo + '" target="_blank" rel="noopener">DEMO</a>' +
+            '</div>';
+          grid.appendChild(card);
+        }
+      } catch (e) {
+        errEl.style.display = 'block';
+        errEl.textContent = 'COULD NOT LOAD /api/games';
+      }
+    }
+    go();
+  </script>
+</body>
+</html>

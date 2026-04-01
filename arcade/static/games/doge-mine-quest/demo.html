@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Doge Mine Quest Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@700&display=swap" rel="stylesheet" />
+  <style>
+    html, body { margin:0; width:100%; height:100%; overflow:hidden; background:#101722; color:#ffe357; font-family:system-ui,Arial,sans-serif; }
+    #skyLayer { position:fixed; inset:0; z-index:0; pointer-events:none; overflow:hidden; }
+    #skyBg { position:absolute; inset:0; background:center/cover no-repeat; }
+    #skySun { position:absolute; right:8vw; top:6vh; width:min(180px,24vw); aspect-ratio:1/1; background:center/contain no-repeat; filter:drop-shadow(0 0 18px rgba(255,210,90,.45)); }
+    #skyClouds { position:absolute; inset:0; }
+    .sky-cloud { position:absolute; height:auto; aspect-ratio:320/180; background:center/contain no-repeat; opacity:.95; animation:cloudDrift linear infinite; }
+    @keyframes cloudDrift { from { transform:translateX(-20vw); } to { transform:translateX(120vw); } }
+    #renderCanvas { position:fixed; inset:0; width:100%; height:100%; touch-action:none; z-index:1; }
+    .hud { position:fixed; left:12px; top:10px; z-index:6; line-height:1.35; text-shadow:0 0 6px #000; }
+    .pill { position:fixed; right:12px; bottom:12px; z-index:6; border:2px solid #45f0ff; border-radius:10px; padding:8px 10px; background:rgba(8,8,16,.85); font-size:12px; }
+    .pill a { color:#45f0ff; text-decoration:none; }
+    .paws { position:fixed; left:50%; top:60%; transform:translate(-50%, -50%); z-index:8; pointer-events:none; opacity:0; }
+    .paw-img { width:min(440px, 72vw); max-height:42vh; filter:drop-shadow(0 0 14px rgba(0,0,0,.85)); transform-origin:50% 60%; mix-blend-mode:screen; }
+    .paws.digging { opacity:1; animation:pawsFade .32s ease-out forwards; }
+    .paws.digging .paw-img { animation:pawSlam .32s ease-out; }
+    .doge-words { position:fixed; inset:0; pointer-events:none; z-index:9; overflow:hidden; }
+    .doge-word {
+      position:absolute;
+      font-family:'Comic Neue', system-ui, sans-serif;
+      font-weight:700;
+      text-shadow:0 0 10px rgba(0,0,0,.85), 0 0 12px rgba(255,79,216,.45);
+      transform:translate(-50%, -50%) scale(0.8) rotate(var(--rot, -8deg));
+      animation:dogePop .9s ease-out forwards;
+      white-space:nowrap;
+    }
+    .doge-word .w1, .doge-word .w2 { padding:0 .1em; }
+    .doge-word.wow { color:#45f0ff; font-size:42px !important; text-shadow:0 0 10px rgba(0,0,0,.9), 0 0 18px rgba(69,240,255,.65); }
+    @keyframes pawsFade { from { opacity:1; } to { opacity:0; } }
+    @keyframes pawSlam { 0%{transform:translateY(-6px) scale(.94);} 45%{transform:translateY(8px) scale(1.03);} 70%{transform:translateY(1px) scale(1);} 100%{transform:translateY(0) scale(1);} }
+    @keyframes dogePop {
+      0% { opacity:0; transform:translate(-50%, -50%) scale(0.65) rotate(var(--rot, -8deg)); }
+      15% { opacity:1; }
+      100% { opacity:0; transform:translate(-50%, -120%) scale(1.1) rotate(var(--rot, -8deg)); }
+    }
+    .crosshair { position:fixed; left:50%; top:50%; transform:translate(-50%, -50%); z-index:6; width:16px; height:16px; pointer-events:none; }
+    .crosshair::before, .crosshair::after { content:""; position:absolute; background:#fff; box-shadow:0 0 6px #000; }
+    .crosshair::before { left:7px; top:0; width:2px; height:16px; }
+    .crosshair::after { left:0; top:7px; width:16px; height:2px; }
+    .mobile-controls { position:fixed; inset:0; z-index:12; pointer-events:none; display:none; }
+    .mc-left, .mc-right { position:absolute; bottom:calc(12px + env(safe-area-inset-bottom)); pointer-events:auto; }
+    .mc-left { left:12px; display:grid; grid-template-columns:repeat(3, 54px); grid-template-rows:repeat(2, 54px); gap:8px; }
+    .mc-right { right:12px; display:flex; flex-direction:column; gap:8px; }
+    .m-btn {
+      width:54px; height:54px; border-radius:12px; border:2px solid #45f0ff;
+      background:rgba(8,8,16,.72); color:#fff; font-weight:700; font-size:18px;
+      touch-action:none;
+    }
+    .m-btn.wide { width:92px; font-size:13px; }
+    .m-up { grid-column:2; grid-row:1; }
+    .m-left { grid-column:1; grid-row:2; }
+    .m-down { grid-column:2; grid-row:2; }
+    .m-right { grid-column:3; grid-row:2; }
+    @media (hover:none), (pointer:coarse), (max-width:900px) { .mobile-controls { display:block; } }
+    .overlay { position:fixed; inset:0; display:grid; place-items:center; z-index:10; background:rgba(10,4,18,.72); }
+    .panel { width:min(760px,95vw); border:3px solid #ffe357; border-radius:12px; background:rgba(18,4,31,.92); padding:16px; text-align:center; }
+    .panel-top {
+      position:relative;
+      overflow:hidden;
+      border-radius:10px;
+      padding:14px 16px;
+      margin:-4px -4px 14px -4px;
+      background:url('assets/background.jpg') center/cover no-repeat;
+      text-align:center;
+    }
+    .panel-top::after {
+      content:"";
+      position:absolute;
+      inset:0;
+      background:linear-gradient(180deg, rgba(8,20,48,.5), rgba(12,8,28,.62));
+      pointer-events:none;
+    }
+    .panel-top > * { position:relative; z-index:1; }
+    .panel-top .demo-title { font-size:26px; color:#45f0ff; font-weight:700; text-shadow:0 2px 8px rgba(0,0,0,.9); }
+    .panel-top .demo-sub { margin-top:6px; font-size:14px; color:#f0f6ff; line-height:1.4; text-shadow:0 1px 6px rgba(0,0,0,.85); }
+    .insert { font-size:clamp(24px,6vw,52px); color:#ff4fd8; margin:6px 0; animation:blink 1s steps(2,start) infinite; text-shadow:0 2px 10px rgba(0,0,0,.9); }
+    .row { display:flex; flex-wrap:wrap; justify-content:center; gap:12px; margin-top:10px; align-items:flex-start; }
+    .qr-wrap {
+      width:218px;
+      height:218px;
+      flex:0 0 auto;
+      border:3px solid #45f0ff;
+      border-radius:12px;
+      box-sizing:border-box;
+      background:url('assets/background.jpg') center/cover no-repeat;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:7px;
+      cursor:pointer;
+    }
+    .qr-wrap canvas { display:block; border-radius:8px; box-shadow:0 0 0 1px rgba(255,255,255,.4); }
+    .qr { width:200px; height:200px; }
+    .meta { max-width:420px; text-align:left; background:rgba(8,8,16,.7); border-radius:10px; padding:10px; font-size:14px; color:#d7ecff; }
+    .pay-btn {
+      display:block;
+      margin:14px auto 0;
+      max-width:420px;
+      padding:12px 14px;
+      border:2px solid #45f0ff;
+      border-radius:10px;
+      color:#f4e8ff;
+      text-decoration:none;
+      text-align:center;
+      font-weight:bold;
+      background:rgba(8,8,16,.88);
+      cursor:pointer;
+    }
+    .pay-btn:hover { background:rgba(20,36,64,.95); color:#fff; }
+    .demo-start-hint { margin-top:10px; font-size:13px; color:#b8d4ff; text-shadow:0 1px 4px rgba(0,0,0,.75); }
+    .overlay-slide { display:none; }
+    .overlay-slide.is-active { display:block; }
+    .lb-table { width:100%; max-width:420px; margin:10px auto 0; font-size:14px; color:#f0f6ff; text-align:left; background:rgba(8,8,16,.62); border:1px solid rgba(69,240,255,.28); border-radius:10px; overflow:hidden; }
+    .lb-table table { width:100%; border-collapse:collapse; }
+    .lb-table th, .lb-table td { padding:6px 8px; border-bottom:1px solid rgba(255,255,255,.1); }
+    .lb-table th { color:#45f0ff; font-size:12px; text-transform:uppercase; }
+    .lb-table tr:nth-child(even) { background:rgba(255,255,255,.04); }
+    .lb-sub { margin-top:8px; font-size:12px; color:rgba(220,232,255,.78); }
+    .overlay-lb-title { font-size:22px; color:#45f0ff; font-weight:700; text-shadow:0 0 12px rgba(69,240,255,.45); }
+    @keyframes blink { to { visibility:hidden; } }
+  </style>
+</head>
+<body>
+  <div id="skyLayer" aria-hidden="true">
+    <div id="skyBg"></div>
+    <div id="skyClouds"></div>
+    <div id="skySun"></div>
+  </div>
+  <canvas id="renderCanvas"></canvas>
+  <div class="crosshair"></div>
+  <div class="hud"><div>DEMO MODE</div><div>DOGE Found: <span id="coins">0</span> (<span id="doge">Ð 0</span>)</div><div>Time: <span id="timer">3:00</span></div></div>
+  <div class="pill">Demo tx: <a id="txLink" href="#" target="_blank" rel="noopener noreferrer"></a></div>
+  <div id="paws" class="paws"><img class="paw-img" src="assets/paws-dig.png" alt="Digging paws" /></div>
+  <div id="dogeWords" class="doge-words" aria-hidden="true"></div>
+  <div class="mobile-controls" id="mobileControls">
+    <div class="mc-left">
+      <button class="m-btn m-up" id="mUp">▲</button>
+      <button class="m-btn m-left" id="mLeft">◀</button>
+      <button class="m-btn m-down" id="mDown">▼</button>
+      <button class="m-btn m-right" id="mRight">▶</button>
+    </div>
+    <div class="mc-right">
+      <button class="m-btn wide" id="mJump">JUMP</button>
+      <button class="m-btn wide" id="mMine">MINE</button>
+    </div>
+  </div>
+  <div id="overlay" class="overlay">
+    <div class="panel">
+      <div class="overlay-slide is-active" id="overlayLb">
+        <div class="overlay-lb-title">TOP 10 MINERS · DEMO</div>
+        <div class="lb-table">
+          <table>
+            <thead><tr><th>#</th><th>Name</th><th>Score</th><th>Time</th></tr></thead>
+            <tbody id="lbRows"></tbody>
+          </table>
+        </div>
+        <div class="lb-sub">Next: pay slide — click the QR to start the demo (no payment required).</div>
+      </div>
+      <div class="overlay-slide" id="overlayPay">
+        <div class="panel-top">
+          <div class="demo-title">DOGE MINE QUEST</div>
+          <div class="insert">INSERT DOGE COIN</div>
+          <div class="demo-sub">Minecraft-style demo. Mine blocks and find hidden DOGE.</div>
+          <div class="demo-start-hint"><strong>Click the QR</strong> to try the demo. <strong>Click to Pay</strong> opens your wallet.</div>
+        </div>
+        <div class="row">
+          <div class="qr-wrap">
+            <canvas id="qrCanvas" class="qr" width="200" height="200" title="Click to start demo"></canvas>
+          </div>
+          <div class="meta">
+            <div>Demo payout:</div>
+            <div style="margin-top:6px;word-break:break-all"><strong id="addr">DTqAFgNNUgiPEfGmc4HZUkqJ4sz5vADd1n</strong></div>
+            <div style="margin-top:8px">Amount: <strong>1</strong> DOGE</div>
+          </div>
+        </div>
+        <a class="pay-btn" id="payBtn" href="dogecoin:DTqAFgNNUgiPEfGmc4HZUkqJ4sz5vADd1n?amount=1" target="_self">Click to Pay</a>
+      </div>
+    </div>
+  </div>
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+  <script src="../../vendor/qrious.min.js"></script>
+  <script>
+    const el = id => document.getElementById(id);
+    const fmtDoge = v => 'Ð ' + Number(v.toFixed(2)).toString();
+    const SUN_SVG_DATA = "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><defs><radialGradient id="g" cx="50%" cy="50%" r="55%"><stop offset="0%" stop-color="#fff8bd"/><stop offset="60%" stop-color="#ffd55f"/><stop offset="100%" stop-color="#ffb300"/></radialGradient></defs><circle cx="128" cy="128" r="84" fill="url(#g)"/></svg>');
+    const CLOUD_SVG_DATA = "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180"><g fill="#ffffff"><ellipse cx="95" cy="100" rx="58" ry="35"/><ellipse cx="145" cy="84" rx="48" ry="34"/><ellipse cx="190" cy="104" rx="58" ry="36"/><ellipse cx="230" cy="92" rx="42" ry="30"/><rect x="60" y="102" width="196" height="40" rx="20" ry="20"/></g></svg>');
+    const BG_SVG_DATA = "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080"><defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#9cd5ff"/><stop offset="100%" stop-color="#66b8ff"/></linearGradient></defs><rect width="1920" height="1080" fill="url(#bg)"/></svg>');
+    const SKY_SUN_URL = location.protocol === 'file:' ? SUN_SVG_DATA : 'assets/sun.png';
+    const SKY_CLOUD_URL = location.protocol === 'file:' ? CLOUD_SVG_DATA : 'assets/cloud.png';
+    const SKY_BG_URL = location.protocol === 'file:' ? BG_SVG_DATA : 'assets/background.jpg';
+    const demoAddr = 'DTqAFgNNUgiPEfGmc4HZUkqJ4sz5vADd1n';
+    const demoUri = 'dogecoin:' + demoAddr + '?amount=1';
+    const dogeLead = ['Much', 'Such', 'So', 'Very', 'Many'];
+    const dogeTail = ['Luck', 'Paw', 'Shibe', 'Wow', 'Joy', 'Skill', 'Good', 'Moon', 'Dig', 'Coin'];
+    const memeColors = ['#ff4fd8', '#45f0ff', '#ffe357', '#8efc64', '#ffa640', '#c58cff'];
+    let audioCtx = null, musicTimer = null, musicStep = 0;
+    let jumpLockUntil = 0;
+    const touchMove = { left:false, right:false, up:false, down:false };
+    let skyBgEl = null, skySunEl = null, skyCloudsEl = null;
+    let lookPointerId = null, lookStartX = 0, lookStartY = 0, lookLastX = 0, lookLastY = 0, lookMoved = false;
+    const isCoarsePointer = window.matchMedia('(pointer:coarse)').matches || ('ontouchstart' in window);
+    const overlayEl = el('overlay');
+    const demoTop10 = [
+      { name: 'SHAFT_SHIBE', score: 2840, time: '2:54' },
+      { name: 'BLOCKHOUND', score: 2650, time: '2:48' },
+      { name: 'ORE_MUCH', score: 2510, time: '2:39' },
+      { name: 'DIGE', score: 2380, time: '2:33' },
+      { name: 'PUPVEIN', score: 2220, time: '2:27' },
+      { name: 'MOON_CART', score: 2090, time: '2:19' },
+      { name: 'PICK_SHIBE', score: 1960, time: '2:12' },
+      { name: 'CAVE WOW', score: 1840, time: '2:04' },
+      { name: 'RUBY_PAW', score: 1720, time: '1:58' },
+      { name: 'DEMO_DOG', score: 1590, time: '1:51' },
+    ];
+    let overlayRotateTimer = null;
+    function renderDemoTop10() {
+      const rows = el('lbRows');
+      if (!rows) return;
+      rows.innerHTML = demoTop10.map((r, i) => (
+        `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.score}</td><td>${r.time}</td></tr>`
+      )).join('');
+    }
+    function setOverlaySlide(showLb) {
+      el('overlayLb')?.classList.toggle('is-active', showLb);
+      el('overlayPay')?.classList.toggle('is-active', !showLb);
+    }
+    function startOverlayRotation() {
+      if (overlayRotateTimer) clearInterval(overlayRotateTimer);
+      setOverlaySlide(true);
+      let showLb = true;
+      overlayRotateTimer = setInterval(() => {
+        if (overlayEl.style.display === 'none') return;
+        showLb = !showLb;
+        setOverlaySlide(showLb);
+      }, 5000);
+    }
+    function stopOverlayRotation() {
+      if (overlayRotateTimer) { clearInterval(overlayRotateTimer); overlayRotateTimer = null; }
+    }
+    function ensureAudio() {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    }
+    function sfx(freq, duration = 0.08, type = 'square', gain = 0.05, glideTo = null) {
+      if (!audioCtx) return;
+      const now = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const amp = audioCtx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, now);
+      if (glideTo) osc.frequency.exponentialRampToValueAtTime(glideTo, now + duration);
+      amp.gain.setValueAtTime(0.0001, now);
+      amp.gain.exponentialRampToValueAtTime(gain, now + 0.01);
+      amp.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+      osc.connect(amp).connect(audioCtx.destination);
+      osc.start(now);
+      osc.stop(now + duration + 0.02);
+    }
+    function playMineSfx() { sfx(180, 0.05, 'triangle', 0.04, 120); }
+    function playCoinSfx() { sfx(620, 0.06, 'square', 0.06, 920); setTimeout(() => sfx(920, 0.06, 'square', 0.045, 1240), 40); }
+    function playStartSfx() { sfx(330, 0.07, 'sawtooth', 0.04, 520); setTimeout(() => sfx(520, 0.08, 'sawtooth', 0.04, 780), 60); }
+    function playEndSfx() { sfx(300, 0.12, 'triangle', 0.05, 130); }
+    function startMusic() {
+      if (!audioCtx || musicTimer) return;
+      const seq = [392, 440, 523, 440, 349, 392, 440, 330];
+      musicStep = 0;
+      musicTimer = setInterval(() => {
+        if (!audioCtx) return;
+        const n = seq[musicStep % seq.length];
+        sfx(n, 0.16, 'triangle', 0.02);
+        if (musicStep % 2 === 0) sfx(n / 2, 0.2, 'sine', 0.012);
+        musicStep++;
+      }, 230);
+    }
+    function stopMusic() {
+      if (!musicTimer) return;
+      clearInterval(musicTimer);
+      musicTimer = null;
+    }
+    function spawnDogeWord(text, wow = false) {
+      const host = el('dogeWords');
+      if (!host) return;
+      const node = document.createElement('span');
+      node.className = 'doge-word' + (wow ? ' wow' : '');
+      const parts = String(text).split(' ');
+      const c1 = memeColors[Math.floor(Math.random() * memeColors.length)];
+      if (parts.length >= 2) node.innerHTML = `<span class="w1" style="color:${c1}">${parts[0]}</span> <span class="w2" style="color:${c1}">${parts.slice(1).join(' ')}</span>`;
+      else node.innerHTML = `<span class="w1" style="color:${c1}">${parts[0]}</span>`;
+      node.style.left = (26 + Math.random() * 48).toFixed(1) + '%';
+      node.style.top = (42 + Math.random() * 32).toFixed(1) + '%';
+      node.style.fontSize = (wow ? 42 : (22 + Math.random() * 18)).toFixed(0) + 'px';
+      node.style.setProperty('--rot', (Math.random() * 28 - 14).toFixed(1) + 'deg');
+      host.appendChild(node);
+      setTimeout(() => node.remove(), wow ? 1100 : 950);
+    }
+    function resolveSkyAsset(url, fallback) {
+      return new Promise(resolve => {
+        let done = false;
+        const finish = out => { if (done) return; done = true; resolve(out); };
+        const img = new Image();
+        img.onload = () => finish(url);
+        img.onerror = () => finish(fallback);
+        img.src = url;
+        setTimeout(() => finish(fallback), 2500);
+      });
+    }
+    async function initSkyDom() {
+      const bg = el('skyBg');
+      const sunEl = el('skySun');
+      const cloudsEl = el('skyClouds');
+      if (!bg || !sunEl || !cloudsEl) return;
+      const [bgUrl, sunUrl, cloudUrl] = await Promise.all([
+        resolveSkyAsset(SKY_BG_URL, BG_SVG_DATA),
+        resolveSkyAsset(SKY_SUN_URL, SUN_SVG_DATA),
+        resolveSkyAsset(SKY_CLOUD_URL, CLOUD_SVG_DATA),
+      ]);
+      skyBgEl = bg; skySunEl = sunEl; skyCloudsEl = cloudsEl;
+      bg.style.backgroundImage = `url("${bgUrl}")`;
+      sunEl.style.backgroundImage = `url("${sunUrl}")`;
+      cloudsEl.innerHTML = '';
+      for (let i = 0; i < 4; i++) {
+        const c = document.createElement('div');
+        c.className = 'sky-cloud';
+        c.style.backgroundImage = `url("${cloudUrl}")`;
+        const w = 120 + Math.random() * 220;
+        c.style.width = `${w}px`;
+        c.style.left = `${-20 - Math.random() * 40}vw`;
+        c.style.top = `${6 + Math.random() * 28}vh`;
+        c.style.opacity = `${0.72 + Math.random() * 0.24}`;
+        c.style.animationDuration = `${35 + Math.random() * 45}s`;
+        c.style.animationDelay = `${-Math.random() * 30}s`;
+        cloudsEl.appendChild(c);
+      }
+    }
+    function updateSkyParallax() {
+      if (!skyBgEl || !skySunEl || !skyCloudsEl) return;
+      const yaw = camera.rotation ? camera.rotation.y : 0;
+      const pitch = camera.rotation ? camera.rotation.x : 0;
+      const dx = Math.max(-60, Math.min(60, yaw * 28));
+      const dy = Math.max(-30, Math.min(30, pitch * 24));
+      skyBgEl.style.backgroundPosition = `calc(50% + ${dx * 0.45}px) calc(50% + ${dy * 0.35}px)`;
+      skySunEl.style.transform = `translate(${dx * 0.9}px, ${dy * 0.7}px)`;
+      skyCloudsEl.style.transform = `translate(${dx * 0.6}px, ${dy * 0.4}px)`;
+    }
+    function jump() {
+      if (!started) return;
+      const now = performance.now();
+      if (now < jumpLockUntil) return;
+      camera.cameraDirection.y = Math.max(camera.cameraDirection.y, 0.32);
+      camera.position.y += 0.55;
+      jumpLockUntil = now + 360;
+    }
+    if (typeof QRious !== 'undefined') {
+      new QRious({
+        element: el('qrCanvas'),
+        value: demoUri,
+        size: 200,
+        level: 'M',
+        background: '#f8fbff',
+        foreground: '#0a1828'
+      });
+    }
+    function randomTx() { const c='0123456789abcdef'; let o=''; for (let i=0;i<64;i++) o += c[Math.floor(Math.random()*c.length)]; return o; }
+    const tx = randomTx(); el('txLink').href = 'https://sochain.com/tx/DOGE/' + tx; el('txLink').textContent = tx.slice(0,10) + '...' + tx.slice(-8);
+    const fmt = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+
+    const DOGE_LOGO_URL = 'https://upload.wikimedia.org/wikipedia/en/thumb/d/d0/Dogecoin_Logo.png/250px-Dogecoin_Logo.png';
+    const WATER_LEVEL = 3;
+    const canvas = el('renderCanvas');
+    const engine = new BABYLON.Engine(canvas, true);
+    const scene = new BABYLON.Scene(engine);
+    scene.clearColor = new BABYLON.Color4(0.72, 0.90, 1.0, 0);
+    scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
+    scene.fogDensity = 0.012;
+
+    const camera = new BABYLON.UniversalCamera('cam', new BABYLON.Vector3(0, 15, 0), scene);
+    camera.attachControl(canvas, true);
+    camera.speed = 0.45;
+    camera.keysUp = [87]; camera.keysDown = [83]; camera.keysLeft = [65]; camera.keysRight = [68];
+    camera.applyGravity = true; camera.checkCollisions = true; camera.ellipsoid = new BABYLON.Vector3(0.45, 0.9, 0.45);
+    scene.gravity = new BABYLON.Vector3(0, -0.25, 0); scene.collisionsEnabled = true;
+    const hemi = new BABYLON.HemisphericLight('hemi', new BABYLON.Vector3(0, 1, 0), scene); hemi.intensity = 1.6;
+    // Sky visuals are rendered by the DOM layer to avoid texture orientation issues.
+
+    function pixelMat(name, c1, c2, c3 = null) {
+      const dt = new BABYLON.DynamicTexture(name + '_px', { width: 512, height: 512 }, scene, false);
+      const ctx = dt.getContext();
+      const pal = c3 ? [c1, c2, c3] : [c1, c2];
+      for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) {
+        const n = Math.sin(x * 0.63 + y * 0.44) + Math.cos(x * 0.25 - y * 0.57);
+        let idx = n > 0.55 ? 0 : (n < -0.35 ? pal.length - 1 : 1);
+        if (Math.random() < 0.22) idx = Math.floor(Math.random() * pal.length);
+        ctx.fillStyle = pal[Math.min(idx, pal.length - 1)];
+        ctx.fillRect(x * 2, y * 2, 2, 2);
+      }
+      dt.update(false);
+      const m = new BABYLON.StandardMaterial(name, scene);
+      m.diffuseTexture = dt;
+      m.specularColor = BABYLON.Color3.Black();
+      m.emissiveColor = new BABYLON.Color3(0.08, 0.08, 0.08);
+      return m;
+    }
+    function grassLikeMinecraftMat(name) {
+      const dt = new BABYLON.DynamicTexture(name + '_px', { width: 512, height: 512 }, scene, false);
+      const ctx = dt.getContext();
+      const pal = ['#9de57b', '#90d66f', '#84ca62', '#78be56', '#6bb049', '#5ea63f', '#4f9732', '#a9ef89'];
+      for (let y = 0; y < 256; y++) {
+        for (let x = 0; x < 256; x++) {
+          const n = (Math.sin(x * 0.47 + y * 0.38) + Math.cos(x * 0.31 - y * 0.52)) * 0.5;
+          let idx = 2;
+          if (n > 0.55) idx = 5;
+          else if (n > 0.25) idx = 0;
+          else if (n > 0.05) idx = 1;
+          else if (n < -0.55) idx = 4;
+          else if (n < -0.2) idx = 3;
+          if (Math.random() < 0.28) idx = Math.floor(Math.random() * pal.length);
+          ctx.fillStyle = pal[idx];
+          ctx.fillRect(x * 2, y * 2, 2, 2);
+        }
+      }
+      dt.update(false);
+      const m = new BABYLON.StandardMaterial(name, scene);
+      m.diffuseTexture = dt;
+      m.specularColor = BABYLON.Color3.Black();
+      m.emissiveColor = new BABYLON.Color3(0.08, 0.08, 0.08);
+      return m;
+    }
+    const grass = grassLikeMinecraftMat('g');
+    const dirtA = pixelMat('dA', '#8d623f', '#6f4d33', '#5f412b');
+    const dirtB = pixelMat('dB', '#9b704b', '#7d5a3d', '#694b32');
+    const dirtC = pixelMat('dC', '#a27952', '#886344', '#725338');
+    function grassTopOnlyMat(name) {
+      const dt = new BABYLON.DynamicTexture(name + '_atlas', { width: 192, height: 64 }, scene, false);
+      const ctx = dt.getContext();
+      for (let y = 0; y < 64; y++) {
+        for (let x = 0; x < 64; x++) {
+          const d = ['#a27952', '#956c49', '#8a6242', '#7d5a3d', '#6f4d33', '#5f412b'][Math.floor(Math.random() * 6)];
+          ctx.fillStyle = d;
+          ctx.fillRect(x, y, 2, 2);
+        }
+      }
+      for (let y = 0; y < 64; y++) for (let x = 64; x < 128; x++) { const g = ['#9de57b', '#90d66f', '#84ca62', '#78be56', '#6bb049', '#5ea63f', '#4f9732', '#a9ef89'][Math.floor(Math.random() * 8)]; ctx.fillStyle = g; ctx.fillRect(x, y, 2, 2); }
+      for (let y = 0; y < 64; y++) for (let x = 128; x < 192; x++) { const d = ['#7a5638', '#6a4a31', '#65462e', '#5a3e29', '#4f3625'][Math.floor(Math.random() * 5)]; ctx.fillStyle = d; ctx.fillRect(x, y, 2, 2); }
+      dt.update(false);
+      dt.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
+      dt.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
+      dt.updateSamplingMode(BABYLON.Texture.NEAREST_SAMPLINGMODE);
+      const m = new BABYLON.StandardMaterial(name, scene);
+      m.diffuseTexture = dt;
+      m.specularColor = BABYLON.Color3.Black();
+      m.emissiveColor = new BABYLON.Color3(0.08, 0.08, 0.08);
+      return m;
+    }
+    const grassSide = grassTopOnlyMat('gs');
+    function waterMatPixel(name) {
+      const dt = new BABYLON.DynamicTexture(name + '_px', { width: 512, height: 512 }, scene, false);
+      const ctx = dt.getContext();
+      const pal = ['#6cc9ff', '#58bcff', '#4db3ff', '#3fa6f3', '#2f8fe0', '#2a7fd0', '#2471c2', '#79d3ff'];
+      for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) {
+        const n = Math.sin(x * 0.48 + y * 0.26) + Math.cos(x * 0.24 - y * 0.53);
+        let idx = n > 0.45 ? 3 : (n < -0.4 ? 4 : (n > 0.15 ? 0 : 1));
+        if (Math.random() < 0.26) idx = Math.floor(Math.random() * pal.length);
+        ctx.fillStyle = pal[idx];
+        ctx.fillRect(x * 2, y * 2, 2, 2);
+      }
+      dt.update(false);
+      dt.updateSamplingMode(BABYLON.Texture.NEAREST_SAMPLINGMODE);
+      const m = new BABYLON.StandardMaterial(name, scene);
+      m.diffuseTexture = dt;
+      m.specularColor = new BABYLON.Color3(0.75, 0.9, 1.0);
+      m.alpha = 0.48;
+      m.emissiveColor = new BABYLON.Color3(0.09, 0.17, 0.26);
+      return m;
+    }
+    const water = waterMatPixel('w');
+    const doge = new BABYLON.StandardMaterial('o', scene);
+    doge.diffuseTexture = new BABYLON.Texture(DOGE_LOGO_URL, scene, true, false);
+    doge.diffuseTexture.vScale = -1;
+    doge.diffuseTexture.vOffset = 1;
+    doge.opacityTexture = doge.diffuseTexture;
+    doge.emissiveColor = new BABYLON.Color3(0.22, 0.18, 0.06);
+
+    const blocks = [];
+    const waters = [];
+    const dogeSet = new Set();
+    const coinCollectAnims = [];
+    const COIN_FLY_DURATION = 0.48;
+    const posKey = (x,y,z) => `${x}|${y}|${z}`;
+    const idx = new Map();
+    function placeBlock(x,y,z,t) {
+      const opts = { size: 1 };
+      if (t === 'grass') {
+        const a = 1 / 3;
+        opts.faceUV = [
+          new BABYLON.Vector4(0, 0, a, 1),
+          new BABYLON.Vector4(0, 0, a, 1),
+          new BABYLON.Vector4(0, 0, a, 1),
+          new BABYLON.Vector4(0, 0, a, 1),
+          new BABYLON.Vector4(a, 0, a * 2, 1),
+          new BABYLON.Vector4(a * 2, 0, 1, 1),
+        ];
+      }
+      const b = BABYLON.MeshBuilder.CreateBox(`b_${x}_${y}_${z}`, opts, scene);
+      b.position.set(x,y,z); b.checkCollisions = true; b.metadata = { x,y,z,t };
+      if (t === 'grass') b.material = grassSide;
+      else b.material = (Math.random() < 0.34 ? dirtA : (Math.random() < 0.5 ? dirtB : dirtC));
+      blocks.push(b); idx.set(posKey(x,y,z), b); if (t === 'doge') dogeSet.add(b.uniqueId);
+    }
+    function placeWater(x,y,z) {
+      const w = BABYLON.MeshBuilder.CreateBox(`w_${x}_${y}_${z}`, { size: 1 }, scene);
+      w.position.set(x,y,z); w.material = water; w.checkCollisions = false; w.isPickable = false; waters.push(w);
+    }
+    function placeCoin(x,y,z) {
+      const p = BABYLON.MeshBuilder.CreatePlane(`c_${x}_${y}_${z}`, { width: 0.9, height: 0.9 }, scene);
+      p.position.set(x, y + 0.02, z);
+      p.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
+      p.material = doge;
+      p.metadata = { x, y, z, t: 'dogecoin' };
+      dogeSet.add(p.uniqueId);
+      blocks.push(p);
+    }
+    function startCoinCollectAnimation(mesh) {
+      mesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
+      mesh.isPickable = false;
+      mesh.visibility = 1;
+      mesh.scaling.setAll(1);
+      const bi = blocks.indexOf(mesh);
+      if (bi >= 0) blocks.splice(bi, 1);
+      coinCollectAnims.push({
+        mesh,
+        elapsed: 0,
+        startPos: mesh.position.clone(),
+        spinDir: Math.random() < 0.5 ? 1 : -1,
+      });
+    }
+    function updateCoinCollectAnims() {
+      const dt = engine.getDeltaTime() / 1000;
+      for (let i = coinCollectAnims.length - 1; i >= 0; i--) {
+        const a = coinCollectAnims[i];
+        const mesh = a.mesh;
+        if (!mesh || mesh.isDisposed()) { coinCollectAnims.splice(i, 1); continue; }
+        a.elapsed += dt;
+        const u = Math.min(1, a.elapsed / COIN_FLY_DURATION);
+        const sm = u * u * (3 - 2 * u);
+        BABYLON.Vector3.LerpToRef(a.startPos, camera.position, sm, mesh.position);
+        mesh.lookAt(camera.position);
+        mesh.rotate(BABYLON.Axis.Z, a.spinDir * dt * 13, BABYLON.Space.LOCAL);
+        const sc = 1 - 0.5 * sm;
+        mesh.scaling.setAll(Math.max(0.06, sc));
+        mesh.visibility = 1 - Math.max(0, (u - 0.62) / 0.38);
+        if (u >= 1) {
+          mesh.dispose();
+          coinCollectAnims.splice(i, 1);
+        }
+      }
+    }
+    function buildWorld() {
+      for (const a of coinCollectAnims) {
+        try { a.mesh.dispose(); } catch (_) {}
+      }
+      coinCollectAnims.length = 0;
+      while (blocks.length) blocks.pop().dispose();
+      while (waters.length) waters.pop().dispose();
+      idx.clear(); dogeSet.clear();
+      const size = 24, half = Math.floor(size / 2);
+      const surfaceCandidates = [];
+      for (let x=-half; x<=half; x++) {
+        for (let z=-half; z<=half; z++) {
+          const h = Math.max(1, Math.min(7, Math.floor(2 + (Math.sin(x*0.47)+Math.cos(z*0.41)+Math.sin((x+z)*0.23))*1.45 + Math.random()*0.65)));
+          for (let y=0; y<=h; y++) placeBlock(x,y,z, y===h ? 'grass' : (y < h-2 ? 'stone' : 'dirt'));
+          if (h <= WATER_LEVEL + 1) surfaceCandidates.push({ x, y: h, z });
+        }
+      }
+      // Keep water very rare: only 3-4 blocks per world at terrain level.
+      const waterTarget = 3 + Math.floor(Math.random() * 2);
+      for (let i = 0; i < waterTarget && surfaceCandidates.length; i++) {
+        const pick = Math.floor(Math.random() * surfaceCandidates.length);
+        const s = surfaceCandidates.splice(pick, 1)[0];
+        const k = posKey(s.x, s.y, s.z);
+        const topBlock = idx.get(k);
+        if (topBlock) {
+          topBlock.dispose();
+          idx.delete(k);
+          const bi = blocks.indexOf(topBlock);
+          if (bi >= 0) blocks.splice(bi, 1);
+        }
+        placeWater(s.x, s.y, s.z);
+      }
+      const cands = blocks.filter(b => b.metadata.t === 'stone' && b.metadata.y >= 2 && b.metadata.y <= 5);
+      for (let i=0; i<Math.max(16, Math.floor(cands.length*0.04)) && cands.length; i++) {
+        const k = Math.floor(Math.random()*cands.length); const b = cands.splice(k,1)[0];
+        placeCoin(b.metadata.x, b.metadata.y, b.metadata.z);
+      }
+      const spawnX = 0;
+      const spawnZ = 0;
+      const h0 = Math.max(1, Math.min(7, Math.floor(2 + (Math.sin(spawnX * 0.47) + Math.cos(spawnZ * 0.41) + Math.sin((spawnX + spawnZ) * 0.23)) * 1.45 + Math.random() * 0.65)));
+      camera.position.set(spawnX, h0 + 3, spawnZ);
+    }
+    renderDemoTop10();
+    startOverlayRotation();
+    buildWorld();
+    initSkyDom();
+
+    let started = false, score = 0, timer = 180;
+    function startDemoFromOverlay() {
+      if (started) return;
+      ensureAudio();
+      started = true;
+      playStartSfx();
+      startMusic();
+      stopOverlayRotation();
+      overlayEl.style.display = 'none';
+    }
+    const qrCanvasEl = el('qrCanvas');
+    const payBtnEl = el('payBtn');
+    if (payBtnEl) { payBtnEl.href = demoUri; }
+    if (qrCanvasEl) qrCanvasEl.addEventListener('click', e => { e.preventDefault(); startDemoFromOverlay(); });
+
+    function mine() {
+      if (!started) return;
+      playMineSfx();
+      triggerPaws();
+      const ray = scene.createPickingRay(engine.getRenderWidth()*0.5, engine.getRenderHeight()*0.5, BABYLON.Matrix.Identity(), camera);
+      const pick = scene.pickWithRay(ray, m => m && m.isPickable && m.metadata && m.metadata.t);
+      if (!pick || !pick.hit || !pick.pickedMesh || pick.distance > 6) return;
+      const m = pick.pickedMesh;
+      if (m.metadata.t === 'dogecoin' && dogeSet.has(m.uniqueId)) { score++; playCoinSfx(); spawnDogeWord('Much Wow', true); el('coins').textContent = String(score); el('doge').textContent = fmtDoge(score * 0.10); dogeSet.delete(m.uniqueId); startCoinCollectAnimation(m); return; }
+      dogeSet.delete(m.uniqueId); idx.delete(posKey(m.metadata.x,m.metadata.y,m.metadata.z)); m.dispose();
+    }
+    function triggerPaws() {
+      const p = el('paws');
+      p.classList.remove('digging');
+      void p.offsetWidth;
+      p.classList.add('digging');
+      if (Math.random() < 0.6) {
+        const phrase = dogeLead[Math.floor(Math.random() * dogeLead.length)] + ' ' + dogeTail[Math.floor(Math.random() * dogeTail.length)];
+        spawnDogeWord(phrase);
+      }
+    }
+    function pointerStartsOnControl(target) {
+      return !!(target && target.closest && target.closest('#mobileControls'));
+    }
+    canvas.addEventListener('pointerdown', e => {
+      if (pointerStartsOnControl(e.target)) return;
+      if (!started) return;
+      ensureAudio();
+      if (!isCoarsePointer) {
+        canvas.requestPointerLock?.();
+        mine();
+        return;
+      }
+      lookPointerId = e.pointerId;
+      lookStartX = lookLastX = e.clientX;
+      lookStartY = lookLastY = e.clientY;
+      lookMoved = false;
+      try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    canvas.addEventListener('pointermove', e => {
+      if (!isCoarsePointer || lookPointerId !== e.pointerId || !started) return;
+      const dx = e.clientX - lookLastX;
+      const dy = e.clientY - lookLastY;
+      lookLastX = e.clientX;
+      lookLastY = e.clientY;
+      if (Math.abs(e.clientX - lookStartX) + Math.abs(e.clientY - lookStartY) > 8) lookMoved = true;
+      camera.rotation.y += dx * 0.0022;
+      camera.rotation.x += dy * 0.0017;
+      camera.rotation.x = Math.max(-1.2, Math.min(1.2, camera.rotation.x));
+    });
+    canvas.addEventListener('pointerup', e => {
+      if (!isCoarsePointer || lookPointerId !== e.pointerId) return;
+      if (!lookMoved && started) mine();
+      lookPointerId = null;
+      try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+    });
+    canvas.addEventListener('pointercancel', e => {
+      if (lookPointerId === e.pointerId) lookPointerId = null;
+    });
+    addEventListener('keydown', e => {
+      if (!started) return;
+      if (e.code === 'Space') {
+        e.preventDefault();
+        jump();
+      }
+    }, { passive:false });
+    const mobileControls = el('mobileControls');
+    mobileControls?.addEventListener('pointerdown', e => e.stopPropagation());
+    mobileControls?.addEventListener('pointerup', e => e.stopPropagation());
+    function bindHold(btnId, key) {
+      const b = el(btnId);
+      if (!b) return;
+      const on = ev => { ev.preventDefault(); touchMove[key] = true; ensureAudio(); if (!started) return; };
+      const off = ev => { ev.preventDefault(); touchMove[key] = false; };
+      b.addEventListener('pointerdown', on);
+      b.addEventListener('pointerup', off);
+      b.addEventListener('pointercancel', off);
+      b.addEventListener('pointerleave', off);
+    }
+    bindHold('mLeft', 'left');
+    bindHold('mRight', 'right');
+    bindHold('mUp', 'up');
+    bindHold('mDown', 'down');
+    el('mJump')?.addEventListener('pointerdown', e => { e.preventDefault(); ensureAudio(); if (!started) return; jump(); });
+    el('mMine')?.addEventListener('pointerdown', e => { e.preventDefault(); ensureAudio(); if (!started) return; mine(); });
+
+    setInterval(() => {
+      if (!started) return;
+      timer = Math.max(0, timer - 1);
+      el('timer').textContent = fmt(timer);
+      if (timer <= 0 || camera.position.y < -6) {
+        started = false;
+        stopMusic();
+        playEndSfx();
+        overlayEl.style.display = 'grid';
+        renderDemoTop10();
+        startOverlayRotation();
+        timer = 180;
+        score = 0;
+        el('coins').textContent = '0';
+        el('doge').textContent = fmtDoge(0);
+        buildWorld();
+      }
+    }, 1000);
+
+    engine.runRenderLoop(() => {
+      updateCoinCollectAnims();
+      if (started && dogeSet.size === 0 && coinCollectAnims.length === 0) buildWorld();
+      const now = performance.now() * 0.001;
+      if (started) {
+        const mv = 0.035;
+        const f = camera.getDirection(BABYLON.Axis.Z);
+        const r = camera.getDirection(BABYLON.Axis.X);
+        if (touchMove.up) camera.cameraDirection.addInPlace(f.scale(mv));
+        if (touchMove.down) camera.cameraDirection.addInPlace(f.scale(-mv));
+        if (touchMove.left) camera.cameraDirection.addInPlace(r.scale(-mv));
+        if (touchMove.right) camera.cameraDirection.addInPlace(r.scale(mv));
+      }
+      scene.clearColor = new BABYLON.Color4(0.72, 0.90, 1.0, 0);
+      hemi.intensity = 1.6;
+      updateSkyParallax();
+      water.alpha = 0.44 + Math.sin(now * 1.7) * 0.03;
+      water.emissiveColor = new BABYLON.Color3(
+        0.09 + Math.sin(now * 1.1) * 0.01,
+        0.17 + Math.sin(now * 1.3) * 0.015,
+        0.26 + Math.sin(now * 1.5) * 0.02
+      );
+      const right = camera.getDirection(BABYLON.Axis.X);
+      scene.render();
+    });
+    addEventListener('resize', () => engine.resize());
+  </script>
+</body>
+</html>

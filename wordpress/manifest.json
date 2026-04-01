@@ -1,0 +1,202 @@
+{
+  "manifestVersion": 1,
+  "meta": {
+    "name": "Wordpress Store",
+    "version": "0.0.1",
+    "logoPath": "logo.png",
+    "shortDescription": "WordPress with WooCommerce and Easy GigaWallet Dogecoin Gateway",
+    "longDescription": "Complete WordPress installation with WooCommerce e-commerce plugin and Easy GigaWallet Dogecoin Gateway for accepting Dogecoin payments. Includes Caddy web server, MySQL database, and PHP-FPM.\n\nAfter configuration changes, disable and re-enable the pup to apply settings.",
+    "upstreamVersions": {
+      "WordPress": "6.9.4",
+      "WooCommerce": "8.5.1",
+      "PHP": "8.2.30"
+    }
+  },
+  "config": {
+    "sections": [
+      {
+        "name": "WordPress Setup",
+        "description": "Configure WordPress site settings. After saving, disable and re-enable the pup to apply.",
+        "fields": [
+          {
+            "name": "WP_SITE_TITLE",
+            "label": "Site Title",
+            "type": "text",
+            "default": "Dogecoin Store"
+          },
+          {
+            "name": "WP_ADMIN_USER",
+            "label": "Admin Username",
+            "type": "text",
+            "default": "shibe"
+          },
+          {
+            "name": "WP_ADMIN_PASSWORD",
+            "label": "Admin Password",
+            "type": "password",
+            "default": "suchpass"
+          },
+          {
+            "name": "WP_ADMIN_EMAIL",
+            "label": "Admin Email",
+            "type": "text",
+            "default": "shibe@dogebox.local"
+          }
+        ]
+      },
+      {
+        "name": "Database",
+        "description": "MySQL database configuration",
+        "fields": [
+          {
+            "name": "DB_NAME",
+            "label": "Database Name",
+            "type": "text",
+            "default": "wordpress"
+          },
+          {
+            "name": "DB_USER",
+            "label": "Database User",
+            "type": "text",
+            "default": "wordpress"
+          },
+          {
+            "name": "DB_PASSWORD",
+            "label": "Database Password",
+            "type": "password",
+            "default": "wordpress_pass"
+          },
+          {
+            "name": "DB_HOST",
+            "label": "Database Host",
+            "type": "text",
+            "default": "127.0.0.1"
+          }
+        ]
+      },
+      {
+        "name": "Dogecoin Gateway",
+        "description": "Easy GigaWallet Dogecoin Gateway plugin configuration",
+        "fields": [
+          {
+            "name": "DOGECOIN_ENABLED",
+            "label": "Enable Dogecoin Payments",
+            "type": "toggle",
+            "default": true
+          },
+          {
+            "name": "EASY_DOGECOIN_GATEWAY_PAYMENT_ADDRESS",
+            "label": "Easy Dogecoin Gateway Payment Address",
+            "type": "text",
+            "default": "DXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+          },
+          {
+            "name": "GIGAWALLET_URL",
+            "label": "GigaWallet API URL",
+            "type": "text",
+            "default": "http://gigawallet:8082"
+          },
+          {
+            "name": "GIGAWALLET_ACCOUNT",
+            "label": "GigaWallet Account",
+            "type": "text",
+            "default": "dogecoin_store"
+          }
+        ]
+      }
+    ]
+  },
+  "container": {
+    "build": {
+      "nixFile": "pup.nix",
+      "nixFileSha256": "aa69c765bceefdf17d44a86a9bb2194685d528fd31ee8e202ac4d32d0e8a2964"
+    },
+    "services": [
+      {
+        "name": "wordpress",
+        "command": {
+          "exec": "/bin/start-wordpress.sh",
+          "cwd": "",
+          "env": null
+        }
+      }
+    ],
+    "exposes": [
+      {
+        "name": "http",
+        "type": "http",
+        "port": 8081,
+        "interfaces": [
+          "wordpress-http"
+        ],
+        "listenOnHost": true,
+        "webUI": true
+      }
+    ],
+    "requiresInternet": true
+  },
+  "interfaces": [
+    {
+      "name": "wordpress-http",
+      "version": "1.0.0",
+      "permissionGroups": [
+        {
+          "name": "HTTP",
+          "description": "HTTP access to WordPress store",
+          "severity": 2,
+          "routes": [
+            "/*"
+          ],
+          "port": 0
+        }
+      ]
+    },
+    {
+      "name": "dogecoin-gateway",
+      "version": "1.0.0",
+      "permissionGroups": [
+        {
+          "name": "Dogecoin Payments",
+          "description": "Ability to process Dogecoin payments via GigaWallet",
+          "severity": 3,
+          "routes": null,
+          "port": 0
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "interfaceName": "gigawallet-public",
+      "interfaceVersion": "0.0.1",
+      "permissionGroups": ["Public API"],
+      "optional": true,
+      "source": {
+        "sourceLocation": "",
+        "pupName": "",
+        "pupVersion": "",
+        "pupLogoBase64": ""
+      }
+    }
+  ],
+  "metrics": [
+    {
+      "name": "http_requests",
+      "label": "HTTP Requests",
+      "type": "int",
+      "history": 30
+    },
+    {
+      "name": "active_users",
+      "label": "Active Users",
+      "type": "int",
+      "history": 30
+    },
+    {
+      "name": "dogecoin_transactions",
+      "label": "Dogecoin Transactions",
+      "type": "int",
+      "history": 30
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "manifestVersion": 1,
+  "meta": {
+    "name": "Shibe Shell",
+    "version": "0.0.1",
+    "logoPath": "logo.png",
+    "shortDescription": "Web-based terminal access to your DogeBOX Linux shell",
+    "longDescription": "Web-based terminal for accessing your DogeBOX's Linux shell. Works on desktop and mobile with on-screen keyboard. Access: http://[DogeBOX-IP]:10000 - No authentication required.",
+    "upstreamVersions": null
+  },
+  "config": {
+    "sections": null
+  },
+  "container": {
+    "build": {
+      "nixFile": "pup.nix",
+      "nixFileSha256": "d8ac99b969d01b905ec1d51f0b6927159f42764115796e708207b10463e096f2"
+    },
+    "services": [
+      {
+        "name": "shibe-shell",
+        "command": {
+          "exec": "/bin/run.sh",
+          "cwd": "",
+          "env": null
+        }
+      }
+    ],
+    "exposes": [
+      {
+        "name": "web-terminal",
+        "type": "http",
+        "port": 10000,
+        "webUI": true,
+        "interfaces": null,
+        "listenOnHost": false
+      }
+    ],
+    "requiresInternet": false
+  },
+  "interfaces": [],
+  "dependencies": [],
+  "metrics": null
+}

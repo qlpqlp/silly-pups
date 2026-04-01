@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Doge Mine Quest</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@700&display=swap" rel="stylesheet" />
+  <style>
+    :root { --neon:#ffe357; --cyan:#45f0ff; --pink:#ff4fd8; }
+    html, body { margin:0; width:100%; height:100%; overflow:hidden; background:#101722; color:var(--neon); font-family:system-ui,Segoe UI,Arial,sans-serif; }
+    #skyLayer { position:fixed; inset:0; z-index:0; pointer-events:none; overflow:hidden; }
+    #skyBg { position:absolute; inset:0; background:center/cover no-repeat; }
+    #skySun { position:absolute; right:8vw; top:6vh; width:min(180px,24vw); aspect-ratio:1/1; background:center/contain no-repeat; filter:drop-shadow(0 0 18px rgba(255,210,90,.45)); }
+    #skyClouds { position:absolute; inset:0; }
+    .sky-cloud { position:absolute; height:auto; aspect-ratio:320/180; background:center/contain no-repeat; opacity:.95; animation:cloudDrift linear infinite; }
+    @keyframes cloudDrift { from { transform:translateX(-20vw); } to { transform:translateX(120vw); } }
+    #renderCanvas { position:fixed; inset:0; width:100%; height:100%; touch-action:none; z-index:1; }
+    .hud { position:fixed; left:12px; top:10px; z-index:5; line-height:1.35; text-shadow:0 0 6px #000; }
+    .help { position:fixed; left:12px; bottom:12px; z-index:5; font-size:12px; opacity:.9; }
+    .mobile-controls { position:fixed; inset:0; z-index:12; pointer-events:none; display:none; }
+    .mc-left, .mc-right { position:absolute; bottom:calc(12px + env(safe-area-inset-bottom)); pointer-events:auto; }
+    .mc-left { left:12px; display:grid; grid-template-columns:repeat(3, 54px); grid-template-rows:repeat(2, 54px); gap:8px; }
+    .mc-right { right:12px; display:flex; flex-direction:column; gap:8px; }
+    .m-btn {
+      width:54px; height:54px; border-radius:12px; border:2px solid var(--cyan);
+      background:rgba(8,8,16,.72); color:#fff; font-weight:700; font-size:18px;
+      touch-action:none;
+    }
+    .m-btn.wide { width:92px; font-size:13px; }
+    .m-up { grid-column:2; grid-row:1; }
+    .m-left { grid-column:1; grid-row:2; }
+    .m-down { grid-column:2; grid-row:2; }
+    .m-right { grid-column:3; grid-row:2; }
+    @media (hover:none), (pointer:coarse), (max-width:900px) { .mobile-controls { display:block; } }
+    .crosshair { position:fixed; left:50%; top:50%; transform:translate(-50%, -50%); z-index:5; width:16px; height:16px; pointer-events:none; }
+    .crosshair::before, .crosshair::after { content:""; position:absolute; background:#fff; box-shadow:0 0 6px #000; }
+    .crosshair::before { left:7px; top:0; width:2px; height:16px; }
+    .crosshair::after { left:0; top:7px; width:16px; height:2px; }
+    .tx { position:fixed; right:12px; bottom:12px; z-index:6; display:none; background:rgba(8,8,16,.86); border:2px solid var(--cyan); border-radius:10px; padding:8px 10px; font-size:12px; }
+    .tx a { color:var(--cyan); text-decoration:none; }
+    .paws { position:fixed; left:50%; top:60%; transform:translate(-50%, -50%); z-index:8; pointer-events:none; opacity:0; }
+    .paw-img { width:min(440px, 72vw); max-height:42vh; filter:drop-shadow(0 0 14px rgba(0,0,0,.85)); transform-origin:50% 60%; mix-blend-mode:screen; }
+    .paws.digging { opacity:1; animation:pawsFade .32s ease-out forwards; }
+    .paws.digging .paw-img { animation:pawSlam .32s ease-out; }
+    .doge-words { position:fixed; inset:0; pointer-events:none; z-index:9; overflow:hidden; }
+    .doge-word {
+      position:absolute;
+      font-family:'Comic Neue', system-ui, sans-serif;
+      font-weight:700;
+      text-shadow:0 0 10px rgba(0,0,0,.85), 0 0 12px rgba(255,79,216,.45);
+      transform:translate(-50%, -50%) scale(0.8) rotate(var(--rot, -8deg));
+      animation:dogePop .9s ease-out forwards;
+      white-space:nowrap;
+    }
+    .doge-word .w1, .doge-word .w2 { padding:0 .1em; }
+    .doge-word.wow { color:#45f0ff; font-size:42px !important; text-shadow:0 0 10px rgba(0,0,0,.9), 0 0 18px rgba(69,240,255,.65); }
+    @keyframes pawsFade { from { opacity:1; } to { opacity:0; } }
+    @keyframes pawSlam { 0%{transform:translateY(-6px) scale(.94);} 45%{transform:translateY(8px) scale(1.03);} 70%{transform:translateY(1px) scale(1);} 100%{transform:translateY(0) scale(1);} }
+    @keyframes dogePop {
+      0% { opacity:0; transform:translate(-50%, -50%) scale(0.65) rotate(var(--rot, -8deg)); }
+      15% { opacity:1; }
+      100% { opacity:0; transform:translate(-50%, -120%) scale(1.1) rotate(var(--rot, -8deg)); }
+    }
+    .overlay { position:fixed; inset:0; display:grid; place-items:center; z-index:10; background:rgba(10,4,18,.72); }
+    .panel { width:min(760px,95vw); border:3px solid var(--neon); border-radius:12px; background:rgba(18,4,31,.92); padding:14px; text-align:center; }
+    .title { font-size:26px; color:var(--cyan); }
+    .insert { font-size:clamp(24px,6vw,56px); color:var(--pink); margin:8px 0; animation:blink 1s steps(2,start) infinite; }
+    .row { display:flex; flex-wrap:wrap; justify-content:center; gap:12px; margin-top:10px; }
+    .qr { width:210px; height:210px; border:3px solid var(--cyan); background:#0a0810; }
+    .meta { max-width:420px; text-align:left; background:rgba(8,8,16,.7); border-radius:10px; padding:10px; font-size:14px; }
+    .pay-btn { display:block; margin-top:10px; padding:10px; border:2px solid var(--cyan); border-radius:10px; color:#f4e8ff; text-decoration:none; text-align:center; font-weight:bold; }
+    .modal { position:fixed; inset:0; z-index:20; display:none; place-items:center; background:rgba(8,4,16,.82); }
+    .modal.open { display:grid; }
+    .box { width:min(360px,92vw); background:rgba(18,4,31,.96); border:3px solid var(--cyan); border-radius:12px; padding:14px; }
+    input { width:100%; box-sizing:border-box; margin-top:8px; padding:10px; border-radius:8px; border:2px solid var(--cyan); background:#0a0810; color:#fff; }
+    button { margin-top:10px; padding:10px 14px; border-radius:8px; border:2px solid var(--cyan); background:#111; color:#fff; font-weight:bold; cursor:pointer; }
+    @keyframes blink { to { visibility:hidden; } }
+  </style>
+</head>
+<body>
+  <div id="skyLayer" aria-hidden="true">
+    <div id="skyBg"></div>
+    <div id="skyClouds"></div>
+    <div id="skySun"></div>
+  </div>
+  <canvas id="renderCanvas"></canvas>
+  <div class="crosshair"></div>
+  <div class="hud">
+    <div>DOGE Found: <span id="coins">0</span> (<span id="doge">Ð 0</span>)</div>
+    <div>Time: <span id="timer">0:00</span></div>
+    <div>Tip Jar: <span id="jar">0.00</span> DOGE</div>
+    <div>Pays: <span id="pays">0</span></div>
+  </div>
+  <div class="help">WASD move · Space jump · Click mine block · Find hidden DOGE blocks</div>
+  <div id="tx" class="tx">Last payment: <a id="txLink" href="#" target="_blank" rel="noopener noreferrer"></a></div>
+  <div id="paws" class="paws"><img class="paw-img" src="assets/paws-dig.png" alt="Digging paws" /></div>
+  <div id="dogeWords" class="doge-words" aria-hidden="true"></div>
+  <div class="mobile-controls" id="mobileControls">
+    <div class="mc-left">
+      <button class="m-btn m-up" id="mUp">▲</button>
+      <button class="m-btn m-left" id="mLeft">◀</button>
+      <button class="m-btn m-down" id="mDown">▼</button>
+      <button class="m-btn m-right" id="mRight">▶</button>
+    </div>
+    <div class="mc-right">
+      <button class="m-btn wide" id="mJump">JUMP</button>
+      <button class="m-btn wide" id="mMine">MINE</button>
+    </div>
+  </div>
+  <div id="overlay" class="overlay">
+    <div class="panel">
+      <div class="title">DOGE MINE QUEST</div>
+      <div class="insert">INSERT DOGE COIN</div>
+      <div class="row">
+        <canvas id="qrCanvas" class="qr" width="210" height="210"></canvas>
+        <div class="meta">
+          <div>Minecraft-style random world every load.</div>
+          <div>Mine the map and find hidden DOGE within 3 minutes.</div>
+          <div>Each DOGE block found = 0.10 DOGE reward.</div>
+          <div style="margin-top:6px;word-break:break-all" id="addr"></div>
+          <a id="payBtn" class="pay-btn" href="#">PAY WITH WALLET</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="endModal" class="modal">
+    <div class="box">
+      <div style="font-weight:bold;color:#ffe357">Mining run finished</div>
+      <div id="endStats" style="margin-top:8px;font-size:14px"></div>
+      <input id="playerName" placeholder="Your name for TOP 10" maxlength="13" />
+      <input id="playerAddr" placeholder="Your DOGE address to receive rewards" />
+      <button id="saveScore">Save score</button>
+    </div>
+  </div>
+
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+  <script src="../../vendor/qrious.min.js"></script>
+  <script>
+    const GAME_ID = 'doge-mine-quest';
+    const COIN_WORTH = 0.10;
+    const WORLD_SIZE = 30;
+    const MAX_H = 10;
+    const WATER_LEVEL = 3;
+    const DOGE_LOGO_URL = 'https://upload.wikimedia.org/wikipedia/en/thumb/d/d0/Dogecoin_Logo.png/250px-Dogecoin_Logo.png';
+    const SUN_SVG_DATA = "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><defs><radialGradient id="g" cx="50%" cy="50%" r="55%"><stop offset="0%" stop-color="#fff8bd"/><stop offset="60%" stop-color="#ffd55f"/><stop offset="100%" stop-color="#ffb300"/></radialGradient></defs><circle cx="128" cy="128" r="84" fill="url(#g)"/></svg>');
+    const CLOUD_SVG_DATA = "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180"><g fill="#ffffff"><ellipse cx="95" cy="100" rx="58" ry="35"/><ellipse cx="145" cy="84" rx="48" ry="34"/><ellipse cx="190" cy="104" rx="58" ry="36"/><ellipse cx="230" cy="92" rx="42" ry="30"/><rect x="60" y="102" width="196" height="40" rx="20" ry="20"/></g></svg>');
+    const BG_SVG_DATA = "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080"><defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#9cd5ff"/><stop offset="100%" stop-color="#66b8ff"/></linearGradient></defs><rect width="1920" height="1080" fill="url(#bg)"/></svg>');
+    const SKY_SUN_URL = location.protocol === 'file:' ? SUN_SVG_DATA : 'assets/sun.png';
+    const SKY_CLOUD_URL = location.protocol === 'file:' ? CLOUD_SVG_DATA : 'assets/cloud.png';
+    const SKY_BG_URL = location.protocol === 'file:' ? BG_SVG_DATA : 'assets/background.jpg';
+    const el = id => document.getElementById(id);
+    const fmt = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+    const fmtDoge = v => 'Ð ' + Number(v.toFixed(2)).toString();
+
+    let paymentReady = false, credits = 0, payments = 0, lastUri = '', claimToken = '', sessionInsertUri = '';
+    let qrious = null, coins = 0, gameOverShown = false;
+    let running = false, stateTicker = null, wasRunning = false;
+    let audioCtx = null, musicTimer = null, musicStep = 0;
+    let jumpLockUntil = 0;
+    const touchMove = { left:false, right:false, up:false, down:false };
+    let skyBgEl = null, skySunEl = null, skyCloudsEl = null;
+    let lookPointerId = null, lookStartX = 0, lookStartY = 0, lookLastX = 0, lookLastY = 0, lookMoved = false;
+    const isCoarsePointer = window.matchMedia('(pointer:coarse)').matches || ('ontouchstart' in window);
+    const dogeLead = ['Much', 'Such', 'So', 'Very', 'Many'];
+    const dogeTail = ['Luck', 'Paw', 'Shibe', 'Wow', 'Joy', 'Skill', 'Good', 'Moon', 'Dig', 'Coin'];
+    const memeColors = ['#ff4fd8', '#45f0ff', '#ffe357', '#8efc64', '#ffa640', '#c58cff'];
+
+    function ensureAudio() {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    }
+    function sfx(freq, duration = 0.08, type = 'square', gain = 0.05, glideTo = null) {
+      if (!audioCtx) return;
+      const now = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const amp = audioCtx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, now);
+      if (glideTo) osc.frequency.exponentialRampToValueAtTime(glideTo, now + duration);
+      amp.gain.setValueAtTime(0.0001, now);
+      amp.gain.exponentialRampToValueAtTime(gain, now + 0.01);
+      amp.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+      osc.connect(amp).connect(audioCtx.destination);
+      osc.start(now);
+      osc.stop(now + duration + 0.02);
+    }
+    function playMineSfx() { sfx(180, 0.05, 'triangle', 0.04, 120); }
+    function playCoinSfx() { sfx(620, 0.06, 'square', 0.06, 920); setTimeout(() => sfx(920, 0.06, 'square', 0.045, 1240), 40); }
+    function playStartSfx() { sfx(330, 0.07, 'sawtooth', 0.04, 520); setTimeout(() => sfx(520, 0.08, 'sawtooth', 0.04, 780), 60); }
+    function playEndSfx() { sfx(300, 0.12, 'triangle', 0.05, 130); }
+    function startMusic() {
+      if (!audioCtx || musicTimer) return;
+      const seq = [392, 440, 523, 440, 349, 392, 440, 330];
+      musicStep = 0;
+      musicTimer = setInterval(() => {
+        if (!audioCtx) return;
+        const n = seq[musicStep % seq.length];
+        sfx(n, 0.16, 'triangle', 0.02);
+        if (musicStep % 2 === 0) sfx(n / 2, 0.2, 'sine', 0.012);
+        musicStep++;
+      }, 230);
+    }
+    function stopMusic() {
+      if (!musicTimer) return;
+      clearInterval(musicTimer);
+      musicTimer = null;
+    }
+    function spawnDogeWord(text, wow = false) {
+      const host = el('dogeWords');
+      if (!host) return;
+      const node = document.createElement('span');
+      node.className = 'doge-word' + (wow ? ' wow' : '');
+      const parts = String(text).split(' ');
+      const c1 = memeColors[Math.floor(Math.random() * memeColors.length)];
+      if (parts.length >= 2) node.innerHTML = `<span class="w1" style="color:${c1}">${parts[0]}</span> <span class="w2" style="color:${c1}">${parts.slice(1).join(' ')}</span>`;
+      else node.innerHTML = `<span class="w1" style="color:${c1}">${parts[0]}</span>`;
+      node.style.left = (26 + Math.random() * 48).toFixed(1) + '%';
+      node.style.top = (42 + Math.random() * 32).toFixed(1) + '%';
+      node.style.fontSize = (wow ? 42 : (22 + Math.random() * 18)).toFixed(0) + 'px';
+      node.style.setProperty('--rot', (Math.random() * 28 - 14).toFixed(1) + 'deg');
+      host.appendChild(node);
+      setTimeout(() => node.remove(), wow ? 1100 : 950);
+    }
+    function resolveSkyAsset(url, fallback) {
+      return new Promise(resolve => {
+        let done = false;
+        const finish = out => { if (done) return; done = true; resolve(out); };
+        const img = new Image();
+        img.onload = () => finish(url);
+        img.onerror = () => finish(fallback);
+        img.src = url;
+        setTimeout(() => finish(fallback), 2500);
+      });
+    }
+    async function initSkyDom() {
+      const bg = el('skyBg');
+      const sunEl = el('skySun');
+      const cloudsEl = el('skyClouds');
+      if (!bg || !sunEl || !cloudsEl) return;
+      const [bgUrl, sunUrl, cloudUrl] = await Promise.all([
+        resolveSkyAsset(SKY_BG_URL, BG_SVG_DATA),
+        resolveSkyAsset(SKY_SUN_URL, SUN_SVG_DATA),
+        resolveSkyAsset(SKY_CLOUD_URL, CLOUD_SVG_DATA),
+      ]);
+      skyBgEl = bg; skySunEl = sunEl; skyCloudsEl = cloudsEl;
+      bg.style.backgroundImage = `url("${bgUrl}")`;
+      sunEl.style.backgroundImage = `url("${sunUrl}")`;
+      cloudsEl.innerHTML = '';
+      for (let i = 0; i < 4; i++) {
+        const c = document.createElement('div');
+        c.className = 'sky-cloud';
+        c.style.backgroundImage = `url("${cloudUrl}")`;
+        const w = 120 + Math.random() * 220;
+        c.style.width = `${w}px`;
+        c.style.left = `${-20 - Math.random() * 40}vw`;
+        c.style.top = `${6 + Math.random() * 28}vh`;
+        c.style.opacity = `${0.72 + Math.random() * 0.24}`;
+        c.style.animationDuration = `${35 + Math.random() * 45}s`;
+        c.style.animationDelay = `${-Math.random() * 30}s`;
+        cloudsEl.appendChild(c);
+      }
+    }
+    function updateSkyParallax() {
+      if (!skyBgEl || !skySunEl || !skyCloudsEl) return;
+      const yaw = camera.rotation ? camera.rotation.y : 0;
+      const pitch = camera.rotation ? camera.rotation.x : 0;
+      const dx = Math.max(-60, Math.min(60, yaw * 28));
+      const dy = Math.max(-30, Math.min(30, pitch * 24));
+      skyBgEl.style.backgroundPosition = `calc(50% + ${dx * 0.45}px) calc(50% + ${dy * 0.35}px)`;
+      skySunEl.style.transform = `translate(${dx * 0.9}px, ${dy * 0.7}px)`;
+      skyCloudsEl.style.transform = `translate(${dx * 0.6}px, ${dy * 0.4}px)`;
+    }
+    function jump() {
+      if (!running) return;
+      const now = performance.now();
+      if (now < jumpLockUntil) return;
+      camera.cameraDirection.y = Math.max(camera.cameraDirection.y, 0.32);
+      camera.position.y += 0.55;
+      jumpLockUntil = now + 360;
+    }
+
+    const canvas = el('renderCanvas');
+    const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+    const scene = new BABYLON.Scene(engine);
+    scene.clearColor = new BABYLON.Color4(0.72, 0.90, 1.0, 0);
+    scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
+    scene.fogDensity = 0.012;
+
+    const camera = new BABYLON.UniversalCamera('cam', new BABYLON.Vector3(0, 15, 0), scene);
+    camera.attachControl(canvas, true);
+    camera.speed = 0.45;
+    camera.inertia = 0.72;
+    camera.angularSensibility = 3200;
+    camera.keysUp = [87];
+    camera.keysDown = [83];
+    camera.keysLeft = [65];
+    camera.keysRight = [68];
+    camera.applyGravity = true;
+    camera.checkCollisions = true;
+    camera.ellipsoid = new BABYLON.Vector3(0.45, 0.9, 0.45);
+    scene.gravity = new BABYLON.Vector3(0, -0.25, 0);
+    scene.collisionsEnabled = true;
+
+    const hemi = new BABYLON.HemisphericLight('hemi', new BABYLON.Vector3(0, 1, 0), scene);
+    hemi.intensity = 1.6;
+    const sun = new BABYLON.DirectionalLight('sun', new BABYLON.Vector3(-0.5, -1, 0.35), scene);
+    sun.intensity = 1.8;
+    // Sky visuals are rendered by the DOM layer to avoid texture orientation issues.
+
+    function pixelMat(name, c1, c2, c3 = null) {
+      const dt = new BABYLON.DynamicTexture(name + '_px', { width: 512, height: 512 }, scene, false);
+      const ctx = dt.getContext();
+      const pal = c3 ? [c1, c2, c3] : [c1, c2];
+      for (let y = 0; y < 256; y++) {
+        for (let x = 0; x < 256; x++) {
+          const n = Math.sin(x * 0.63 + y * 0.44) + Math.cos(x * 0.25 - y * 0.57);
+          let idx = n > 0.55 ? 0 : (n < -0.35 ? pal.length - 1 : 1);
+          if (Math.random() < 0.22) idx = Math.floor(Math.random() * pal.length);
+          ctx.fillStyle = pal[Math.min(idx, pal.length - 1)];
+          ctx.fillRect(x * 2, y * 2, 2, 2);
+        }
+      }
+      dt.update(false);
+      const m = new BABYLON.StandardMaterial(name, scene);
+      m.diffuseTexture = dt;
+      m.specularColor = BABYLON.Color3.Black();
+      m.emissiveColor = new BABYLON.Color3(0.08, 0.08, 0.08);
+      return m;
+    }
+    function grassLikeMinecraftMat(name) {
+      const dt = new BABYLON.DynamicTexture(name + '_px', { width: 512, height: 512 }, scene, false);
+      const ctx = dt.getContext();
+      const pal = ['#9de57b', '#90d66f', '#84ca62', '#78be56', '#6bb049', '#5ea63f', '#4f9732', '#a9ef89'];
+      for (let y = 0; y < 256; y++) {
+        for (let x = 0; x < 256; x++) {
+          const n = (Math.sin(x * 0.47 + y * 0.38) + Math.cos(x * 0.31 - y * 0.52)) * 0.5;
+          let idx = 2;
+          if (n > 0.55) idx = 5;
+          else if (n > 0.25) idx = 0;
+          else if (n > 0.05) idx = 1;
+          else if (n < -0.55) idx = 4;
+          else if (n < -0.2) idx = 3;
+          if (Math.random() < 0.28) idx = Math.floor(Math.random() * pal.length);
+          ctx.fillStyle = pal[idx];
+          ctx.fillRect(x * 2, y * 2, 2, 2);
+        }
+      }
+      dt.update(false);
+      const m = new BABYLON.StandardMaterial(name, scene);
+      m.diffuseTexture = dt;
+      m.specularColor = BABYLON.Color3.Black();
+      m.emissiveColor = new BABYLON.Color3(0.08, 0.08, 0.08);
+      return m;
+    }
+    const grassMat = grassLikeMinecraftMat('grass');
+    const dirtA = pixelMat('dirtA', '#8d623f', '#6f4d33', '#5f412b');
+    const dirtB = pixelMat('dirtB', '#9b704b', '#7d5a3d', '#694b32');
+    const dirtC = pixelMat('dirtC', '#a27952', '#886344', '#725338');
+    function grassTopOnlyMat(name) {
+      const dt = new BABYLON.DynamicTexture(name + '_atlas', { width: 192, height: 64 }, scene, false);
+      const ctx = dt.getContext();
+      // Tile 0: side dirt only (no side grass)
+      for (let y = 0; y < 64; y++) {
+        for (let x = 0; x < 64; x++) {
+          const d = ['#a27952', '#956c49', '#8a6242', '#7d5a3d', '#6f4d33', '#5f412b'][Math.floor(Math.random() * 6)];
+          ctx.fillStyle = d;
+          ctx.fillRect(x, y, 2, 2);
+        }
+      }
+      // Tile 1: top grass
+      for (let y = 0; y < 64; y++) {
+        for (let x = 64; x < 128; x++) {
+          const g = ['#9de57b', '#90d66f', '#84ca62', '#78be56', '#6bb049', '#5ea63f', '#4f9732', '#a9ef89'][Math.floor(Math.random() * 8)];
+          ctx.fillStyle = g;
+          ctx.fillRect(x, y, 2, 2);
+        }
+      }
+      // Tile 2: bottom dirt (darker)
+      for (let y = 0; y < 64; y++) {
+        for (let x = 128; x < 192; x++) {
+          const d = ['#7a5638', '#6a4a31', '#65462e', '#5a3e29', '#4f3625'][Math.floor(Math.random() * 5)];
+          ctx.fillStyle = d;
+          ctx.fillRect(x, y, 2, 2);
+        }
+      }
+      dt.update(false);
+      dt.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
+      dt.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
+      dt.updateSamplingMode(BABYLON.Texture.NEAREST_SAMPLINGMODE);
+      const m = new BABYLON.StandardMaterial(name, scene);
+      m.diffuseTexture = dt;
+      m.specularColor = BABYLON.Color3.Black();
+      m.emissiveColor = new BABYLON.Color3(0.08, 0.08, 0.08);
+      return m;
+    }
+    const grassTopMat = grassTopOnlyMat('grassTopOnly');
+    function waterMatPixel(name) {
+      const dt = new BABYLON.DynamicTexture(name + '_px', { width: 512, height: 512 }, scene, false);
+      const ctx = dt.getContext();
+      const pal = ['#6cc9ff', '#58bcff', '#4db3ff', '#3fa6f3', '#2f8fe0', '#2a7fd0', '#2471c2', '#79d3ff'];
+      for (let y = 0; y < 256; y++) {
+        for (let x = 0; x < 256; x++) {
+          const n = Math.sin(x * 0.48 + y * 0.26) + Math.cos(x * 0.24 - y * 0.53);
+          let idx = n > 0.45 ? 3 : (n < -0.4 ? 4 : (n > 0.15 ? 0 : 1));
+          if (Math.random() < 0.26) idx = Math.floor(Math.random() * pal.length);
+          ctx.fillStyle = pal[idx];
+          ctx.fillRect(x * 2, y * 2, 2, 2);
+        }
+      }
+      dt.update(false);
+      dt.updateSamplingMode(BABYLON.Texture.NEAREST_SAMPLINGMODE);
+      const m = new BABYLON.StandardMaterial(name, scene);
+      m.diffuseTexture = dt;
+      m.specularColor = new BABYLON.Color3(0.75, 0.9, 1.0);
+      m.alpha = 0.48;
+      m.emissiveColor = new BABYLON.Color3(0.09, 0.17, 0.26);
+      return m;
+    }
+    const waterMat = waterMatPixel('water');
+    const dogeCoinMat = new BABYLON.StandardMaterial('dogeCoin', scene);
+    dogeCoinMat.diffuseTexture = new BABYLON.Texture(DOGE_LOGO_URL, scene, true, false);
+    dogeCoinMat.diffuseTexture.vScale = -1;
+    dogeCoinMat.diffuseTexture.vOffset = 1;
+    dogeCoinMat.opacityTexture = dogeCoinMat.diffuseTexture;
+    dogeCoinMat.emissiveColor = new BABYLON.Color3(0.22, 0.18, 0.06);
+    dogeCoinMat.specularColor = BABYLON.Color3.Black();
+
+    const blocks = new Map();
+    const waterBlocks = [];
+    const dogeBlocks = new Set();
+    const coinCollectAnims = [];
+    const COIN_FLY_DURATION = 0.48;
+    const posKey = (x, y, z) => `${x}|${y}|${z}`;
+    function heightAt(x, z) {
+      return Math.floor(2 + (Math.sin(x * 0.47) + Math.cos(z * 0.41) + Math.sin((x + z) * 0.23)) * 1.45 + Math.random() * 0.65);
+    }
+    function placeBlock(x, y, z, type) {
+      const opts = { size: 1 };
+      if (type === 'grass') {
+        const t = 1 / 3;
+        opts.faceUV = [
+          new BABYLON.Vector4(0, 0, t, 1),      // front side
+          new BABYLON.Vector4(0, 0, t, 1),      // back side
+          new BABYLON.Vector4(0, 0, t, 1),      // right side
+          new BABYLON.Vector4(0, 0, t, 1),      // left side
+          new BABYLON.Vector4(t, 0, t * 2, 1),  // top grass
+          new BABYLON.Vector4(t * 2, 0, 1, 1),  // bottom dirt
+        ];
+      }
+      const box = BABYLON.MeshBuilder.CreateBox(`b_${x}_${y}_${z}`, opts, scene);
+      box.position.set(x, y, z);
+      box.checkCollisions = true;
+      if (type === 'grass') box.material = grassTopMat;
+      else box.material = (Math.random() < 0.34 ? dirtA : (Math.random() < 0.5 ? dirtB : dirtC));
+      box.metadata = { type, x, y, z };
+      blocks.set(posKey(x, y, z), box);
+    }
+    function placeWater(x, y, z) {
+      const w = BABYLON.MeshBuilder.CreateBox(`w_${x}_${y}_${z}`, { size: 1 }, scene);
+      w.position.set(x, y, z);
+      w.material = waterMat;
+      w.checkCollisions = false;
+      w.isPickable = false;
+      waterBlocks.push(w);
+    }
+    function placeDogeCoin(x, y, z) {
+      const p = BABYLON.MeshBuilder.CreatePlane(`c_${x}_${y}_${z}`, { width: 0.9, height: 0.9 }, scene);
+      p.position.set(x, y + 0.02, z);
+      p.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
+      p.material = dogeCoinMat;
+      p.metadata = { type: 'dogecoin', x, y, z };
+      dogeBlocks.add(p.uniqueId);
+      return p;
+    }
+    function startCoinCollectAnimation(mesh) {
+      mesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
+      mesh.isPickable = false;
+      mesh.visibility = 1;
+      mesh.scaling.setAll(1);
+      coinCollectAnims.push({
+        mesh,
+        elapsed: 0,
+        startPos: mesh.position.clone(),
+        spinDir: Math.random() < 0.5 ? 1 : -1,
+      });
+    }
+    function updateCoinCollectAnims() {
+      const dt = engine.getDeltaTime() / 1000;
+      for (let i = coinCollectAnims.length - 1; i >= 0; i--) {
+        const a = coinCollectAnims[i];
+        const mesh = a.mesh;
+        if (!mesh || mesh.isDisposed()) { coinCollectAnims.splice(i, 1); continue; }
+        a.elapsed += dt;
+        const u = Math.min(1, a.elapsed / COIN_FLY_DURATION);
+        const sm = u * u * (3 - 2 * u);
+        BABYLON.Vector3.LerpToRef(a.startPos, camera.position, sm, mesh.position);
+        mesh.lookAt(camera.position);
+        mesh.rotate(BABYLON.Axis.Z, a.spinDir * dt * 13, BABYLON.Space.LOCAL);
+        const sc = 1 - 0.5 * sm;
+        mesh.scaling.setAll(Math.max(0.06, sc));
+        mesh.visibility = 1 - Math.max(0, (u - 0.62) / 0.38);
+        if (u >= 1) {
+          mesh.dispose();
+          coinCollectAnims.splice(i, 1);
+        }
+      }
+    }
+    function buildWorld() {
+      for (const a of coinCollectAnims) {
+        try { a.mesh.dispose(); } catch (_) {}
+      }
+      coinCollectAnims.length = 0;
+      for (const b of blocks.values()) b.dispose();
+      for (const w of waterBlocks) w.dispose();
+      blocks.clear();
+      waterBlocks.length = 0;
+      dogeBlocks.clear();
+      const coinMeshes = [];
+      const half = Math.floor(WORLD_SIZE / 2);
+      const surfaceCandidates = [];
+      for (let x = -half; x <= half; x++) {
+        for (let z = -half; z <= half; z++) {
+          const h = Math.max(1, Math.min(MAX_H, heightAt(x, z)));
+          for (let y = 0; y <= h; y++) {
+            const top = y === h;
+            const deep = y < h - 2;
+            placeBlock(x, y, z, top ? 'grass' : (deep ? 'stone' : 'dirt'));
+          }
+          if (h <= WATER_LEVEL + 1) surfaceCandidates.push({ x, y: h, z });
+        }
+      }
+      // Keep water very rare: only 3-4 blocks per world at terrain level.
+      const waterTarget = 3 + Math.floor(Math.random() * 2);
+      for (let i = 0; i < waterTarget && surfaceCandidates.length > 0; i++) {
+        const pick = Math.floor(Math.random() * surfaceCandidates.length);
+        const s = surfaceCandidates.splice(pick, 1)[0];
+        const k = posKey(s.x, s.y, s.z);
+        const topBlock = blocks.get(k);
+        if (topBlock) {
+          topBlock.dispose();
+          blocks.delete(k);
+        }
+        placeWater(s.x, s.y, s.z);
+      }
+      const candidate = [];
+      for (const b of blocks.values()) {
+        if (b.metadata.type !== 'stone') continue;
+        if (b.metadata.y < 2 || b.metadata.y > MAX_H - 2) continue;
+        candidate.push(b);
+      }
+      const target = Math.max(18, Math.floor(candidate.length * 0.04));
+      for (let i = 0; i < target && candidate.length > 0; i++) {
+        const idx = Math.floor(Math.random() * candidate.length);
+        const b = candidate.splice(idx, 1)[0];
+        coinMeshes.push(placeDogeCoin(b.metadata.x, b.metadata.y, b.metadata.z));
+      }
+      const spawnX = 0;
+      const spawnZ = 0;
+      const spawnY = Math.max(3, heightAt(spawnX, spawnZ) + 3);
+      camera.position.set(spawnX, spawnY, spawnZ);
+      scene.metadata = { coinMeshes };
+    }
+    buildWorld();
+    initSkyDom();
+
+    scene.onKeyboardObservable.add(kb => {
+      if (!running) return;
+      if (kb.type === BABYLON.KeyboardEventTypes.KEYDOWN && kb.event.code === 'Space') {
+        kb.event.preventDefault();
+        jump();
+      }
+    });
+    window.addEventListener('keydown', e => {
+      if (!running) return;
+      if (e.code === 'Space') {
+        e.preventDefault();
+        jump();
+      }
+    }, { passive:false });
+
+    function mineCenterBlock() {
+      if (!running) return;
+      playMineSfx();
+      triggerPaws();
+      const ray = scene.createPickingRay(engine.getRenderWidth() * 0.5, engine.getRenderHeight() * 0.5, BABYLON.Matrix.Identity(), camera);
+      const pick = scene.pickWithRay(ray, mesh => mesh && mesh.isPickable && mesh.metadata && mesh.metadata.type);
+      if (!pick || !pick.hit || !pick.pickedMesh) return;
+      if (pick.distance > 6) return;
+      const m = pick.pickedMesh;
+      if (m.metadata.type === 'dogecoin' && dogeBlocks.has(m.uniqueId)) {
+        coins += 1;
+        playCoinSfx();
+        spawnDogeWord('Much Wow', true);
+        el('coins').textContent = String(coins);
+        el('doge').textContent = fmtDoge(coins * COIN_WORTH);
+        dogeBlocks.delete(m.uniqueId);
+        startCoinCollectAnimation(m);
+        return;
+      }
+      const key = posKey(m.metadata.x, m.metadata.y, m.metadata.z);
+      blocks.delete(key);
+      m.dispose();
+    }
+    function triggerPaws() {
+      const p = el('paws');
+      p.classList.remove('digging');
+      void p.offsetWidth;
+      p.classList.add('digging');
+      if (Math.random() < 0.6) {
+        const phrase = dogeLead[Math.floor(Math.random() * dogeLead.length)] + ' ' + dogeTail[Math.floor(Math.random() * dogeTail.length)];
+        spawnDogeWord(phrase);
+      }
+    }
+    function pointerStartsOnControl(target) {
+      return !!(target && target.closest && target.closest('#mobileControls'));
+    }
+    canvas.addEventListener('pointerdown', e => {
+      if (pointerStartsOnControl(e.target)) return;
+      ensureAudio();
+      if (!isCoarsePointer) {
+        canvas.requestPointerLock?.();
+        mineCenterBlock();
+        return;
+      }
+      lookPointerId = e.pointerId;
+      lookStartX = lookLastX = e.clientX;
+      lookStartY = lookLastY = e.clientY;
+      lookMoved = false;
+      try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    canvas.addEventListener('pointermove', e => {
+      if (!isCoarsePointer || lookPointerId !== e.pointerId || !running) return;
+      const dx = e.clientX - lookLastX;
+      const dy = e.clientY - lookLastY;
+      lookLastX = e.clientX;
+      lookLastY = e.clientY;
+      if (Math.abs(e.clientX - lookStartX) + Math.abs(e.clientY - lookStartY) > 8) lookMoved = true;
+      camera.rotation.y += dx * 0.0022;
+      camera.rotation.x += dy * 0.0017;
+      camera.rotation.x = Math.max(-1.2, Math.min(1.2, camera.rotation.x));
+    });
+    canvas.addEventListener('pointerup', e => {
+      if (!isCoarsePointer || lookPointerId !== e.pointerId) return;
+      if (!lookMoved && running) mineCenterBlock();
+      lookPointerId = null;
+      try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+    });
+    canvas.addEventListener('pointercancel', e => {
+      if (lookPointerId === e.pointerId) lookPointerId = null;
+    });
+    const mobileControls = el('mobileControls');
+    mobileControls?.addEventListener('pointerdown', e => e.stopPropagation());
+    mobileControls?.addEventListener('pointerup', e => e.stopPropagation());
+    function bindHold(btnId, key) {
+      const b = el(btnId);
+      if (!b) return;
+      const on = ev => { ev.preventDefault(); touchMove[key] = true; ensureAudio(); };
+      const off = ev => { ev.preventDefault(); touchMove[key] = false; };
+      b.addEventListener('pointerdown', on);
+      b.addEventListener('pointerup', off);
+      b.addEventListener('pointercancel', off);
+      b.addEventListener('pointerleave', off);
+    }
+    bindHold('mLeft', 'left');
+    bindHold('mRight', 'right');
+    bindHold('mUp', 'up');
+    bindHold('mDown', 'down');
+    el('mJump')?.addEventListener('pointerdown', e => { e.preventDefault(); ensureAudio(); jump(); });
+    el('mMine')?.addEventListener('pointerdown', e => { e.preventDefault(); ensureAudio(); mineCenterBlock(); });
+
+    function setTxFromRecent(recent) {
+      const wrap = el('tx');
+      if (!Array.isArray(recent) || !recent.length || !recent[0].txid) { wrap.style.display = 'none'; return; }
+      const txid = String(recent[0].txid);
+      const link = el('txLink');
+      link.href = 'https://sochain.com/tx/DOGE/' + encodeURIComponent(txid);
+      link.textContent = txid.slice(0, 10) + '...' + txid.slice(-8);
+      link.title = txid;
+      wrap.style.display = 'block';
+    }
+    function refreshQr(uri) {
+      if (!uri || typeof QRious === 'undefined') return;
+      if (!qrious) qrious = new QRious({ element: el('qrCanvas'), size: 210, level: 'M', background: '#0a0810', foreground: '#45f0ff' });
+      qrious.value = uri;
+    }
+    async function pullState() {
+      try {
+        const s = await (await fetch('/api/state?game=' + encodeURIComponent(GAME_ID), { cache: 'no-store' })).json();
+        paymentReady = !!s.payment_ready;
+        credits = Math.max(0, Number(s.credits_seconds) || 0);
+        payments = Number(s.payments_seen) || 0;
+        const gwInv = !!s.gigawallet_invoice_mode;
+        if (gwInv && paymentReady && !running && !sessionInsertUri) {
+          try {
+            const ir = await fetch('/api/gigawallet/play-invoice', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ game_id: GAME_ID })
+            });
+            const j = await ir.json();
+            if (j && j.ok && j.insert_uri) sessionInsertUri = j.insert_uri;
+          } catch (_) {}
+        }
+        if (!gwInv) sessionInsertUri = '';
+
+        el('timer').textContent = fmt(credits);
+        el('pays').textContent = String(payments);
+        el('jar').textContent = ((s.recent || []).reduce((a, r) => a + (Number(r.value_doge) || 0), 0)).toFixed(2);
+        const useUri = sessionInsertUri || s.insert_uri || '';
+        let payAddr = (s.payout_address || '').trim();
+        if (gwInv && useUri) {
+          const m = /^dogecoin:([^?]+)/i.exec(useUri);
+          if (m) payAddr = m[1];
+        }
+        el('addr').textContent = payAddr ? ('Pay to: ' + payAddr) : (gwInv ? 'Preparing GigaWallet deposit address…' : '');
+        lastUri = useUri;
+        setTxFromRecent(s.recent);
+        if (paymentReady && lastUri) { el('payBtn').href = lastUri; el('payBtn').style.opacity = '1'; refreshQr(lastUri); }
+        else { el('payBtn').href = '#'; el('payBtn').style.opacity = '0.5'; }
+
+        running = credits > 0;
+        if (running !== wasRunning) {
+          if (running) { playStartSfx(); startMusic(); }
+          else stopMusic();
+          wasRunning = running;
+        }
+        el('overlay').style.display = running ? 'none' : 'grid';
+        if (running && !stateTicker) stateTicker = setInterval(pullState, 1000);
+        if (!running && stateTicker) { clearInterval(stateTicker); stateTicker = null; }
+        if (!claimToken) {
+          try {
+            const t = await (await fetch('/api/claim-token?game=' + encodeURIComponent(GAME_ID), { cache: 'no-store' })).json();
+            if (t && t.ok && t.token) claimToken = String(t.token);
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }
+    function endRun() {
+      if (gameOverShown) return;
+      gameOverShown = true;
+      running = false;
+      stopMusic();
+      playEndSfx();
+      el('endStats').textContent = `DOGE blocks found: ${coins} | Potential win: ${(coins * COIN_WORTH).toFixed(2)} DOGE`;
+      el('endModal').classList.add('open');
+    }
+    el('saveScore').addEventListener('click', async () => {
+      const name = (el('playerName').value || 'DOGE').slice(0, 13);
+      const payoutAddr = (el('playerAddr').value || '').trim();
+      const score = Math.round(coins * 100);
+      try {
+        await fetch('/api/leaderboard', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name, score, timeSec: Math.max(0, Math.round(180 - credits)) }) });
+      } catch (_) {}
+      let claimMsg = '';
+      if (payoutAddr && coins > 0) {
+        try {
+          if (!claimToken) {
+            const t = await (await fetch('/api/claim-token?game=' + encodeURIComponent(GAME_ID), { cache: 'no-store' })).json();
+            if (t && t.ok && t.token) claimToken = String(t.token);
+          }
+          const cr = await fetch('/api/claim-reward', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ game_id: GAME_ID, claim_token: claimToken, name, score, coins, payout_address: payoutAddr })
+          });
+          const out = await cr.json();
+          claimMsg = (out && out.ok) ? `Payout sent: ${out.txid}` : `Payout error: ${(out && out.error) || 'unknown'}`;
+          claimToken = '';
+        } catch (_) {
+          claimMsg = 'Payout error: network failure';
+        }
+      }
+      el('endModal').classList.remove('open');
+      if (claimMsg) alert(claimMsg);
+      gameOverShown = false;
+      sessionInsertUri = '';
+      coins = 0;
+      el('coins').textContent = '0';
+      el('doge').textContent = fmtDoge(0);
+      buildWorld();
+      pullState();
+    });
+    el('payBtn').addEventListener('click', e => { if (!paymentReady || !lastUri) e.preventDefault(); });
+
+    scene.onBeforeRenderObservable.add(() => {
+      updateCoinCollectAnims();
+      if (running && credits <= 0) endRun();
+      const now = performance.now() * 0.001;
+      if (running) {
+        const mv = 0.035;
+        const f = camera.getDirection(BABYLON.Axis.Z);
+        const r = camera.getDirection(BABYLON.Axis.X);
+        if (touchMove.up) camera.cameraDirection.addInPlace(f.scale(mv));
+        if (touchMove.down) camera.cameraDirection.addInPlace(f.scale(-mv));
+        if (touchMove.left) camera.cameraDirection.addInPlace(r.scale(-mv));
+        if (touchMove.right) camera.cameraDirection.addInPlace(r.scale(mv));
+      }
+      scene.clearColor = new BABYLON.Color4(0.72, 0.90, 1.0, 0);
+      hemi.intensity = 1.6;
+      sun.intensity = 1.8;
+      updateSkyParallax();
+      waterMat.alpha = 0.44 + Math.sin(now * 1.7) * 0.03;
+      waterMat.emissiveColor = new BABYLON.Color3(
+        0.09 + Math.sin(now * 1.1) * 0.01,
+        0.17 + Math.sin(now * 1.3) * 0.015,
+        0.26 + Math.sin(now * 1.5) * 0.02
+      );
+      const right = camera.getDirection(BABYLON.Axis.X);
+      if (running && Math.floor(credits) <= 0) endRun();
+      if (running && camera.position.y < -6) endRun();
+      if (running && !gameOverShown && credits > 0) {
+        if (dogeBlocks.size === 0 && coinCollectAnims.length === 0) buildWorld();
+      }
+    });
+
+    void pullState();
+    setInterval(async () => {
+      await pullState();
+      if (running && credits <= 0) endRun();
+      if (running && !gameOverShown && credits > 0 && Math.floor(credits) % 1 === 0) el('timer').textContent = fmt(credits);
+    }, 1000);
+    engine.runRenderLoop(() => {
+      if (running && credits <= 0) endRun();
+      scene.render();
+      if (running && credits > 0 && !gameOverShown) {
+        credits = Math.max(0, credits - 1 / 60);
+        el('timer').textContent = fmt(credits);
+        if (credits <= 0) endRun();
+      }
+    });
+    addEventListener('resize', () => engine.resize());
+  </script>
+</body>
+</html>

@@ -1,0 +1,217 @@
+{
+  "manifestVersion": 1,
+  "meta": {
+    "name": "GigaWallet Pro",
+    "version": "0.0.1",
+    "logoPath": "logo.png",
+    "shortDescription": "A Dogecoin payment gateway for business apps",
+    "longDescription": "Dogecoin GigaWallet Pro is a backend service which provides a convenient integration API for platforms such as online shops, exchanges, social media platforms etc, to transact Dogecoin on behalf of their users.",
+    "upstreamVersions": {
+      "Gigawallet": "v1.0.1"
+    }
+  },
+  "config": {
+    "sections": [
+      {
+        "name": "Web API",
+        "description": "Configure GigaWallet web server ports and bindings",
+        "fields": [
+          {
+            "name": "ADMIN_PORT",
+            "label": "Admin API Port",
+            "type": "text",
+            "default": "8081"
+          },
+          {
+            "name": "PUBLIC_PORT",
+            "label": "Public API Port",
+            "type": "text",
+            "default": "8082"
+          },
+          {
+            "name": "PUBLIC_API_ROOT_URL",
+            "label": "Public API Root URL",
+            "type": "text",
+            "default": "http://localhost:8082"
+          }
+        ]
+      },
+      {
+        "name": "Database",
+        "description": "GigaWallet database configuration",
+        "fields": [
+          {
+            "name": "ENABLE_POSTGRESQL",
+            "label": "Use PostgreSQL (disable = SQLite)",
+            "type": "toggle",
+            "default": false
+          },
+          {
+            "name": "DB_FILE",
+            "label": "SQLite Database File Path",
+            "type": "text",
+            "default": "/storage/gigawallet.db"
+          },
+          {
+            "name": "POSTGRES_HOST",
+            "label": "PostgreSQL Host",
+            "type": "text",
+            "default": "localhost"
+          },
+          {
+            "name": "POSTGRES_PORT",
+            "label": "PostgreSQL Port",
+            "type": "text",
+            "default": "5432"
+          },
+          {
+            "name": "POSTGRES_DB",
+            "label": "PostgreSQL Database Name",
+            "type": "text",
+            "default": "gigawallet"
+          },
+          {
+            "name": "POSTGRES_USER",
+            "label": "PostgreSQL Username",
+            "type": "text",
+            "default": "gigawallet"
+          },
+          {
+            "name": "POSTGRES_PASSWORD",
+            "label": "PostgreSQL Password",
+            "type": "password",
+            "default": "changeme"
+          }
+        ]
+      },
+      {
+        "name": "Network",
+        "description": "Dogecoin network configuration",
+        "fields": [
+          {
+            "name": "NETWORK",
+            "label": "Network (mainnet/testnet)",
+            "type": "text",
+            "default": "mainnet"
+          }
+        ]
+      },
+      {
+        "name": "CORE Integration",
+        "description": "Connection settings to CORE pup (RPC and ZMQ)",
+        "fields": [
+          {
+            "name": "CORE_RPC_USER",
+            "label": "CORE RPC Username",
+            "type": "text",
+            "default": "dogebox_core_pup_temporary_static_username"
+          },
+          {
+            "name": "CORE_RPC_PASSWORD",
+            "label": "CORE RPC Password",
+            "type": "password",
+            "default": "dogebox_core_pup_temporary_static_password"
+          }
+        ]
+      }
+    ]
+  },
+  "container": {
+    "build": {
+      "nixFile": "pup.nix",
+      "nixFileSha256": "afaa9272721da807315fd221647c359dc75def254202d68b540b82901515cf08"
+    },
+    "services": [
+      {
+        "name": "gigawallet",
+        "command": {
+          "exec": "/bin/run.sh",
+          "cwd": "",
+          "env": null
+        }
+      }
+    ],
+    "exposes": [
+      {
+        "name": "public-port",
+        "type": "http",
+        "port": 8082,
+        "interfaces": [
+          "gigawallet-public"
+        ],
+        "listenOnHost": true,
+        "webUI": false
+      },
+      {
+        "name": "admin-port",
+        "type": "tcp",
+        "port": 8081,
+        "interfaces": [
+          "gigawallet-admin"
+        ],
+        "listenOnHost": false,
+        "webUI": false
+      }
+    ],
+    "requiresInternet": true
+  },
+  "interfaces": [
+    {
+      "name": "gigawallet-public",
+      "version": "0.0.1",
+      "permissionGroups": [
+        {
+          "name": "Public API",
+          "description": "Public Dogecoin payment API endpoints",
+          "severity": 1,
+          "routes": [
+            "/api/v1/address/*",
+            "/api/v1/balance/*",
+            "/api/v1/transaction/*"
+          ],
+          "port": 8082
+        }
+      ]
+    },
+    {
+      "name": "gigawallet-admin",
+      "version": "0.0.1",
+      "permissionGroups": [
+        {
+          "name": "Admin API",
+          "description": "GigaWallet admin control interface",
+          "severity": 3,
+          "routes": null,
+          "port": 8081
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "interfaceName": "core-rpc",
+      "interfaceVersion": "0.0.1",
+      "permissionGroups": ["RPC"],
+      "optional": true,
+      "source": {
+        "sourceLocation": "",
+        "pupName": "",
+        "pupVersion": "",
+        "pupLogoBase64": ""
+      }
+    },
+    {
+      "interfaceName": "core-zmq",
+      "interfaceVersion": "0.0.1",
+      "permissionGroups": ["ZMQ"],
+      "optional": true,
+      "source": {
+        "sourceLocation": "",
+        "pupName": "",
+        "pupVersion": "",
+        "pupLogoBase64": ""
+      }
+    }
+  ],
+  "metrics": null
+}

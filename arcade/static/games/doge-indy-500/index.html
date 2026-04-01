@@ -1,0 +1,1631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Arcade - Doge Indy 500</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@700&display=swap" rel="stylesheet">
+  <style>
+    :root { --neon:#ffe357; --pink:#ff4fd8; --cyan:#45f0ff; }
+    html, body { margin:0; width:100%; height:100%; overflow:hidden; background:#0b130a; font-family:"Courier New", monospace; color:var(--neon); }
+    #game { width:100vw; height:100vh; display:block; }
+    .hud { position:fixed; left:16px; top:14px; z-index:6; text-shadow:0 0 8px rgba(255,227,87,.8); font-size:16px; line-height:1.35; }
+    .signal { position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:7; padding:10px 14px; border:3px solid var(--cyan); border-radius:10px; background:rgba(14,8,26,.82); color:#e9dcff; font-weight:bold; min-width:260px; text-align:center; }
+    .lights { display:flex; justify-content:center; gap:8px; margin-top:6px; }
+    .light { width:14px; height:14px; border-radius:999px; background:#333; }
+    .light.red.on { background:#ff3b3b; }
+    .light.yellow.on { background:#ffd84b; }
+    .light.green.on { background:#38ff83; }
+    .overlay { position:fixed; inset:0; display:grid; place-items:center; z-index:10; background:rgba(10,4,18,.72); }
+    .panel { position:relative; overflow:hidden; box-sizing:border-box; width:min(860px,95vw); border:4px solid var(--neon); box-shadow:0 0 20px rgba(255,227,87,.5); background:rgba(18,4,31,.9); border-radius:12px; text-align:center; padding:18px; }
+    .panel::before { content:""; position:absolute; inset:0; background:url('assets/background.png') center/cover no-repeat; opacity:.12; pointer-events:none; }
+    .panel::after { content:""; position:absolute; inset:0; background:url('assets/car_stripes.png') center/cover no-repeat; opacity:.18; pointer-events:none; }
+    .panel > * { position:relative; z-index:1; }
+    .panel-shade { position:absolute; inset:0; background:linear-gradient(180deg, rgba(8,8,16,.72), rgba(12,10,24,.78)); z-index:0; pointer-events:none; }
+    .title { display:inline-block; padding:6px 12px; border-radius:10px; background:rgba(8,8,16,.62); color:#45f0ff; text-shadow:0 0 8px rgba(69,240,255,.6); font-size:26px; border:1px solid rgba(69,240,255,.35); }
+    .insert { display:inline-block; padding:3px 10px; border-radius:10px; background:rgba(12,6,24,.72); font-size:clamp(30px,6vw,72px); margin:4px 0 8px; color:var(--pink); text-shadow:0 0 14px rgba(255,79,216,.9); animation:blink 1s steps(2,start) infinite; letter-spacing:2px; }
+    @keyframes blink { to { visibility:hidden; } }
+    .row { display:flex; flex-wrap:wrap; justify-content:center; gap:16px; margin-top:10px; }
+    .qr { width:226px; height:226px; border:3px solid var(--cyan); background:#0a0810; padding:0; box-sizing:border-box; display:block; margin:0 auto; cursor:pointer; }
+    .meta { max-width:460px; max-height:110px; overflow:auto; text-align:left; font-size:16px; color:#f3ebff; line-height:1.45; background:rgba(8,8,16,.62); border:1px solid rgba(255,255,255,.18); border-radius:10px; padding:10px 12px; text-shadow:0 1px 2px rgba(0,0,0,.8); }
+    .panel-helmet { position:absolute; right:-30px; top:50%; transform:translateY(-50%); height:min(70vh,420px); opacity:.92; z-index:0; pointer-events:none; filter:drop-shadow(0 0 10px rgba(69,240,255,.45)); }
+    .pay-btn { display:block; width:100%; box-sizing:border-box; margin-top:10px; padding:10px 16px; border:3px solid var(--cyan); border-radius:10px; color:#f4e8ff; text-decoration:none; font-weight:bold; background:rgba(8,8,16,.9); box-shadow:0 0 12px rgba(69,240,255,.35); text-shadow:0 1px 2px rgba(0,0,0,.8); text-align:center; }
+    .pay-btn:hover { border-color:var(--pink); box-shadow:0 0 14px rgba(255,79,216,.45); }
+    .mobile-controls { position:fixed; left:0; right:0; bottom:12px; z-index:8; display:none; justify-content:space-between; padding:0 12px; pointer-events:none; }
+    .controls-side { display:flex; gap:10px; pointer-events:auto; }
+    .ctrl-btn { width:74px; height:74px; border-radius:16px; border:3px solid var(--cyan); background:rgba(18,4,31,.82); color:#f4e8ff; font-size:26px; font-weight:bold; user-select:none; touch-action:none; }
+    .ctrl-btn:active, .ctrl-btn.active { transform:scale(.96); border-color:var(--pink); }
+    @media (max-width: 760px) {
+      .overlay { padding:8px; align-items:center; overflow:auto; }
+      .panel { width:min(100%,460px); max-height:calc(100dvh - 16px); overflow:auto; padding:10px 8px 12px; border-width:3px; }
+      .panel-helmet { right:-26px; height:min(52vh,290px); opacity:.85; }
+      .insert { font-size:clamp(24px,9vw,42px); letter-spacing:1px; margin:2px 0 6px; }
+      .row { flex-direction:column; align-items:center; gap:10px; margin-top:6px; }
+      .qr { width:min(60vw,236px); height:min(60vw,236px); max-width:100%; max-height:100%; box-sizing:border-box; padding:0; }
+      .meta { width:100%; max-width:none; text-align:center; font-size:14px; line-height:1.35; }
+      .pay-btn { display:block; box-sizing:border-box; width:100%; margin:10px 0 0; padding:12px 14px; font-size:16px; }
+      .signal { top:8px; min-width:220px; font-size:13px; padding:8px 10px; }
+    }
+    .overlay-slide { display:none; }
+    .overlay-slide.is-active { display:block; }
+    .lb-table { width:100%; max-width:420px; margin:8px auto 0; font-size:14px; color:#f3ebff; text-align:left; background:rgba(8,8,16,.55); border:1px solid rgba(255,255,255,.15); border-radius:10px; overflow:hidden; }
+    .lb-table table { width:100%; border-collapse:collapse; }
+    .lb-table th, .lb-table td { padding:6px 8px; border-bottom:1px solid rgba(255,255,255,.1); }
+    .lb-table th { color:#45f0ff; font-size:12px; text-transform:uppercase; }
+    .lb-table tr:nth-child(even) { background:rgba(255,255,255,.04); }
+    .lb-sub { margin-top:6px; font-size:12px; color:rgba(233,220,255,.75); }
+    .pay-wait-msg { display:inline-block; padding:10px 16px; border-radius:10px; background:rgba(12,6,24,.78); font-size:clamp(14px,3.2vw,20px); margin:10px auto 0; color:#9d7bff; max-width:92%; line-height:1.35; border:1px solid rgba(157,123,255,.35); }
+    .lb-modal { position:fixed; inset:0; z-index:20; display:none; place-items:center; background:rgba(10,4,18,.85); }
+    .lb-modal.is-open { display:grid; }
+    .lb-modal-box { width:min(360px,92vw); padding:16px; border:3px solid var(--cyan); border-radius:12px; background:rgba(18,4,31,.95); color:#e9dcff; text-align:center; }
+    .lb-modal-box h3 { margin:0 0 10px; color:#ffe357; font-size:18px; }
+    .lb-modal-box .lb-stat { font-size:14px; margin-bottom:10px; color:#45f0ff; }
+    .lb-modal-box input { width:100%; box-sizing:border-box; padding:10px; margin:8px 0; border:2px solid var(--cyan); border-radius:8px; background:#0a0810; color:#f4e8ff; font-size:16px; }
+    .lb-modal-actions { display:flex; gap:10px; justify-content:center; margin-top:12px; flex-wrap:wrap; }
+    .lb-modal-actions button { padding:10px 18px; border:2px solid var(--pink); border-radius:8px; background:rgba(18,4,31,.9); color:#f4e8ff; font-weight:bold; cursor:pointer; }
+    .lb-modal-actions button.primary { border-color:var(--cyan); }
+    .tx-pill { position:fixed; right:12px; bottom:12px; z-index:9; display:none; max-width:min(62vw,560px); padding:8px 10px; border:2px solid var(--cyan); border-radius:10px; background:rgba(8,8,16,.86); color:#e9dcff; font-size:12px; box-shadow:0 0 10px rgba(69,240,255,.25); }
+    .tx-pill a { color:#45f0ff; text-decoration:none; }
+    .tx-pill a:hover { color:#ff4fd8; text-decoration:underline; }
+    @media (pointer: coarse) { .mobile-controls { display:flex; } }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div class="hud">
+    <div>Laps: <span id="score">0</span></div>
+    <div>Position: <span id="position">1/13</span></div>
+    <div>Lap Time: <span id="lap">0.00</span></div>
+    <div>Race Score: <span id="raceScore">0</span></div>
+    <div>Fuel</div>
+    <div style="width:190px;height:12px;border:2px solid #45f0ff;background:#1a1a1a;border-radius:8px;overflow:hidden;margin-top:3px">
+      <div id="fuelBar" style="height:100%;width:100%;background:linear-gradient(90deg,#66ff9b,#ffe357,#ff8a3d,#ff4fd8)"></div>
+    </div>
+    <div>Damage</div>
+    <div style="width:190px;height:10px;border:2px solid #ff8a3d;background:#1a1a1a;border-radius:8px;overflow:hidden;margin-top:3px">
+      <div id="damageBar" style="height:100%;width:0%;background:linear-gradient(90deg,#66ff9b,#ffe357,#ff8a3d,#ff3b3b)"></div>
+    </div>
+    <div>Play time left: <span id="timer">0:00</span></div>
+    <div>Payments: <span id="payments">0</span></div>
+    <div id="hudPayWrap" style="display:none;margin-top:8px">
+      <button type="button" id="hudShowPay" style="font:inherit;font-size:13px;padding:5px 10px;border:2px solid #45f0ff;border-radius:8px;background:rgba(8,8,16,.88);color:#e9dcff;cursor:pointer">Payment / QR</button>
+    </div>
+  </div>
+  <div id="signal" class="signal"></div>
+
+  <div class="overlay" id="overlay">
+    <div class="panel">
+      <div class="panel-shade"></div>
+      <img class="panel-helmet" src="assets/doge_helmet.png" alt="">
+      <div class="overlay-slide is-active" id="overlayLb">
+        <div class="title">TOP 10 RACERS</div>
+        <div class="lb-table" id="lbTableOverlay"></div>
+        <div class="lb-sub" id="lbSub">Checking mempool…</div>
+      </div>
+      <div class="overlay-slide" id="overlayPay">
+        <div class="title">DOGE INDY 500</div>
+        <div class="insert">INSERT DOGE COIN</div>
+        <div id="payWaitMsg" class="pay-wait-msg" style="display:none">Connecting to Dogecoin peers — waiting for mempool relay…</div>
+        <div class="row" id="payQrRow">
+          <canvas id="qrCanvas" class="qr" width="220" height="220" title="Scan to pay"></canvas>
+          <div class="meta">
+            <div><strong>Pay to:</strong> <span id="addr"></span></div>
+            <div><strong>Amount:</strong> <span id="amt"></span> DOGE for <span id="mins"></span> minutes</div>
+            <a id="payBtn" class="pay-btn" href="#" target="_self">CLICK TO PAY</a>
+            <button type="button" id="overlayResume" style="display:none;margin-top:10px;width:100%;box-sizing:border-box;padding:8px;border:2px solid #ff4fd8;border-radius:8px;background:rgba(18,4,31,.9);color:#f4e8ff;font-weight:bold;cursor:pointer">← Back to race</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="lb-modal" id="lbModal">
+    <div class="lb-modal-box">
+      <h3>MUCH HIGH SCORE!</h3>
+      <div class="lb-stat">Score: <span id="lbModalScore">0</span> · Time: <span id="lbModalTime">0:00</span></div>
+      <label for="lbName">Your name (TOP 10)</label>
+      <input id="lbName" type="text" placeholder="Shibe Racer" autocomplete="username" spellcheck="false" />
+      <div class="lb-modal-actions">
+        <button type="button" class="primary" id="lbSave">SAVE SCORE</button>
+        <button type="button" id="lbSkip">SKIP</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="mobile-controls">
+    <div class="controls-side"><button class="ctrl-btn" id="btnLeft">◀</button><button class="ctrl-btn" id="btnRight">▶</button></div>
+    <div class="controls-side"><button class="ctrl-btn" id="btnBrake">⏹</button><button class="ctrl-btn" id="btnAccel">▲</button></div>
+  </div>
+  <div id="txPill" class="tx-pill">Last payment: <a id="txLink" href="#" target="_blank" rel="noopener noreferrer"></a></div>
+
+  <script src="../../vendor/qrious.min.js"></script>
+  <script>
+    const GAME_ID = 'doge-indy-500';
+    const el = id => document.getElementById(id);
+    const canvas = el('game');
+    const ctx = canvas.getContext('2d');
+
+    const scoreEl = el('score');
+    const posEl = el('position');
+    const lapEl = el('lap');
+    const raceScoreEl = el('raceScore');
+    const fuelBarEl = el('fuelBar');
+    const damageBarEl = el('damageBar');
+    const timerEl = el('timer');
+    const paymentsEl = el('payments');
+    const overlayEl = el('overlay');
+    const signalEl = el('signal');
+    const qrCanvas = el('qrCanvas');
+    const payBtnEl = el('payBtn');
+    let qriousInst = null;
+    let payOverlayPinned = false;
+    let lastInsertUri = '';
+    let p2pEnabled = false;
+    let mempoolLive = false;
+    let useMemetracker = false;
+    let memetrackerOk = false;
+    let paymentReady = false;
+    let lastMempoolGateKey = '';
+    function canShowPaySlide() { return paymentReady; }
+
+    const image = s => { const i = new Image(); i.src = s; return i; };
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+    const rand = (a, b) => a + Math.random() * (b - a);
+    const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+    /** Server credits + sync time → live countdown in whole seconds (updates every rAF). */
+    let creditsServerBaseline = 0;
+    let creditsSyncAtMs = 0;
+    function liveCreditsSeconds() {
+      const base = Math.max(0, Math.floor(Number(creditsServerBaseline) || 0));
+      if (base <= 0) return 0;
+      const sync = Number(creditsSyncAtMs) || 0;
+      if (sync <= 0) return base;
+      const elapsed = Math.floor((Date.now() - sync) / 1000);
+      return Math.max(0, base - elapsed);
+    }
+    function formatPlayTimeMmSs(sec) {
+      const s = Math.max(0, Math.floor(Number(sec) || 0));
+      const m = Math.floor(s / 60);
+      const r = s % 60;
+      return `${m}:${String(r).padStart(2, '0')}`;
+    }
+    function refreshTimerDisplay() {
+      timerEl.textContent = formatPlayTimeMmSs(liveCreditsSeconds());
+    }
+    const coarse = matchMedia('(pointer:coarse)').matches;
+
+    function updatePaymentQr(uri) {
+      if (typeof QRious === 'undefined') return;
+      if (!canShowPaySlide()) return;
+      if (!uri || uri === '#') return;
+      const sz = 220;
+      if (!qriousInst) {
+        qriousInst = new QRious({
+          element: qrCanvas,
+          size: sz,
+          level: 'M',
+          background: '#0a0810',
+          foreground: '#45f0ff'
+        });
+      }
+      qriousInst.value = uri;
+    }
+    function renderLatestTx(recent) {
+      const wrap = el('txPill');
+      const link = el('txLink');
+      if (!Array.isArray(recent) || !recent.length) {
+        wrap.style.display = 'none';
+        return;
+      }
+      const txid = String((recent[0] && recent[0].txid) || '').trim();
+      if (!txid) {
+        wrap.style.display = 'none';
+        return;
+      }
+      link.href = 'https://sochain.com/tx/DOGE/' + encodeURIComponent(txid);
+      link.textContent = txid.length > 20 ? (txid.slice(0, 10) + '…' + txid.slice(-8)) : txid;
+      link.title = txid;
+      wrap.style.display = 'block';
+    }
+
+    qrCanvas.addEventListener('click', () => {
+      if (payBtnEl.href && payBtnEl.href !== '#') window.location.href = payBtnEl.href;
+    });
+
+    const assets = {
+      ground: image('assets/track_ground.png'),
+      smoke: image('assets/burnrubber.png'),
+      cars: [0,1,2,3,4,5,6,7].map(i => image(`assets/car_body-default-00${i}.png`)),
+      ch: {
+        l: image('assets/car_chassis-left-000.png'),
+        s: image('assets/car_chassis-straight-000.png'),
+        r: image('assets/car_chassis-right-000.png')
+      },
+      sh: image('assets/car_shadow-straight-000.png')
+    };
+
+    const st = {
+      w: 0, h: 0,
+      phase: 'idle', phaseT: 0, nextBell: 4,
+      running: false, credits: 0, payments: 0,
+      track: { cx: 0, cy: 0, straight: 0, radius: 0, len: 1, half: 38 },
+      cars: [], player: null, explosions: [], smoke: [], popups: [],
+      keys: { left: false, right: false, up: false, down: false },
+      raceTime: 0, lapStart: 0, position: 1, raceScore: 0,
+      camZ: 1, camCx: 0, camCy: 0, camCrashT: 0,
+      offTrackFrameCount: 0, lastPosition: 13,
+      fuel: 100, maxFuel: 100, hits: 0, speedPenalty: false, pitProg: 0, birds: [], clouds: [], cityCars: [], crowdPeople: [], infieldPeople: [], infieldTrucks: [], nextBird: 2.5, nextCloud: 1.4, nextCityCar: 1.1,
+      pitState: 'track', gameOver: false,
+      lbPromptDone: false, lbGameOverTried: false
+    };
+
+    let lbCache = [];
+    let overlayRotateTimer = null;
+    function lbSort(a, b) {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.timeSec - b.timeSec;
+    }
+    async function refreshLeaderboard() {
+      try {
+        const r = await fetch('/api/leaderboard', { cache: 'no-store' });
+        if (!r.ok) return;
+        const data = await r.json();
+        lbCache = Array.isArray(data)
+          ? data.filter(e => e && typeof e.name === 'string' && typeof e.score === 'number' && typeof e.timeSec === 'number')
+          : [];
+      } catch (_) {}
+    }
+    function qualifiesLeaderboard(score, timeSec) {
+      if (score <= 0) return false;
+      const lb = [...lbCache].sort(lbSort);
+      if (lb.length < 10) return true;
+      const w = lb[9];
+      if (score > w.score) return true;
+      if (score < w.score) return false;
+      return timeSec <= w.timeSec;
+    }
+    async function addLeaderboardEntry(name, score, timeSec) {
+      const raw = (name || 'DOGE').trim();
+      const clean = (Array.from(raw).slice(0, 13).join('') || 'DOGE');
+      try {
+        await fetch('/api/leaderboard', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: clean,
+            score: Math.round(score),
+            timeSec: Math.max(0, Math.round(timeSec))
+          })
+        });
+      } catch (_) {}
+      await refreshLeaderboard();
+      await renderLbOverlay();
+    }
+    function formatLbTime(sec) {
+      const s = Math.max(0, Math.floor(sec));
+      const m = Math.floor(s / 60);
+      const r = s % 60;
+      return `${m}:${String(r).padStart(2, '0')}`;
+    }
+    function escapeHtml(t) {
+      const d = document.createElement('div');
+      d.textContent = String(t);
+      return d.innerHTML;
+    }
+    async function renderLbOverlay() {
+      await refreshLeaderboard();
+      const tbl = el('lbTableOverlay');
+      if (!tbl) return;
+      const rows = [...lbCache].sort(lbSort).slice(0, 10);
+      if (!rows.length) {
+        tbl.innerHTML = '<div style="padding:12px;text-align:center;color:rgba(233,220,255,.7)">No scores yet — be first, shibe!</div>';
+        return;
+      }
+      let h = '<table><thead><tr><th>#</th><th>Name</th><th>Score</th><th>Time</th></tr></thead><tbody>';
+      rows.forEach((r, i) => {
+        h += `<tr><td>${i + 1}</td><td>${escapeHtml(r.name)}</td><td>${r.score}</td><td>${formatLbTime(r.timeSec)}</td></tr>`;
+      });
+      h += '</tbody></table>';
+      tbl.innerHTML = h;
+    }
+    function setOverlaySlide(showLb) {
+      if (!showLb && !canShowPaySlide()) showLb = true;
+      el('overlayLb')?.classList.toggle('is-active', showLb);
+      el('overlayPay')?.classList.toggle('is-active', !showLb);
+      if (!showLb && canShowPaySlide()) updatePaymentQr(lastInsertUri);
+    }
+    function applyMempoolGate() {
+      const k = `${paymentReady}|${useMemetracker}|${p2pEnabled}|${mempoolLive}|${memetrackerOk}`;
+      const gateChanged = k !== lastMempoolGateKey;
+      if (gateChanged) lastMempoolGateKey = k;
+      const sub = el('lbSub');
+      if (sub) {
+        if (useMemetracker) {
+          if (!memetrackerOk) sub.textContent = 'Connecting to MemeTracker (checked every ~12s)…';
+          else sub.textContent = 'MemeTracker ready — scan QR to play';
+        } else if (!p2pEnabled) sub.textContent = 'Payments need a valid P2PKH payout on the server.';
+        else if (!mempoolLive) sub.textContent = 'Waiting for mempool relay (checked every 3s)…';
+        else sub.textContent = 'Next: scan QR to play';
+      }
+      const showPay = canShowPaySlide();
+      const waitEl = el('payWaitMsg');
+      const rowEl = el('payQrRow');
+      if (waitEl) waitEl.style.display = showPay ? 'none' : 'block';
+      if (rowEl) rowEl.style.display = showPay ? 'flex' : 'none';
+      if (!showPay && qriousInst) qriousInst.value = ' ';
+      if (gateChanged && overlayIsOpen() && !payOverlayPinned && !(el('lbModal')?.classList.contains('is-open'))) syncOverlayRotation();
+    }
+    async function pullMempoolStatus() {
+      try {
+        const r = await fetch('/api/mempool', { cache: 'no-store' });
+        const m = await r.json();
+        p2pEnabled = !!m.p2p_enabled;
+        mempoolLive = !!m.mempool_live;
+        useMemetracker = !!m.use_memetracker;
+        memetrackerOk = !!m.memetracker_ok;
+      } catch (_) {
+        p2pEnabled = false;
+        mempoolLive = false;
+        useMemetracker = false;
+        memetrackerOk = false;
+      }
+      applyMempoolGate();
+    }
+    async function startOverlayRotation() {
+      stopOverlayRotation();
+      if (el('lbModal')?.classList.contains('is-open')) return;
+      await renderLbOverlay();
+      if (!canShowPaySlide()) {
+        setOverlaySlide(true);
+        return;
+      }
+      let showLb = true;
+      setOverlaySlide(true);
+      overlayRotateTimer = setInterval(() => {
+        if (el('lbModal')?.classList.contains('is-open')) return;
+        if (!canShowPaySlide()) {
+          setOverlaySlide(true);
+          return;
+        }
+        showLb = !showLb;
+        setOverlaySlide(showLb);
+      }, 5000);
+    }
+    function stopOverlayRotation() {
+      if (overlayRotateTimer) { clearInterval(overlayRotateTimer); overlayRotateTimer = null; }
+    }
+    function overlayIsOpen() {
+      return overlayEl.style.display !== 'none';
+    }
+    function syncOverlayRotation() {
+      if (overlayIsOpen() && !el('lbModal').classList.contains('is-open')) void startOverlayRotation();
+      else stopOverlayRotation();
+    }
+    let pendingLb = null;
+    let prevOverlayCan = null;
+    function limitLbNameInput(elIn) {
+      if (!elIn) return;
+      const arr = Array.from(elIn.value);
+      if (arr.length > 13) elIn.value = arr.slice(0, 13).join('');
+    }
+    function openLbModal(score, timeSec) {
+      pendingLb = { score, timeSec };
+      el('lbModalScore').textContent = String(Math.round(score));
+      el('lbModalTime').textContent = formatLbTime(timeSec);
+      el('lbName').value = '';
+      el('lbModal').classList.add('is-open');
+      stopOverlayRotation();
+    }
+    function closeLbModal() {
+      pendingLb = null;
+      el('lbModal').classList.remove('is-open');
+      syncOverlayRotation();
+    }
+    async function tryLeaderboardPrompt(score, timeSec) {
+      if (st.lbPromptDone) return false;
+      await refreshLeaderboard();
+      if (!qualifiesLeaderboard(score, timeSec)) return false;
+      st.lbPromptDone = true;
+      openLbModal(score, timeSec);
+      return true;
+    }
+
+    const audio = { ctx: null, master: null, e1: null, e2: null, engGain: null, skidGain: null, skidNoise: null, musicTimer: null };
+    let crashSfxUntil = 0;
+    const wowWords = ['Much Wow', 'Such Speed', 'So Fast', 'Very Zoom', 'Much Overtake', 'So Quick', 'Wow Racer', 'Speedy Doge'];
+    const cheerWords = ['Much Courage', 'Keep Going', 'Never Give Up', 'So Strong', 'You Got This', 'Very Brave', 'Race Again', 'Stay Fast'];
+    const wowColors = ['#ff4fd8', '#45f0ff', '#ffe357', '#66ff9b', '#ff8a3d', '#9d7bff'];
+
+    function popup(text, x, y) {
+      st.popups.push({ text, x, y, t: 1.25, vy: rand(20, 38), c: pick(wowColors) });
+      if (st.popups.length > 32) st.popups.splice(0, st.popups.length - 32);
+    }
+
+    function ensureAudio() {
+      if (audio.ctx) return;
+      audio.ctx = new AudioContext();
+      audio.master = audio.ctx.createGain();
+      audio.master.gain.value = 0.2;
+      audio.master.connect(audio.ctx.destination);
+
+      audio.engGain = audio.ctx.createGain();
+      audio.engGain.gain.value = 0.05;
+      audio.engGain.connect(audio.master);
+      audio.e1 = audio.ctx.createOscillator();
+      audio.e2 = audio.ctx.createOscillator();
+      audio.e1.type = 'sawtooth';
+      audio.e2.type = 'square';
+      audio.e1.connect(audio.engGain);
+      audio.e2.connect(audio.engGain);
+      audio.e1.start();
+      audio.e2.start();
+
+      const b = audio.ctx.createBuffer(1, audio.ctx.sampleRate * 2, audio.ctx.sampleRate);
+      const d = b.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      audio.skidNoise = audio.ctx.createBufferSource();
+      audio.skidNoise.buffer = b;
+      audio.skidNoise.loop = true;
+      const bp = audio.ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = 1700;
+      audio.skidGain = audio.ctx.createGain();
+      audio.skidGain.gain.value = 0;
+      audio.skidNoise.connect(bp);
+      bp.connect(audio.skidGain);
+      audio.skidGain.connect(audio.master);
+      audio.skidNoise.start();
+
+      startMusic();
+    }
+
+    function startMusic() {
+      if (audio.musicTimer) return;
+      const notes = [220, 262, 294, 330, 294, 262, 196, 220];
+      let i = 0;
+      audio.musicTimer = setInterval(() => {
+        if (!audio.ctx) return;
+        const o = audio.ctx.createOscillator();
+        const g = audio.ctx.createGain();
+        o.type = 'triangle';
+        o.frequency.value = notes[i % notes.length];
+        g.gain.value = 0.0001;
+        g.gain.exponentialRampToValueAtTime(0.04, audio.ctx.currentTime + 0.03);
+        g.gain.exponentialRampToValueAtTime(0.0001, audio.ctx.currentTime + 0.26);
+        o.connect(g); g.connect(audio.master); o.start(); o.stop(audio.ctx.currentTime + 0.28);
+        i++;
+      }, 280);
+    }
+
+    function bellSound(kind = 'yellow') {
+      if (!audio.ctx) return;
+      const o = audio.ctx.createOscillator();
+      const g = audio.ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = kind === 'green' ? 1100 : kind === 'red' ? 820 : 980;
+      g.gain.value = 0.0001;
+      g.gain.exponentialRampToValueAtTime(0.08, audio.ctx.currentTime + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, audio.ctx.currentTime + 0.22);
+      o.connect(g); g.connect(audio.master); o.start(); o.stop(audio.ctx.currentTime + 0.24);
+    }
+
+    function crashSound() {
+      if (!audio.ctx) return;
+      const now = performance.now();
+      if (now < crashSfxUntil) return;
+      crashSfxUntil = now + 90;
+      const o = audio.ctx.createOscillator();
+      const g = audio.ctx.createGain();
+      o.type = 'square';
+      o.frequency.value = 80 + rand(0, 80);
+      g.gain.value = 0.0001;
+      g.gain.exponentialRampToValueAtTime(0.1, audio.ctx.currentTime + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, audio.ctx.currentTime + 0.25);
+      o.connect(g); g.connect(audio.master); o.start(); o.stop(audio.ctx.currentTime + 0.26);
+    }
+
+    function passSound() {
+      if (!audio.ctx) return;
+      const o = audio.ctx.createOscillator();
+      const g = audio.ctx.createGain();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(480, audio.ctx.currentTime);
+      o.frequency.exponentialRampToValueAtTime(1600, audio.ctx.currentTime + 0.12);
+      g.gain.value = 0.0001;
+      g.gain.exponentialRampToValueAtTime(0.06, audio.ctx.currentTime + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, audio.ctx.currentTime + 0.2);
+      o.connect(g); g.connect(audio.master); o.start(); o.stop(audio.ctx.currentTime + 0.22);
+    }
+
+    function crowdCheerSound() {
+      if (!audio.ctx) return;
+      const n = audio.ctx.createBufferSource();
+      const b = audio.ctx.createBuffer(1, audio.ctx.sampleRate * 0.35, audio.ctx.sampleRate);
+      const d = b.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * 0.6;
+      n.buffer = b;
+      const f = audio.ctx.createBiquadFilter();
+      f.type = 'bandpass';
+      f.frequency.value = 900;
+      const g = audio.ctx.createGain();
+      g.gain.value = 0.0001;
+      g.gain.exponentialRampToValueAtTime(0.2, audio.ctx.currentTime + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, audio.ctx.currentTime + 0.75);
+      n.connect(f); f.connect(g); g.connect(audio.master); n.start();
+    }
+
+    function audioTick() {
+      if (!audio.ctx || !st.player) return;
+      audio.e1.frequency.value = 70 + st.player.spd * 1.25;
+      audio.e2.frequency.value = 140 + st.player.spd * 2.2;
+      audio.engGain.gain.value = 0.03 + st.player.spd / 7000;
+      audio.skidGain.gain.value = Math.abs(st.player.slip) * 0.05;
+    }
+
+    function resetTrack() {
+      st.w = canvas.width = innerWidth;
+      st.h = canvas.height = innerHeight;
+      st.track.straight = Math.min(1120, st.w * 0.72);
+      st.track.radius = Math.min(320, st.h * 0.29);
+      st.track.cx = st.w * 0.5;
+      st.track.cy = st.h * 0.56;
+      st.track.half = Math.max(58, Math.min(82, st.h * 0.085));
+      st.track.len = 2 * st.track.straight + 2 * Math.PI * st.track.radius;
+    }
+
+    function posAt(p, lane) {
+      const t = st.track;
+      let d = ((p % 1) + 1) % 1 * t.len;
+      const hs = t.straight * 0.5;
+      let x = 0, y = 0, a = 0;
+      if (d < t.straight) { x = t.cx - hs + d; y = t.cy - t.radius; a = 0; }
+      else if (d < t.straight + Math.PI * t.radius) {
+        const u = (d - t.straight) / t.radius - Math.PI * 0.5;
+        x = t.cx + hs + Math.cos(u) * t.radius;
+        y = t.cy + Math.sin(u) * t.radius;
+        a = u + Math.PI * 0.5;
+      } else if (d < t.straight + Math.PI * t.radius + t.straight) {
+        const u = d - (t.straight + Math.PI * t.radius);
+        x = t.cx + hs - u; y = t.cy + t.radius; a = Math.PI;
+      } else {
+        const u = (d - (2 * t.straight + Math.PI * t.radius)) / t.radius + Math.PI * 0.5;
+        x = t.cx - hs + Math.cos(u) * t.radius;
+        y = t.cy + Math.sin(u) * t.radius;
+        a = u + Math.PI * 0.5;
+      }
+      const nx = -Math.sin(a), ny = Math.cos(a);
+      return { x: x + nx * lane, y: y + ny * lane, a, nx, ny };
+    }
+
+    function startSlot(i) {
+      const startBase = ((st.track.straight * 0.5) / st.track.len + 0.002) % 1;
+      const laneCols = [-32, 0, 32];
+      const rowGap = 0.018;
+      if (i === 0) return { p: startBase, lane: laneCols[1] };
+      if (i === 1) return { p: startBase, lane: laneCols[0] };
+      if (i === 2) return { p: startBase, lane: laneCols[2] };
+      const idx = i - 3;
+      const row = 1 + Math.floor(idx / 3);
+      const col = idx % 3;
+      return {
+        p: (startBase - row * rowGap + 1) % 1,
+        lane: laneCols[col]
+      };
+    }
+
+    function buildCars() {
+      st.cars = [];
+      for (let i = 0; i < 13; i++) {
+        const slot = startSlot(i);
+        const c = {
+          id: i,
+          isPlayer: i === 12,
+          p: slot.p,
+          lane: slot.lane,
+          laneT: slot.lane,
+          spd: 0, steer: 0, slip: 0, laps: 0, body: 1 + (i % 7),
+          skill: rand(0.88, 1.34), agg: rand(0.45, 1.5),
+          crashed: false, crashT: 0, spin: 0, invuln: 0, offTrackCd: 0, fuel: 100, dmg: 0, wantPit: false,
+          x: 0, y: 0, a: 0
+        };
+        if (c.isPlayer) { c.body = 0; c.skill = 1; }
+        st.cars.push(c);
+      }
+      st.player = st.cars.find(c => c.isPlayer);
+      st.raceTime = 0;
+      st.lapStart = 0;
+      st.lastPosition = 13;
+      st.popups = [];
+      st.fuel = st.maxFuel;
+      st.hits = 0;
+      st.speedPenalty = false;
+      st.pitProg = 0;
+      st.birds = [];
+      st.clouds = [];
+      st.cityCars = [];
+      st.crowdPeople = [];
+      st.infieldPeople = [];
+      st.infieldTrucks = [];
+      st.nextBird = rand(1.5, 4.5);
+      st.nextCloud = rand(0.8, 2.2);
+      st.nextCityCar = rand(0.5, 1.4);
+      for (let i = 0; i < 70; i++) {
+        st.crowdPeople.push({
+          p: (i + 0.25) / 70,
+          lane: st.track.half + rand(44, 62),
+          dir: Math.random() < 0.5 ? -1 : 1,
+          jumpT: rand(0.2, 1.8)
+        });
+      }
+      for (let i = 0; i < 10; i++) {
+        st.infieldPeople.push({
+          x: st.track.cx + rand(-st.track.straight * 0.25, st.track.straight * 0.25),
+          y: st.track.cy + rand(-st.track.radius * 0.42, st.track.radius * 0.42),
+          vx: rand(-16, 16),
+          vy: rand(-14, 14),
+          t: rand(0.4, 2.4)
+        });
+      }
+      const truckColors = ['#d5dbe8', '#c7f5ff', '#f6e1a8', '#ffc2dd'];
+      for (let i = 0; i < 4; i++) {
+        st.infieldTrucks.push({
+          x: st.track.cx - st.track.straight * 0.18 + i * 52,
+          y: st.track.cy + (i % 2 === 0 ? -36 : 28),
+          c: truckColors[i % truckColors.length]
+        });
+      }
+      st.pitState = 'track';
+      st.gameOver = false;
+      st.lbGameOverTried = false;
+      scoreEl.textContent = '0';
+      updateTransforms();
+      st.camZ = (coarse || st.w < 900) ? 0.86 : 0.74;
+      st.camCx = st.track.cx;
+      st.camCy = st.track.cy;
+      st.camCrashT = 0;
+    }
+
+    function updateTransforms() {
+      for (const c of st.cars) {
+        const p = posAt(c.p, c.lane);
+        c.x = p.x; c.y = p.y; c.a = p.a + c.slip * 0.28 + c.spin;
+      }
+    }
+
+    function inPitSafeZone(c) {
+      const hs = st.track.straight * 0.5;
+      const pitTopY = st.track.cy - st.track.radius;
+      const pitEntryX = st.track.cx + hs * 0.02;
+      const pitX = st.track.cx + hs * 0.08;
+      const pitW = hs * 0.5;
+      return Math.abs(c.y - pitTopY) < 86 && c.x > pitEntryX - 84 && c.x < pitX + pitW + 86;
+    }
+
+    function triggerCrash(a, b) {
+      if (inPitSafeZone(a) || inPitSafeZone(b)) return;
+      for (const c of [a, b]) {
+        if (!c.crashed) {
+          c.crashed = true;
+          c.crashT = 2;
+          c.spd = 0;
+          c.spin = rand(-1.4, 1.4);
+        }
+        c.invuln = Math.max(c.invuln, 5);
+        if (!c.isPlayer) c.dmg = (c.dmg || 0) + 1;
+      }
+      st.explosions.push({ x: (a.x + b.x) * 0.5, y: (a.y + b.y) * 0.5, t: 0.8, fire: true });
+      if (a.isPlayer || b.isPlayer) {
+        st.camCrashT = Math.max(st.camCrashT, 0.8);
+        const p = a.isPlayer ? a : b;
+        popup(pick(cheerWords), p.x, p.y - 18);
+        st.hits++;
+        if (st.hits >= 3) st.speedPenalty = true;
+      }
+      crashSound();
+    }
+
+    function offTrackCrash(c) {
+      if (c.crashed || c.offTrackCd > 0) return;
+      if (inPitSafeZone(c)) return;
+      if (!c.isPlayer) return;
+      if (st.offTrackFrameCount >= 1) {
+        c.offTrackCd = 0.25;
+        c.spd *= 0.82;
+        return;
+      }
+      st.offTrackFrameCount++;
+      c.crashed = true;
+      c.crashT = 1.25;
+      c.spd = 0;
+      c.spin = rand(-2, 2);
+      c.offTrackCd = 1.2;
+      if (st.explosions.length < 32) st.explosions.push({ x: c.x, y: c.y, t: 0.75, fire: true });
+      const puffCount = 5;
+      for (let i = 0; i < puffCount && st.smoke.length < 220; i++) st.smoke.push({ x: c.x + rand(-8, 8), y: c.y + rand(-8, 8), t: 0.55, s: rand(10, 16), fire: true });
+      st.camCrashT = Math.max(st.camCrashT, 0.75);
+      popup(pick(cheerWords), c.x, c.y - 18);
+      st.hits++;
+      if (st.hits >= 3) st.speedPenalty = true;
+      crashSound();
+    }
+
+    function updateAI(dt) {
+      for (const c of st.cars) {
+        if (c.isPlayer || c.crashed) continue;
+        c.fuel = Math.max(0, c.fuel - (0.12 + Math.max(0, c.spd) / 1400) * dt);
+        c.wantPit = c.wantPit || c.fuel < 16 || c.dmg >= 3;
+        if (Math.random() < 0.015) c.laneT = rand(-st.track.half + 10, st.track.half - 10);
+        let blocked = false;
+        for (const o of st.cars) {
+          if (o === c || o.crashed) continue;
+          const ahead = (o.laps * st.track.len + o.p * st.track.len) - (c.laps * st.track.len + c.p * st.track.len);
+          if (ahead > 0 && ahead < 58 && Math.abs(o.lane - c.lane) < 11) {
+            blocked = true;
+            c.laneT += (Math.random() < 0.5 ? -1 : 1) * (42 * dt * c.agg);
+          }
+          if (Math.abs(ahead) < 34 && Math.abs(o.lane - c.lane) < 16) {
+            // Active collision-avoidance: create lateral separation with neighbors.
+            const side = c.lane <= o.lane ? -1 : 1;
+            c.laneT += side * (86 * dt * c.agg);
+          }
+        }
+        const hs = st.track.straight * 0.5;
+        const pitTopY = st.track.cy - st.track.radius;
+        const pitEntryX = st.track.cx + hs * 0.02;
+        const pitX = st.track.cx + hs * 0.08;
+        const pitW = hs * 0.5;
+        if (c.wantPit && c.x > pitEntryX - 44 && c.x < pitX + pitW + 48 && Math.abs(c.y - pitTopY) < 58) {
+          c.laneT = clamp(c.laneT - 70 * dt, -st.track.half - 48, -st.track.half - 12);
+          c.spd = Math.min(c.spd, 105);
+          if (c.x > pitX && c.x < pitX + pitW && c.lane < -st.track.half - 8) {
+            c.fuel = 100;
+            c.dmg = 0;
+            c.wantPit = false;
+          }
+        }
+        c.laneT = clamp(c.laneT, -st.track.half - 52, st.track.half - 8);
+        c.steer += (clamp((c.laneT - c.lane) * 0.09, -1, 1) - c.steer) * 0.16;
+        c.lane += c.steer * (34 + 12 * c.agg) * dt;
+        const target = (blocked ? 125 : rand(195, 312)) * c.skill;
+        c.spd += (target - c.spd) * (0.75 + 0.2 * c.agg) * dt;
+        const pp = c.p;
+        c.p = (c.p + (c.spd / st.track.len) * dt) % 1;
+        if (c.p < pp) c.laps++;
+        c.slip += (c.steer * (c.spd / 240) - c.slip) * 0.12;
+        if (Math.abs(c.slip) > 0.4 && Math.random() < 0.1 && st.smoke.length < 220) st.smoke.push({ x: c.x, y: c.y, t: 0.35, s: rand(7, 12) });
+        const edge = Math.abs(c.lane);
+        const inPitCorridor = Math.abs(c.y - pitTopY) < 86 && c.x > pitEntryX - 84 && c.x < pitX + pitW + 86;
+        if (!inPitCorridor) {
+          const nearEdge = edge - (st.track.half - 7);
+          if (nearEdge > 0) c.spd = Math.max(32, c.spd - (35 + nearEdge * 14) * dt);
+          const over = edge - st.track.half;
+          if (over > 0) {
+            c.spd = Math.max(35, c.spd - (70 + over * 18) * dt);
+            c.lane = clamp(c.lane, -st.track.half + 8, st.track.half - 8);
+            c.laneT = clamp(c.laneT, -st.track.half + 8, st.track.half - 8);
+          }
+        }
+      }
+    }
+
+    function updatePlayer(dt) {
+      const c = st.player;
+      if (c.crashed || st.gameOver) return;
+      const canSteer = Math.abs(c.spd) > 8;
+      const steer = canSteer ? (st.keys.right ? 1 : 0) - (st.keys.left ? 1 : 0) : 0;
+      const acc = st.keys.up ? 1 : 0;
+      const rev = st.keys.down ? 1 : 0;
+      c.steer += (steer - c.steer) * 0.34;
+      c.laneT += steer * (50 + Math.min(60, c.spd * 0.35)) * dt;
+      c.laneT = clamp(c.laneT, -st.track.half - 24, st.track.half + 24);
+      c.lane += (c.laneT - c.lane) * 0.2;
+      if (acc) {
+        // Forward input first brakes reverse motion, then accelerates forward.
+        c.spd += (c.spd < 0 ? 320 : 230) * dt;
+      }
+      if (rev) {
+        // Reverse input first brakes forward motion, then accelerates backward.
+        c.spd -= (c.spd > 0 ? 340 : 210) * dt;
+      }
+      // Natural rolling resistance always pushes speed toward zero.
+      const drag = 95 * dt;
+      if (Math.abs(c.spd) <= drag) c.spd = 0;
+      else c.spd -= Math.sign(c.spd) * drag;
+      const maxSpd = st.speedPenalty ? 205 : 320;
+      c.spd = clamp(c.spd, -110, maxSpd);
+      st.fuel = Math.max(0, st.fuel - (0.35 + acc * (0.9 + Math.max(0, c.spd) / 320)) * dt);
+      if (st.fuel <= 0) c.spd = Math.max(0, c.spd - 180 * dt);
+      if (st.fuel <= 0 && c.spd < 2) { c.spd = 0; st.gameOver = true; }
+      const pp = c.p;
+      c.p = (c.p + (c.spd / st.track.len) * dt) % 1;
+      if (c.p < pp) {
+        c.laps++;
+        scoreEl.textContent = String(c.laps);
+        st.lapStart = st.raceTime;
+      }
+      c.slip += (c.steer * (c.spd / 220) - c.slip) * 0.2;
+      if (Math.abs(c.slip) > 0.32 && c.spd > 120 && Math.random() < 0.32 && st.smoke.length < 220) st.smoke.push({ x: c.x, y: c.y, t: 0.38, s: rand(8, 13) });
+      const hs = st.track.straight * 0.5;
+      const pitOnTop = Math.abs(c.y - (st.track.cy - st.track.radius)) < 78;
+      const pitEntryX = st.track.cx + hs * 0.02;
+      const pitX = st.track.cx + hs * 0.08;
+      const pitW = hs * 0.5;
+      const inPitCorridor = c.x > pitEntryX - 88 && c.x < pitX + pitW + 96 && c.lane < -st.track.half + 56 && Math.abs(c.y - (st.track.cy - st.track.radius)) < 92;
+      const edge = Math.abs(c.lane);
+      if (!inPitCorridor) {
+        const nearEdge = edge - (st.track.half - 7);
+        if (nearEdge > 0) c.spd = Math.max(-100, c.spd - (18 + nearEdge * 7) * dt);
+        const over = edge - st.track.half;
+        if (over > 0) {
+          c.spd = Math.max(42, c.spd - (24 + over * 8) * dt);
+          c.slip += (Math.sign(c.lane) * 0.45 - c.slip) * 0.1;
+        }
+      }
+      const inEntry = pitOnTop && c.x > pitEntryX - 88 && c.x < pitEntryX + 126;
+      const inPitApproach = c.x > pitEntryX - 88 && c.x < pitX + 64 && c.lane < -st.track.half + 56;
+      const playerPitIntent = st.keys.right;
+      if ((st.phase === 'green' || st.phase === 'race') && st.pitState === 'track' && (inEntry || inPitApproach) && playerPitIntent && c.spd < 220) st.pitState = 'pit';
+      if (st.pitState === 'pit') {
+        c.laneT += (-st.track.half - 14 - c.laneT) * 0.18;
+        c.laneT = clamp(c.laneT, -st.track.half - 40, -st.track.half + 16);
+        c.lane += (c.laneT - c.lane) * 0.2;
+        c.spd = Math.min(c.spd, 105);
+      }
+      const inPitServiceZone = inPitCorridor && st.pitState === 'pit';
+      if ((st.phase === 'green' || st.phase === 'race') && inPitServiceZone) {
+        // Progressive pit service while touching pit road.
+        st.fuel = Math.min(st.maxFuel, st.fuel + 34 * dt);
+        st.hits = Math.max(0, st.hits - 1.15 * dt);
+        if (st.hits < 2.95) st.speedPenalty = false;
+        if (st.fuel >= st.maxFuel - 0.05 && st.hits <= 0.05 && st.pitProg <= 0) {
+          st.pitProg = 0.9;
+          popup('PIT DONE', c.x, c.y - 20);
+        }
+      } else {
+        st.pitProg = Math.max(0, st.pitProg - dt * 1.7);
+      }
+      if (st.pitState === 'pit' && (!pitOnTop || c.x > pitX + pitW + 26 || c.lane > -st.track.half + 6)) st.pitState = 'track';
+    }
+
+    function updateCrashes(dt) {
+      for (const c of st.cars) {
+        if (c.offTrackCd > 0) c.offTrackCd -= dt;
+        if (!c.crashed) continue;
+        c.crashT -= dt;
+        c.spin *= 0.94;
+        if (c.crashT <= 0) {
+          c.crashed = false;
+          c.lane = clamp(c.lane, -st.track.half + 8, st.track.half - 8);
+          c.laneT = c.lane;
+          c.spd = c.isPlayer ? 0 : rand(90, 150);
+          c.spin = 0;
+        }
+      }
+      for (const c of st.cars) if (c.invuln > 0) c.invuln -= dt;
+      for (let i = st.explosions.length - 1; i >= 0; i--) {
+        st.explosions[i].t -= dt;
+        if (st.explosions[i].t <= 0) st.explosions.splice(i, 1);
+      }
+      if (st.explosions.length > 32) st.explosions.splice(0, st.explosions.length - 32);
+    }
+
+    function updateEffects(dt) {
+      for (let i = st.smoke.length - 1; i >= 0; i--) {
+        const s = st.smoke[i];
+        s.t -= dt;
+        s.s += dt * 14;
+        if (s.t <= 0) st.smoke.splice(i, 1);
+      }
+      for (let i = st.popups.length - 1; i >= 0; i--) {
+        const p = st.popups[i];
+        p.t -= dt;
+        p.y -= p.vy * dt;
+        if (p.t <= 0) st.popups.splice(i, 1);
+      }
+      st.nextBird -= dt;
+      if (st.nextBird <= 0) {
+        const dir = Math.random() < 0.5 ? 1 : -1;
+        const startX = dir > 0 ? st.track.cx - st.track.straight * 0.9 : st.track.cx + st.track.straight * 0.9;
+        st.birds.push({
+          x: startX,
+          y: st.track.cy - st.track.radius - rand(120, 220),
+          vx: rand(55, 110) * dir,
+          flap: rand(0, Math.PI * 2),
+          t: rand(8, 14)
+        });
+        st.nextBird = rand(2.2, 8.5);
+      }
+      for (let i = st.birds.length - 1; i >= 0; i--) {
+        const b = st.birds[i];
+        b.x += b.vx * dt;
+        b.flap += dt * 10;
+        b.t -= dt;
+        if (b.t <= 0 || b.x > st.track.cx + st.track.straight * 0.95 || b.x < st.track.cx - st.track.straight * 0.95) st.birds.splice(i, 1);
+      }
+      st.nextCloud -= dt;
+      if (st.nextCloud <= 0) {
+        const dir = Math.random() < 0.5 ? 1 : -1;
+        st.clouds.push({
+          x: dir > 0 ? st.track.cx - st.track.straight * 1.05 : st.track.cx + st.track.straight * 1.05,
+          y: st.track.cy - st.track.radius - rand(170, 320),
+          vx: rand(10, 28) * dir,
+          s: rand(26, 54),
+          t: rand(14, 24)
+        });
+        st.nextCloud = rand(1.2, 3.6);
+      }
+      for (let i = st.clouds.length - 1; i >= 0; i--) {
+        const c = st.clouds[i];
+        c.x += c.vx * dt;
+        c.t -= dt;
+        if (c.t <= 0 || c.x > st.track.cx + st.track.straight * 1.1 || c.x < st.track.cx - st.track.straight * 1.1) st.clouds.splice(i, 1);
+      }
+      st.nextCityCar -= dt;
+      if (st.nextCityCar <= 0) {
+        const ex = st.track.straight * 1.05;
+        const roadTopY = st.track.cy - st.track.radius - st.track.half - 107;
+        const roadBotY = st.track.cy + st.track.radius + st.track.half + 103;
+        const c = { x: st.track.cx, y: st.track.cy, vx: 0, vy: 0, w: rand(11, 15), h: rand(6, 9), t: rand(10, 18), c: pick(['#ff4fd8', '#45f0ff', '#ffe357', '#66ff9b', '#ff8a3d']) };
+        if (Math.random() < 0.5) { c.x = st.track.cx - ex; c.y = roadTopY; c.vx = rand(28, 54); }
+        else { c.x = st.track.cx + ex; c.y = roadBotY; c.vx = -rand(28, 54); }
+        st.cityCars.push(c);
+        st.nextCityCar = rand(0.35, 1.2);
+      }
+      for (let i = st.cityCars.length - 1; i >= 0; i--) {
+        const c = st.cityCars[i];
+        c.x += c.vx * dt;
+        c.y += c.vy * dt;
+        c.t -= dt;
+        if (c.t <= 0 || Math.abs(c.x - st.track.cx) > st.track.straight * 1.2 || Math.abs(c.y - st.track.cy) > st.track.radius * 1.7) st.cityCars.splice(i, 1);
+      }
+      for (const p of st.crowdPeople) {
+        p.jumpT -= dt;
+        if (p.jumpT <= 0) p.jumpT = rand(0.45, 2.1);
+      }
+      for (const p of st.infieldPeople) {
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.t -= dt;
+        if (p.x < st.track.cx - st.track.straight * 0.3 || p.x > st.track.cx + st.track.straight * 0.3) p.vx *= -1;
+        if (p.y < st.track.cy - st.track.radius * 0.46 || p.y > st.track.cy + st.track.radius * 0.46) p.vy *= -1;
+        if (p.t <= 0) {
+          p.t = rand(0.6, 2.5);
+          p.vx = rand(-18, 18);
+          p.vy = rand(-16, 16);
+        }
+      }
+      if (st.smoke.length > 220) st.smoke.splice(0, st.smoke.length - 220);
+      if (st.cityCars.length > 26) st.cityCars.splice(0, st.cityCars.length - 26);
+    }
+
+    function collisions() {
+      for (let i = 0; i < st.cars.length; i++) {
+        for (let j = i + 1; j < st.cars.length; j++) {
+          const a = st.cars[i], b = st.cars[j];
+          if (a.crashed || b.crashed || a.invuln > 0 || b.invuln > 0) continue;
+          if (inPitSafeZone(a) || inPitSafeZone(b)) continue;
+          const dx = b.x - a.x, dy = b.y - a.y;
+          if (dx * dx + dy * dy < 400) triggerCrash(a, b);
+        }
+      }
+    }
+
+    function raceStats() {
+      const rank = [...st.cars].sort((a, b) => (b.laps * st.track.len + b.p * st.track.len) - (a.laps * st.track.len + a.p * st.track.len));
+      st.position = rank.findIndex(c => c.isPlayer) + 1;
+      if (st.position < st.lastPosition && st.player) {
+        popup(pick(wowWords), st.player.x, st.player.y - 24);
+        passSound();
+        crowdCheerSound();
+      }
+      st.lastPosition = st.position;
+      posEl.textContent = `${st.position}/13`;
+      lapEl.textContent = (st.raceTime - st.lapStart).toFixed(2);
+      st.raceScore = Math.max(0, Math.round(st.player.laps * 1000 - st.raceTime * 12 + (14 - st.position) * 120 - st.hits * 40));
+      raceScoreEl.textContent = String(st.raceScore);
+    }
+
+    function updateCamera(dt) {
+      if (!st.player) return;
+      const p = st.player;
+      const overviewZ = (coarse || st.w < 900) ? 0.86 : 0.74;
+      const followZ = (coarse || st.w < 900) ? 1.55 : 1.12;
+      const countdownProg = st.phase === 'countdown' ? clamp(st.phaseT / 3, 0, 1) : 1;
+      let targetZ = st.phase === 'idle' ? overviewZ : overviewZ + (followZ - overviewZ) * countdownProg;
+      if (st.phase === 'race' && st.keys.up) targetZ += 0.12;
+      if (p.crashed || st.camCrashT > 0) targetZ *= 0.86;
+      if (st.phase === 'race' && p.spd < 30) targetZ *= 0.92;
+
+      const followBias = clamp((targetZ - overviewZ) / Math.max(0.1, followZ - overviewZ), 0, 1);
+      const targetCx = st.track.cx + (p.x - st.track.cx) * followBias;
+      const targetCy = st.track.cy + (p.y - st.track.cy) * followBias;
+      st.camZ += (targetZ - st.camZ) * Math.min(1, dt * 2.8);
+      st.camCx += (targetCx - st.camCx) * Math.min(1, dt * 3.4);
+      st.camCy += (targetCy - st.camCy) * Math.min(1, dt * 3.4);
+      st.camCrashT = Math.max(0, st.camCrashT - dt);
+    }
+
+    function cam() {
+      return { z: st.camZ, cx: st.camCx, cy: st.camCy };
+    }
+
+    function drawTrack() {
+      const c = cam();
+      ctx.setTransform(c.z, 0, 0, c.z, st.w * 0.5 - c.cx * c.z, st.h * 0.5 - c.cy * c.z);
+      ctx.fillStyle = '#3a8f2f';
+      ctx.fillRect(c.cx - st.w, c.cy - st.h, st.w * 2, st.h * 2);
+
+      if (assets.ground.complete) ctx.drawImage(assets.ground, st.track.cx - st.track.straight * 0.62, st.track.cy - st.track.radius * 1.8, st.track.straight * 1.24, st.track.radius * 3.6);
+
+      const out = st.track.half + 20;
+      const inn = Math.max(10, st.track.half - 16);
+      ctx.strokeStyle = '#2d2f34';
+      ctx.lineWidth = out * 2;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      for (let i = 0; i <= 420; i++) { const p = posAt(i / 420, 0); if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); }
+      ctx.closePath();
+      ctx.stroke();
+
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = inn * 2;
+      ctx.beginPath();
+      for (let i = 0; i <= 420; i++) { const p = posAt(i / 420, 0); if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); }
+      ctx.closePath();
+      ctx.stroke();
+      ctx.globalCompositeOperation = 'source-over';
+
+      ctx.strokeStyle = '#f5d34f';
+      ctx.lineWidth = 4;
+      for (const side of [st.track.half, -st.track.half]) {
+        ctx.beginPath();
+        for (let i = 0; i <= 420; i++) { const p = posAt(i / 420, side); if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); }
+        ctx.stroke();
+      }
+
+      // Clouds in sky layer.
+      for (const c of st.clouds) {
+        ctx.fillStyle = 'rgba(255,255,255,0.14)';
+        ctx.beginPath();
+        ctx.arc(c.x - c.s * 0.4, c.y, c.s * 0.45, 0, Math.PI * 2);
+        ctx.arc(c.x, c.y - c.s * 0.1, c.s * 0.55, 0, Math.PI * 2);
+        ctx.arc(c.x + c.s * 0.45, c.y, c.s * 0.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // City roads, buildings and traffic around the track.
+      const roadTop = st.track.cy - st.track.radius - st.track.half - 118;
+      const roadBot = st.track.cy + st.track.radius + st.track.half + 92;
+      ctx.fillStyle = '#34363c';
+      ctx.fillRect(st.track.cx - st.track.straight * 1.05, roadTop, st.track.straight * 2.1, 22);
+      ctx.fillRect(st.track.cx - st.track.straight * 1.05, roadBot, st.track.straight * 2.1, 22);
+      ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+      ctx.setLineDash([9, 7]);
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(st.track.cx - st.track.straight, roadTop + 11);
+      ctx.lineTo(st.track.cx + st.track.straight, roadTop + 11);
+      ctx.moveTo(st.track.cx - st.track.straight, roadBot + 11);
+      ctx.lineTo(st.track.cx + st.track.straight, roadBot + 11);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      for (let i = 0; i < 22; i++) {
+        const bx = st.track.cx - st.track.straight * 1.02 + i * 54;
+        const bh = 20 + ((i * 13) % 42);
+        ctx.fillStyle = i % 2 ? '#45495a' : '#3d4250';
+        ctx.fillRect(bx, roadTop - bh - 6, 36, bh);
+        ctx.fillRect(bx + 8, roadBot + 26, 34, bh * 0.7);
+        ctx.fillStyle = 'rgba(255,245,195,0.35)';
+        ctx.fillRect(bx + 6, roadTop - bh + 8, 5, 5);
+        ctx.fillRect(bx + 15, roadTop - bh + 13, 5, 5);
+      }
+      for (const c of st.cityCars) {
+        ctx.fillStyle = c.c;
+        ctx.fillRect(c.x - c.w * 0.5, c.y - c.h * 0.5, c.w, c.h);
+        ctx.fillStyle = 'rgba(220,240,255,0.7)';
+        ctx.fillRect(c.x - c.w * 0.2, c.y - c.h * 0.35, c.w * 0.4, c.h * 0.25);
+      }
+
+      // Infield service area with stopped trucks and walking staff.
+      for (const t of st.infieldTrucks) {
+        ctx.fillStyle = '#2d3140';
+        ctx.fillRect(t.x - 18, t.y - 7, 36, 14);
+        ctx.fillStyle = t.c;
+        ctx.fillRect(t.x - 12, t.y - 5, 24, 10);
+        ctx.fillStyle = '#b8f5ff';
+        ctx.fillRect(t.x - 4, t.y - 4, 8, 4);
+        ctx.fillStyle = '#111';
+        ctx.beginPath(); ctx.arc(t.x - 11, t.y + 7, 2.2, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(t.x + 11, t.y + 7, 2.2, 0, Math.PI * 2); ctx.fill();
+      }
+      for (const p of st.infieldPeople) {
+        ctx.fillStyle = '#f4e8cc';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y - 4, 2.1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#45f0ff';
+        ctx.fillRect(p.x - 1.8, p.y - 2.3, 3.6, 5);
+      }
+
+      // Crowd benches and flags around the oval.
+      for (let i = 0; i < 56; i++) {
+        const p = posAt(i / 56, st.track.half + 42);
+        ctx.fillStyle = i % 2 ? '#7f4e2c' : '#6f3f22';
+        ctx.fillRect(p.x - 12, p.y - 6, 24, 8);
+        if (i % 7 === 0) {
+          ctx.strokeStyle = '#fefefe';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(p.x + 11, p.y - 10);
+          ctx.lineTo(p.x + 11, p.y - 22);
+          ctx.stroke();
+          ctx.fillStyle = i % 14 === 0 ? '#ff4fd8' : '#45f0ff';
+          ctx.beginPath();
+          ctx.moveTo(p.x + 11, p.y - 22);
+          ctx.lineTo(p.x + 20, p.y - 19);
+          ctx.lineTo(p.x + 11, p.y - 16);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+      for (const p of st.crowdPeople) {
+        const cp = posAt(p.p, p.lane);
+        const jump = p.jumpT < 0.18 ? Math.sin((0.18 - p.jumpT) / 0.18 * Math.PI) * 6 : 0;
+        ctx.fillStyle = '#f4e8cc';
+        ctx.beginPath();
+        ctx.arc(cp.x, cp.y - 9 - jump, 2.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = p.dir > 0 ? '#ff4fd8' : '#45f0ff';
+        ctx.fillRect(cp.x - 2, cp.y - 7 - jump, 4, 5);
+      }
+
+      // Start/finish line at middle of top straight.
+      const sf = posAt((st.track.straight * 0.5) / st.track.len, 0);
+      const sfN = posAt((st.track.straight * 0.5) / st.track.len, 1);
+      const vx = sfN.x - sf.x;
+      const vy = sfN.y - sf.y;
+      const vm = Math.hypot(vx, vy) || 1;
+      const nx = vx / vm;
+      const ny = vy / vm;
+      const tx = -ny;
+      const ty = nx;
+      // Extra finish-line grandstands on both sides.
+      const tNow = performance.now() * 0.008;
+      for (const side of [-1, 1]) {
+        const baseX = sf.x + nx * side * (st.track.half + 52);
+        const baseY = sf.y + ny * side * (st.track.half + 52);
+        ctx.fillStyle = '#6b4025';
+        ctx.fillRect(baseX - 36, baseY - 10, 72, 14);
+        ctx.fillStyle = '#7f4e2c';
+        ctx.fillRect(baseX - 42, baseY + 2, 84, 10);
+        for (let i = 0; i < 9; i++) {
+          const px = baseX - 30 + i * 7;
+          const py = baseY - 12 - Math.abs(Math.sin(tNow + i * 0.7 + side)) * 5;
+          ctx.fillStyle = '#f4e8cc';
+          ctx.beginPath();
+          ctx.arc(px, py, 2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = i % 2 ? '#ff4fd8' : '#45f0ff';
+          ctx.fillRect(px - 1.6, py + 1.5, 3.2, 4);
+        }
+        ctx.strokeStyle = '#fefefe';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(baseX + 34, baseY - 12);
+        ctx.lineTo(baseX + 34, baseY - 28);
+        ctx.stroke();
+        ctx.fillStyle = side > 0 ? '#45f0ff' : '#ff4fd8';
+        ctx.beginPath();
+        ctx.moveTo(baseX + 34, baseY - 28);
+        ctx.lineTo(baseX + 46, baseY - 24);
+        ctx.lineTo(baseX + 34, baseY - 20);
+        ctx.closePath();
+        ctx.fill();
+      }
+      const halfW = st.track.half + 7;
+      const lineLen = 24;
+      const tiles = 18;
+      for (let i = 0; i < tiles; i++) {
+        const t0 = -halfW + (i / tiles) * halfW * 2;
+        const t1 = -halfW + ((i + 1) / tiles) * halfW * 2;
+        const mx = sf.x + nx * ((t0 + t1) * 0.5);
+        const my = sf.y + ny * ((t0 + t1) * 0.5);
+        ctx.fillStyle = i % 2 === 0 ? '#f6f6f6' : '#171717';
+        ctx.beginPath();
+        ctx.moveTo(mx - tx * lineLen - nx * ((t1 - t0) * 0.5), my - ty * lineLen - ny * ((t1 - t0) * 0.5));
+        ctx.lineTo(mx - tx * lineLen + nx * ((t1 - t0) * 0.5), my - ty * lineLen + ny * ((t1 - t0) * 0.5));
+        ctx.lineTo(mx + tx * lineLen + nx * ((t1 - t0) * 0.5), my + ty * lineLen + ny * ((t1 - t0) * 0.5));
+        ctx.lineTo(mx + tx * lineLen - nx * ((t1 - t0) * 0.5), my + ty * lineLen - ny * ((t1 - t0) * 0.5));
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.strokeStyle = '#ff4fd8';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(sf.x - nx * halfW, sf.y - ny * halfW);
+      ctx.lineTo(sf.x + nx * halfW, sf.y + ny * halfW);
+      ctx.stroke();
+      ctx.strokeStyle = '#45f0ff';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(sf.x - nx * halfW + tx * 11, sf.y - ny * halfW + ty * 11);
+      ctx.lineTo(sf.x + nx * halfW + tx * 11, sf.y + ny * halfW + ty * 11);
+      ctx.stroke();
+
+      // Indy-style asphalt details (no center divider).
+      ctx.strokeStyle = 'rgba(255,255,255,.16)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let i = 0; i <= 420; i++) { const p = posAt(i / 420, st.track.half * 0.34); if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); }
+      ctx.closePath();
+      ctx.stroke();
+      ctx.beginPath();
+      for (let i = 0; i <= 420; i++) { const p = posAt(i / 420, -st.track.half * 0.34); if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); }
+      ctx.closePath();
+      ctx.stroke();
+
+      ctx.setLineDash([10, 16]);
+      ctx.strokeStyle = 'rgba(255,255,255,.28)';
+      ctx.lineWidth = 2;
+      for (const l of [st.track.half * 0.6, -st.track.half * 0.6]) {
+        ctx.beginPath();
+        for (let i = 0; i <= 420; i++) { const p = posAt(i / 420, l); if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); }
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+
+      // Indy-style pit road with curved merge, lane lines, and pit crew stalls.
+      const hs = st.track.straight * 0.5;
+      const pitY = st.track.cy - st.track.radius - st.track.half - 34;
+      const pitX = st.track.cx + hs * 0.08;
+      const pitW = hs * 0.5;
+      const pitH = 44;
+      const pitBaseY = st.track.cy - st.track.radius - st.track.half + 2;
+      const pitMidY = pitY + pitH * 0.5;
+      ctx.fillStyle = '#2b2d33';
+      ctx.beginPath();
+      ctx.moveTo(st.track.cx + hs * 0.02, pitBaseY);
+      ctx.quadraticCurveTo(pitX - 16, pitY + pitH + 8, pitX + 8, pitY + pitH);
+      ctx.lineTo(pitX + pitW - 8, pitY + pitH);
+      ctx.quadraticCurveTo(pitX + pitW + 22, pitY + pitH + 4, pitX + pitW + 32, pitBaseY);
+      ctx.lineTo(pitX + pitW + 22, pitBaseY - 12);
+      ctx.quadraticCurveTo(pitX + pitW + 12, pitY + 2, pitX + pitW - 14, pitY);
+      ctx.lineTo(pitX + 18, pitY);
+      ctx.quadraticCurveTo(pitX - 10, pitY + 2, st.track.cx + hs * 0.02, pitBaseY - 12);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = '#45f0ff';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(st.track.cx + hs * 0.02, pitBaseY);
+      ctx.quadraticCurveTo(pitX - 16, pitY + pitH + 8, pitX + 8, pitY + pitH);
+      ctx.lineTo(pitX + pitW - 8, pitY + pitH);
+      ctx.quadraticCurveTo(pitX + pitW + 22, pitY + pitH + 4, pitX + pitW + 32, pitBaseY);
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+      ctx.setLineDash([10, 8]);
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(pitX + 10, pitMidY);
+      ctx.lineTo(pitX + pitW - 10, pitMidY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.strokeStyle = '#ffe357';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(pitX + 10, pitY + 6);
+      ctx.lineTo(pitX + pitW - 10, pitY + 6);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(pitX + 12, pitY + pitH - 6);
+      ctx.lineTo(pitX + pitW - 12, pitY + pitH - 6);
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+      ctx.lineWidth = 1;
+      const stallW = 34;
+      for (let sx = pitX + 18; sx < pitX + pitW - 18; sx += stallW) {
+        ctx.beginPath();
+        ctx.moveTo(sx, pitY + 8);
+        ctx.lineTo(sx, pitY + pitH - 8);
+        ctx.stroke();
+      }
+
+      // Pit crew waiting near stalls.
+      for (let sx = pitX + 22; sx < pitX + pitW - 14; sx += 48) {
+        ctx.fillStyle = '#f6f6f6';
+        ctx.beginPath();
+        ctx.arc(sx, pitY + pitH + 8, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ff4fd8';
+        ctx.beginPath();
+        ctx.arc(sx + 8, pitY + pitH + 9, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.fillStyle = '#ffe357';
+      ctx.font = '700 12px "Comic Neue", "Comic Sans MS", cursive';
+      ctx.fillText('PIT ROAD', pitX + pitW * 0.36, pitY - 4);
+
+      // Birds
+      for (const b of st.birds) {
+        const wing = 6 + Math.sin(b.flap) * 3;
+        ctx.strokeStyle = 'rgba(30,30,30,0.7)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(b.x - 8, b.y);
+        ctx.quadraticCurveTo(b.x - 4, b.y - wing, b.x, b.y);
+        ctx.quadraticCurveTo(b.x + 4, b.y - wing, b.x + 8, b.y);
+        ctx.stroke();
+      }
+    }
+
+    function drawCars() {
+      const w = Math.max(34, st.track.straight * 0.03);
+      const h = w * 0.58;
+      for (const c of [...st.cars].sort((a, b) => a.p - b.p)) {
+        const blinkOn = c.invuln <= 0 || (Math.floor(c.invuln * 12) % 2 === 0);
+        if (!blinkOn) continue;
+        const m = c.steer < -0.13 ? 'l' : c.steer > 0.13 ? 'r' : 's';
+        ctx.save();
+        ctx.translate(c.x, c.y);
+        ctx.rotate(c.a);
+        if (assets.sh.complete) { ctx.globalAlpha = 0.42; ctx.drawImage(assets.sh, -w / 2 + 2, -h / 2 + 2, w, h); }
+        ctx.globalAlpha = 1;
+        const ch = assets.ch[m], bo = assets.cars[c.body % assets.cars.length];
+        if (ch.complete) ctx.drawImage(ch, -w / 2, -h / 2, w, h);
+        if (bo.complete) ctx.drawImage(bo, -w / 2, -h / 2, w, h);
+        if (c.crashed) { ctx.globalAlpha = 0.55; ctx.fillStyle = '#ff733a'; ctx.fillRect(-w / 2, -h / 2, w, h); }
+        ctx.restore();
+      }
+    }
+
+    function drawEffects() {
+      for (const s of st.smoke) {
+        ctx.save();
+        ctx.globalAlpha = s.t * 0.75;
+        if (s.fire) {
+          ctx.fillStyle = `rgba(255,120,40,${s.t})`;
+          ctx.beginPath(); ctx.arc(s.x, s.y, s.s * 0.5, 0, Math.PI * 2); ctx.fill();
+        }
+        if (assets.smoke.complete) ctx.drawImage(assets.smoke, s.x - s.s, s.y - s.s, s.s * 2, s.s * 2);
+        ctx.restore();
+      }
+      for (const e of st.explosions) {
+        const r = (1 - e.t / 0.8) * 30;
+        ctx.fillStyle = `rgba(255,120,40,${e.t})`;
+        ctx.beginPath(); ctx.arc(e.x, e.y, r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = `rgba(255,220,110,${e.t})`;
+        ctx.beginPath(); ctx.arc(e.x, e.y, r * 0.55, 0, Math.PI * 2); ctx.fill();
+      }
+      for (const p of st.popups) {
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, p.t);
+        ctx.font = '700 23px "Comic Neue", "Comic Sans MS", cursive';
+        ctx.textAlign = 'center';
+        ctx.lineWidth = 5;
+        ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+        ctx.strokeText(p.text, p.x, p.y);
+        ctx.fillStyle = p.c;
+        ctx.fillText(p.text, p.x, p.y);
+        ctx.restore();
+      }
+    }
+
+    function drawSignal() {
+      let txt = 'RACE ON';
+      let cls = '';
+      if (st.gameOver) { txt = 'MUCH GAME OVER!'; cls = 'red'; }
+      else if (st.phase === 'idle') { txt = 'WAITING FOR GREEN FLAG'; cls = ''; }
+      else if (st.phase === 'countdown') { txt = `START IN ${Math.ceil(3 - st.phaseT)}`; cls = 'red'; }
+      else if (st.phase === 'green') { txt = 'GREEN FLAG! GO!'; cls = 'green'; }
+      const warn = st.speedPenalty && st.phase === 'race' ? '<div style="margin-top:6px;color:#ff8a3d">PIT WARNING: CAR DAMAGE</div>' : '';
+      signalEl.innerHTML = `${txt}<div class="lights"><span class="light red ${cls === 'red' ? 'on' : ''}"></span><span class="light yellow ${st.phase === 'countdown' && st.phaseT > 1 ? 'on' : ''}"></span><span class="light green ${cls === 'green' ? 'on' : ''}"></span></div>${warn}`;
+    }
+
+    let prev = performance.now();
+    function frame(now) {
+      const dt = Math.min(0.05, (now - prev) / 1000);
+      prev = now;
+      refreshTimerDisplay();
+      st.offTrackFrameCount = 0;
+
+      if (st.phase === 'countdown') {
+        st.phaseT += dt;
+        const bellMark = 3 - Math.floor(st.phaseT);
+        if (bellMark < st.nextBell && bellMark >= 1) {
+          ensureAudio();
+          bellSound(bellMark === 3 ? 'red' : 'yellow');
+          st.nextBell = bellMark;
+        }
+        if (st.phaseT >= 3) {
+          st.phase = 'green';
+          st.phaseT = 0;
+          ensureAudio();
+          bellSound('green');
+        }
+      } else if (st.phase === 'green') {
+        st.phaseT += dt;
+        if (st.phaseT >= 1.2) st.phase = 'race';
+      }
+
+      if (st.running && !st.gameOver && (st.phase === 'green' || st.phase === 'race')) {
+        st.raceTime += dt;
+        updateAI(dt);
+        if (st.phase === 'green' || st.phase === 'race') updatePlayer(dt);
+        updateTransforms();
+        collisions();
+        updateCrashes(dt);
+        updateEffects(dt);
+        raceStats();
+        audioTick();
+      } else if (st.running && !st.gameOver && st.phase === 'countdown') {
+        raceStats();
+      }
+      updateCamera(dt);
+
+      drawTrack();
+      drawCars();
+      drawEffects();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      drawSignal();
+      const fuelPct = Math.round((st.fuel / st.maxFuel) * 100);
+      fuelBarEl.style.width = `${Math.max(0, fuelPct)}%`;
+      const dmg = Math.min(3, st.hits);
+      damageBarEl.style.width = `${(dmg / 3) * 100}%`;
+      if (st.gameOver && st.running && !st.lbGameOverTried) {
+        st.lbGameOverTried = true;
+        void tryLeaderboardPrompt(st.raceScore, st.raceTime);
+      }
+      requestAnimationFrame(frame);
+    }
+
+    function setKey(e, on) {
+      ensureAudio();
+      if (e.code === 'ArrowLeft' || e.code === 'KeyA') st.keys.left = on;
+      if (e.code === 'ArrowRight' || e.code === 'KeyD') st.keys.right = on;
+      if (e.code === 'ArrowUp' || e.code === 'KeyW') st.keys.up = on;
+      if (e.code === 'ArrowDown' || e.code === 'KeyS') st.keys.down = on;
+    }
+
+    addEventListener('keydown', e => setKey(e, true));
+    addEventListener('keyup', e => setKey(e, false));
+    addEventListener('pointercancel', () => { st.keys.left = st.keys.right = st.keys.up = st.keys.down = false; });
+
+    function bindBtn(id, key) {
+      const b = el(id);
+      const dn = e => { ensureAudio(); e.preventDefault(); st.keys[key] = true; b.classList.add('active'); };
+      const up = e => { e.preventDefault(); st.keys[key] = false; b.classList.remove('active'); };
+      b.addEventListener('pointerdown', dn);
+      b.addEventListener('pointerup', up);
+      b.addEventListener('pointercancel', up);
+      b.addEventListener('pointerleave', up);
+    }
+
+    bindBtn('btnLeft', 'left');
+    bindBtn('btnRight', 'right');
+    bindBtn('btnAccel', 'up');
+    bindBtn('btnBrake', 'down');
+
+    async function pullState() {
+      try {
+        const r = await fetch('/api/state?game=' + encodeURIComponent(GAME_ID), { cache: 'no-store' });
+        const s = await r.json();
+        paymentReady = !!s.payment_ready;
+        applyMempoolGate();
+        st.credits = Math.max(0, Math.floor(Number(s.credits_seconds) || 0));
+        creditsServerBaseline = st.credits;
+        creditsSyncAtMs = Date.now();
+        refreshTimerDisplay();
+        st.payments = s.payments_seen || 0;
+        paymentsEl.textContent = String(st.payments);
+        renderLatestTx(s.recent);
+        el('addr').textContent = s.payout_address;
+        el('amt').textContent = s.amount_doge;
+        el('mins').textContent = s.minutes_per_payment;
+        lastInsertUri = s.insert_uri || '';
+        if (canShowPaySlide() && lastInsertUri) {
+          payBtnEl.href = lastInsertUri;
+          payBtnEl.style.pointerEvents = 'auto';
+          payBtnEl.style.opacity = '1';
+          updatePaymentQr(lastInsertUri);
+        } else {
+          payBtnEl.href = '#';
+          payBtnEl.style.pointerEvents = 'none';
+          payBtnEl.style.opacity = '0.55';
+        }
+
+        const prevRunning = st.running;
+        const can = st.credits > 0;
+        if (!can) payOverlayPinned = false;
+        if (can && !st.running) {
+          st.lbPromptDone = false;
+          st.lbGameOverTried = false;
+          buildCars();
+          st.phase = 'countdown';
+          st.phaseT = 0;
+          st.nextBell = 4;
+        }
+        st.running = can;
+        const hudPay = el('hudPayWrap');
+        const overlayResume = el('overlayResume');
+        if (hudPay) hudPay.style.display = (can && canShowPaySlide()) ? 'block' : 'none';
+        if (overlayResume) overlayResume.style.display = (can && payOverlayPinned) ? 'block' : 'none';
+        if (payOverlayPinned && can) {
+          overlayEl.style.display = 'grid';
+          setOverlaySlide(false);
+          stopOverlayRotation();
+        } else {
+          overlayEl.style.display = can ? 'none' : 'grid';
+          if (!can && prevRunning) void tryLeaderboardPrompt(st.raceScore, st.raceTime);
+          if (!can) {
+            st.phase = 'idle';
+            if (st.player) st.player.spd = 0;
+            if (prevOverlayCan !== can) syncOverlayRotation();
+          } else {
+            stopOverlayRotation();
+          }
+        }
+        prevOverlayCan = can;
+      } catch (_) {
+        overlayEl.style.display = 'grid';
+        if (st.credits <= 0 && prevOverlayCan !== false) {
+          syncOverlayRotation();
+          prevOverlayCan = false;
+        }
+      }
+    }
+
+    el('lbName').addEventListener('input', (e) => limitLbNameInput(e.target));
+    el('lbSave').addEventListener('click', async () => {
+      limitLbNameInput(el('lbName'));
+      if (pendingLb) await addLeaderboardEntry(el('lbName').value, pendingLb.score, pendingLb.timeSec);
+      closeLbModal();
+    });
+    el('lbSkip').addEventListener('click', closeLbModal);
+
+    el('hudShowPay').addEventListener('click', () => {
+      if (!canShowPaySlide()) return;
+      payOverlayPinned = true;
+      overlayEl.style.display = 'grid';
+      setOverlaySlide(false);
+      stopOverlayRotation();
+      const r = el('overlayResume');
+      if (r) r.style.display = st.credits > 0 ? 'block' : 'none';
+    });
+    el('overlayResume').addEventListener('click', () => {
+      payOverlayPinned = false;
+      el('overlayResume').style.display = 'none';
+      overlayEl.style.display = st.credits > 0 ? 'none' : 'grid';
+      if (st.credits <= 0) syncOverlayRotation();
+    });
+
+    addEventListener('resize', () => { resetTrack(); updateTransforms(); });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        void pullMempoolStatus();
+        void pullState();
+      }
+    });
+    resetTrack();
+    buildCars();
+    requestAnimationFrame(frame);
+    setInterval(pullState, 1000);
+    setInterval(pullMempoolStatus, 3000);
+    void pullMempoolStatus();
+    pullState();
+    void (async () => {
+      await refreshLeaderboard();
+      await renderLbOverlay();
+      syncOverlayRotation();
+    })();
+  </script>
+</body>
+</html>

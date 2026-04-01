@@ -1,0 +1,242 @@
+{
+  "manifestVersion": 1,
+  "meta": {
+    "name": "Arcade",
+    "version": "0.0.1",
+    "logoPath": "logo.png",
+    "shortDescription": "Retro Dogecoin arcade with pay-to-play timer",
+    "longDescription": "Retro launcher at `/` lists games discovered from `static/games/*/game.json`. Each game can use its own payout address via env `PAYOUT_GAME_<ID>` with hyphens converted to underscores (example: `PAYOUT_GAME_FEAR_THE_DOGE`). If unset, `PAYOUT_DOGE_ADDRESS` is used as fallback for that game.\n\n**GigaWallet (optional):** set `ARCADE_GIGAWALLET_ADMIN_URL` (e.g. `http://gigawallet:8081`), `ARCADE_GIGAWALLET_INVOICE_GAMES` (comma list, e.g. `doge-mine-quest`), and per-game `ARCADE_GIGAWALLET_ACCOUNT_<GAME_ID_UNDERSCORED>` as the [GigaWallet foreign ID](https://gigawallet.dogecoin.org/docs/accounts) (must match an account you created in GigaWallet). The game client calls `POST /api/gigawallet/play-invoice` to mint an invoice (HD deposit address). **Payment detection stays on MemeTracker or arcade P2P mempool** — new invoice addresses are registered for watching; GigaWallet chain sync is not used for playtime. **Reward payouts:** set `ARCADE_ENABLE_PAYOUTS` and `ARCADE_PAYOUT_BACKEND=gigawallet`; the same foreign ID is used for `POST /account/:foreignID/pay` (no WIF on the arcade pup).\n\nPayments: **P2P mode (default)** — mempool detection over Dogecoin peers (BIP144 inv/getdata), watching each deposit address. **MemeTracker mode** — set `USE_MEMETRACKER` to true and `MEMETRACKER_BASE_URL` (e.g. `http://memetracker:8080`); the service polls `GET {base}/track/{address}` for each watched address (including every GigaWallet invoice address).\n\nPlay time counts down only while a game page is open (state poll touch + grace window). Logs: `ARCADE_P2P_LOG`. TOP 10 leaderboard remains SQLite on the pup volume.\n\nAfter configuration changes, disable and re-enable this pup to apply settings.",
+    "upstreamVersions": {
+      "Python": "3.12",
+      "Style": "Pay-to-Play"
+    }
+  },
+  "config": {
+    "sections": [
+      {
+        "name": "Payment",
+        "description": "Dogecoin payment rules for game time",
+        "fields": [
+          {
+            "name": "PAYOUT_DOGE_ADDRESS",
+            "label": "Default payout (fallback if per-game unset)",
+            "type": "text",
+            "default": "DTqAFgNNUgiPEfGmc4HZUkqJ4sz5vADd1n"
+          },
+          {
+            "name": "PAYOUT_GAME_DOGE_INDY_500",
+            "label": "Payout — Doge Indy 500",
+            "type": "text",
+            "default": ""
+          },
+          {
+            "name": "PAYOUT_GAME_FEAR_THE_DOGE",
+            "label": "Payout — Fear the Doge",
+            "type": "text",
+            "default": "DAd3QzjJ2Yh1rwTxxVz7GEKxtNQh2s9zJe"
+          },
+          {
+            "name": "PAYOUT_GAME_DOGE_MINE_QUEST",
+            "label": "Payout — Doge Mine Quest",
+            "type": "text",
+            "default": ""
+          },
+          {
+            "name": "PAYOUT_GAME_DOGE_MINE_QUEST_PRIVKEY_WIF",
+            "label": "Doge Mine Quest payout private key (WIF)",
+            "type": "text",
+            "default": ""
+          },
+          {
+            "name": "ARCADE_ENABLE_PAYOUTS",
+            "label": "Enable server reward payouts (true/false)",
+            "type": "text",
+            "default": ""
+          },
+          {
+            "name": "ARCADE_PAYOUT_BACKEND",
+            "label": "Payout backend: rpc | libdogecoin | gigawallet",
+            "type": "text",
+            "default": "rpc"
+          },
+          {
+            "name": "ARCADE_LIBDOGECOIN_HELPER",
+            "label": "Libdogecoin payout helper (executable path, libdogecoin backend only)",
+            "type": "text",
+            "default": ""
+          },
+          {
+            "name": "DOGE_RPC_URL",
+            "label": "Dogecoin Core RPC URL (rpc backend)",
+            "type": "text",
+            "default": "http://127.0.0.1:22555"
+          },
+          {
+            "name": "DOGE_RPC_USER",
+            "label": "Dogecoin Core RPC user",
+            "type": "text",
+            "default": ""
+          },
+          {
+            "name": "DOGE_RPC_PASS",
+            "label": "Dogecoin Core RPC password",
+            "type": "text",
+            "default": ""
+          },
+          {
+            "name": "DOGE_AMOUNT_TO_PLAY",
+            "label": "Amount To Play (DOGE)",
+            "type": "text",
+            "default": "1"
+          },
+          {
+            "name": "MINUTES_PER_PAYMENT",
+            "label": "Minutes Per Payment",
+            "type": "text",
+            "default": "3"
+          }
+        ]
+      },
+      {
+        "name": "Network",
+        "description": "Dogecoin network for mempool tracking",
+        "fields": [
+          {
+            "name": "DOGE_NETWORK",
+            "label": "Network (mainnet/testnet)",
+            "type": "text",
+            "default": "mainnet"
+          }
+        ]
+      },
+      {
+        "name": "MemeTracker",
+        "description": "Optional HTTP payment polling instead of local P2P",
+        "fields": [
+          {
+            "name": "USE_MEMETRACKER",
+            "label": "Use MemeTracker (true/false)",
+            "type": "text",
+            "default": ""
+          },
+          {
+            "name": "MEMETRACKER_BASE_URL",
+            "label": "MemeTracker base URL (no trailing slash)",
+            "type": "text",
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "GigaWallet",
+        "description": "HD deposit invoices + signed payouts via GigaWallet Admin API (port 8081). Grant arcade access to the gigawallet-admin interface on Dogebox.",
+        "fields": [
+          {
+            "name": "ARCADE_GIGAWALLET_ADMIN_URL",
+            "label": "GigaWallet Admin base URL (no trailing slash)",
+            "type": "text",
+            "default": "http://gigawallet:8081"
+          },
+          {
+            "name": "ARCADE_GIGAWALLET_INVOICE_GAMES",
+            "label": "Games that mint per-play invoices (comma-separated ids)",
+            "type": "text",
+            "default": "doge-mine-quest"
+          },
+          {
+            "name": "ARCADE_GIGAWALLET_ACCOUNT_DOGE_MINE_QUEST",
+            "label": "GigaWallet account foreign ID — Doge Mine Quest",
+            "type": "text",
+            "default": ""
+          },
+          {
+            "name": "ARCADE_GIGAWALLET_ACCOUNT_ID",
+            "label": "Fallback GigaWallet foreign ID (if per-game unset)",
+            "type": "text",
+            "default": ""
+          },
+          {
+            "name": "ARCADE_GIGAWALLET_MAX_ADDRESSES_PER_GAME",
+            "label": "Max invoice deposit addresses to keep watching per game",
+            "type": "text",
+            "default": "500"
+          }
+        ]
+      }
+    ]
+  },
+  "container": {
+    "build": {
+      "nixFile": "pup.nix",
+      "nixFileSha256": "5e0124a43686fbbf53d93e4bfe7621f514bf236414018f3e210cefd27fb97d29"
+    },
+    "services": [
+      {
+        "name": "arcade",
+        "command": {
+          "exec": "/bin/run-arcade.sh",
+          "cwd": "",
+          "env": null
+        }
+      }
+    ],
+    "exposes": [
+      {
+        "name": "arcade-http",
+        "type": "http",
+        "port": 8099,
+        "interfaces": [
+          "arcade-web"
+        ],
+        "listenOnHost": true,
+        "webUI": true
+      }
+    ],
+    "requiresInternet": true
+  },
+  "interfaces": [
+    {
+      "name": "arcade-web",
+      "version": "1.0.0",
+      "permissionGroups": [
+        {
+          "name": "Arcade Web",
+          "description": "Access to the Arcade game UI and payment status API",
+          "severity": 2,
+          "routes": [
+            "/*"
+          ],
+          "port": 0
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "interfaceName": "gigawallet-admin",
+      "interfaceVersion": "0.0.1",
+      "permissionGroups": ["Admin API"],
+      "optional": true,
+      "source": {
+        "sourceLocation": "",
+        "pupName": "",
+        "pupVersion": "",
+        "pupLogoBase64": ""
+      }
+    }
+  ],
+  "metrics": [
+    {
+      "name": "payments_seen",
+      "label": "Payments Seen",
+      "type": "int",
+      "history": 30
+    },
+    {
+      "name": "credits_seconds",
+      "label": "Credits (seconds)",
+      "type": "int",
+      "history": 30
+    }
+  ]
+}

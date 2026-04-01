@@ -1,0 +1,324 @@
+{
+  "manifestVersion": 1,
+  "meta": {
+    "name": "RadioDoge",
+    "version": "0.0.1",
+    "logoPath": "logo.png",
+    "shortDescription": "LoRa-based Dogecoin transaction relay for offline networks",
+    "longDescription": "RadioDoge enables Dogecoin transactions over LoRa radio networks when internet is unavailable. Sign and broadcast Dogecoin transactions peer-to-peer, relay transactions to CORE pup for blockchain validation, and communicate with other RadioDoge devices across long distances using LoRa technology.\n\nKey Features:\n- Offline transaction signing and verification\n- LoRa radio communication for peer-to-peer transaction relay\n- Integration with CORE pup for blockchain operations\n- Mesh network support for multi-hop transaction propagation\n- Transaction queue and retry logic\n\nAfter configuration changes, disable and re-enable the pup to apply settings.",
+    "upstreamVersions": {
+      "RadioDoge Official": "0.0.1-Beta-1",
+      "Heltec Firmware": "v3",
+      "LoRa": "1.0",
+      "libsodium": "1.0.18",
+      "Node.js": "18.0"
+    }
+  },
+  "config": {
+    "sections": [
+      {
+        "name": "LoRa Device Configuration",
+        "description": "Configure LoRa radio settings. After saving, disable and re-enable RadioDoge to apply.",
+        "fields": [
+          {
+            "name": "LORA_PORT",
+            "label": "LoRa Serial Port",
+            "type": "text",
+            "default": "/dev/ttyUSB0"
+          },
+          {
+            "name": "LORA_BAUDRATE",
+            "label": "LoRa Baud Rate",
+            "type": "text",
+            "default": "115200"
+          },
+          {
+            "name": "LORA_FREQUENCY",
+            "label": "Frequency (MHz)",
+            "type": "text",
+            "default": "915"
+          },
+          {
+            "name": "LORA_SPREADING_FACTOR",
+            "label": "Spreading Factor (7-12)",
+            "type": "text",
+            "default": "10"
+          },
+          {
+            "name": "LORA_BANDWIDTH",
+            "label": "Bandwidth (kHz)",
+            "type": "text",
+            "default": "125"
+          },
+          {
+            "name": "LORA_CODING_RATE",
+            "label": "Coding Rate",
+            "type": "text",
+            "default": "4/5"
+          }
+        ]
+      },
+      {
+        "name": "Device Connection",
+        "description": "Configure how to connect to the RadioDoge Heltec device (official firmware)",
+        "fields": [
+          {
+            "name": "LORA_CONNECTION_TYPE",
+            "label": "Connection Type",
+            "type": "select",
+            "options": ["wifi", "usb"],
+            "default": "wifi"
+          },
+          {
+            "name": "LORA_DEVICE_IP",
+            "label": "Device IP Address (WiFi mode)",
+            "type": "text",
+            "default": "192.168.4.1"
+          },
+          {
+            "name": "LORA_DEVICE_PORT",
+            "label": "Device API Port (WiFi mode)",
+            "type": "text",
+            "default": "80"
+          },
+          {
+            "name": "LORA_DEVICE_PASSWORD",
+            "label": "Device Password (WiFi mode)",
+            "type": "password",
+            "default": "radiodoge"
+          },
+          {
+            "name": "LORA_USB_PORT",
+            "label": "USB Serial Port (USB mode)",
+            "type": "text",
+            "default": "/dev/ttyUSB0"
+          },
+          {
+            "name": "LORA_USB_BAUDRATE",
+            "label": "USB Baud Rate",
+            "type": "text",
+            "default": "115200"
+          }
+        ]
+      },
+      {
+        "name": "RadioDoge Node Settings",
+        "description": "Configure this RadioDoge node's identity and behavior",
+        "fields": [
+          {
+            "name": "NODE_ID",
+            "label": "Node ID (unique identifier)",
+            "type": "text",
+            "default": "radiodoge-node-1"
+          },
+          {
+            "name": "NETWORK_NAME",
+            "label": "Network Name (mesh network identifier)",
+            "type": "text",
+            "default": "dogecoin-mesh"
+          },
+          {
+            "name": "ENABLE_RELAY",
+            "label": "Enable Transaction Relay",
+            "type": "toggle",
+            "default": true
+          },
+          {
+            "name": "MAX_HOPS",
+            "label": "Maximum Relay Hops",
+            "type": "text",
+            "default": "5"
+          }
+        ]
+      },
+      {
+        "name": "CORE Integration",
+        "description": "Configure connection to CORE pup for blockchain operations",
+        "fields": [
+          {
+            "name": "CORE_RPC_HOST",
+            "label": "CORE RPC Host",
+            "type": "text",
+            "default": "core:22555"
+          },
+          {
+            "name": "CORE_RPC_USER",
+            "label": "CORE RPC Username",
+            "type": "text",
+            "default": "dogebox_core"
+          },
+          {
+            "name": "CORE_RPC_PASSWORD",
+            "label": "CORE RPC Password",
+            "type": "password",
+            "default": "change_me"
+          },
+          {
+            "name": "AUTO_RELAY_TO_CORE",
+            "label": "Auto-relay signed transactions to CORE",
+            "type": "toggle",
+            "default": true
+          }
+        ]
+      },
+      {
+        "name": "Transaction Security",
+        "description": "Configure transaction signing and validation",
+        "fields": [
+          {
+            "name": "REQUIRE_SIGNATURE_VERIFICATION",
+            "label": "Require Signature Verification",
+            "type": "toggle",
+            "default": true
+          },
+          {
+            "name": "TRANSACTION_TIMEOUT_SECONDS",
+            "label": "Transaction Timeout (seconds)",
+            "type": "text",
+            "default": "300"
+          },
+          {
+            "name": "MAX_TRANSACTION_QUEUE",
+            "label": "Max Pending Transactions",
+            "type": "text",
+            "default": "100"
+          },
+          {
+            "name": "ENABLE_TRANSACTION_SIGNING",
+            "label": "Enable Local Transaction Signing",
+            "type": "toggle",
+            "default": true
+          }
+        ]
+      }
+    ]
+  },
+  "container": {
+    "build": {
+      "nixFile": "pup.nix",
+      "nixFileSha256": "b1aa29343e2b81662a5722a0a52dbe99f553cae2111bee987e00c937441ac9bd"
+    },
+    "services": [
+      {
+        "name": "lora-listener",
+        "command": {
+          "exec": "/bin/lora-listener.sh",
+          "cwd": "",
+          "env": null
+        }
+      },
+      {
+        "name": "transaction-relay",
+        "command": {
+          "exec": "/bin/transaction-relay.sh",
+          "cwd": "",
+          "env": null
+        }
+      },
+      {
+        "name": "api-server",
+        "command": {
+          "exec": "/bin/api-server.sh",
+          "cwd": "",
+          "env": null
+        }
+      }
+    ],
+    "exposes": [
+      {
+        "name": "api",
+        "type": "http",
+        "port": 8080,
+        "interfaces": [
+          "radiodoge-api"
+        ],
+        "listenOnHost": true
+      }
+    ],
+    "requiresInternet": false
+  },
+  "interfaces": [
+    {
+      "name": "radiodoge-api",
+      "version": "1.0.0",
+      "permissionGroups": [
+        {
+          "name": "Transaction API",
+          "description": "Submit and receive Dogecoin transactions over LoRa",
+          "severity": 2,
+          "routes": [
+            "/api/transaction/*",
+            "/api/status/*",
+            "/api/relay/*"
+          ],
+          "port": 8080
+        }
+      ]
+    },
+    {
+      "name": "lora-mesh",
+      "version": "1.0.0",
+      "permissionGroups": [
+        {
+          "name": "LoRa Mesh Network",
+          "description": "Participate in LoRa mesh network for transaction propagation",
+          "severity": 1,
+          "routes": null,
+          "port": 0
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "interfaceName": "core-rpc",
+      "interfaceVersion": "0.0.1",
+      "permissionGroups": ["RPC"],
+      "optional": true,
+      "source": {
+        "sourceLocation": "",
+        "pupName": "",
+        "pupVersion": "",
+        "pupLogoBase64": ""
+      }
+    }
+  ],
+  "metrics": [
+    {
+      "name": "lora_packets_received",
+      "label": "LoRa Packets Received",
+      "type": "int",
+      "history": 30
+    },
+    {
+      "name": "lora_packets_sent",
+      "label": "LoRa Packets Sent",
+      "type": "int",
+      "history": 30
+    },
+    {
+      "name": "transactions_received",
+      "label": "Transactions Received",
+      "type": "int",
+      "history": 30
+    },
+    {
+      "name": "transactions_relayed",
+      "label": "Transactions Relayed to CORE",
+      "type": "int",
+      "history": 30
+    },
+    {
+      "name": "active_peers",
+      "label": "Active RadioDoge Peers",
+      "type": "int",
+      "history": 30
+    },
+    {
+      "name": "signal_strength",
+      "label": "LoRa Signal Strength (dBm)",
+      "type": "int",
+      "history": 30
+    }
+  ]
+}

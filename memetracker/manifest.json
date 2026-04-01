@@ -1,0 +1,120 @@
+{
+  "manifestVersion": 1,
+  "meta": {
+    "name": "MemeTracker",
+    "version": "0.0.1",
+    "logoPath": "logo.png",
+    "shortDescription": "Track Dogecoin payments to an address (mempool)",
+    "longDescription": "MemeTracker is a Go-based Dogecoin mempool tracker. Call GET /track/<address> to start monitoring a P2PKH payout address. It returns the recent tracked transactions stored in the tracker DB (limited by config). Tracking addresses are retained for a configurable number of days after the last time they were requested; after that they are removed along with their stored transactions.",
+    "upstreamVersions": {
+      "Go": "1.24"
+    }
+  },
+  "config": {
+    "sections": [
+      {
+        "name": "Web API",
+        "description": "HTTP API for starting/stopping tracking and reading transactions",
+        "fields": [
+          {
+            "name": "PUBLIC_PORT",
+            "label": "HTTP Port",
+            "type": "text",
+            "default": "8084"
+          },
+          {
+            "name": "NETWORK",
+            "label": "Dogecoin Network",
+            "type": "text",
+            "default": "mainnet"
+          },
+          {
+            "name": "LIST_LIMIT",
+            "label": "Max recent transactions to return per address",
+            "type": "text",
+            "default": "10"
+          }
+        ]
+      },
+      {
+        "name": "Tracking Retention",
+        "description": "How long to keep an address and its transactions after last request",
+        "fields": [
+          {
+            "name": "RETENTION_DAYS",
+            "label": "Retention days without /track requests",
+            "type": "text",
+            "default": "7"
+          }
+        ]
+      },
+      {
+        "name": "P2P Mempool Listener",
+        "description": "Peer connections for mempool monitoring",
+        "fields": [
+          {
+            "name": "P2P_HOST",
+            "label": "Optional P2P peer host override (empty = DNS seeds)",
+            "type": "text",
+            "default": ""
+          },
+          {
+            "name": "P2P_PORT",
+            "label": "Optional P2P peer port override",
+            "type": "text",
+            "default": "22556"
+          }
+        ]
+      }
+    ]
+  },
+  "container": {
+    "build": {
+      "nixFile": "pup.nix",
+      "nixFileSha256": "2785f695fce2ba82917c81f6a24ac132817cb6e74a6a3ee2a78702851e120ff4"
+    },
+    "services": [
+      {
+        "name": "memetracker",
+        "command": {
+          "exec": "/bin/run.sh",
+          "cwd": "",
+          "env": null
+        }
+      }
+    ],
+    "exposes": [
+      {
+        "name": "public-port",
+        "type": "http",
+        "port": 8084,
+        "interfaces": [
+          "memetracker-public"
+        ],
+        "listenOnHost": true,
+        "webUI": false
+      }
+    ],
+    "requiresInternet": true
+  },
+  "interfaces": [
+    {
+      "name": "memetracker-public",
+      "version": "0.0.1",
+      "permissionGroups": [
+        {
+          "name": "Public Track API",
+          "description": "Start tracking and fetch recent mempool transactions for a Dogecoin address",
+          "severity": 1,
+          "routes": [
+            "/track/*"
+          ],
+          "port": 8084
+        }
+      ]
+    }
+  ],
+  "dependencies": [],
+  "metrics": null
+}
+

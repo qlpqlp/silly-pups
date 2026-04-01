@@ -1,0 +1,29 @@
+{
+  "id": "inevitable360.silly-pups",
+  "name": "inevitable360 silly test pup source",
+  "description": "A source for testing silly pup stuff for Dogebox",
+  "pups": [
+    {
+      "location": "shibe-shell"
+    },
+    {
+      "location": "core"
+    },
+    {
+      "location": "wordpress"
+    },
+    {
+      "location": "radiodoge"
+    },
+    {
+      "location": "gigawallet"
+    },
+    {
+      "location": "arcade"
+    }
+    ,
+    {
+      "location": "memetracker"
+    }
+  ]
+}

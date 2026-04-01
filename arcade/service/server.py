@@ -50,6 +50,14 @@ def game_id_to_payout_env_key(game_id: str) -> str:
     return "PAYOUT_GAME_" + game_id.upper().replace("-", "_")
 
 
+# Built-in mainnet P2PKH per game (override with PAYOUT_GAME_<ID> env). No global fallback.
+DEFAULT_GAME_PAYOUT_ADDRESSES: Dict[str, str] = {
+    "doge-mine-quest": "D9ArHWcegdLwLq6wtDDhwsR6BHZNr6rkEu",
+    "doge-indy-500": "DTqAFgNNUgiPEfGmc4HZUkqJ4sz5vADd1n",
+    "fear-the-doge": "DAd3QzjJ2Yh1rwTxxVz7GEKxtNQh2s9zJe",
+}
+
+
 def game_id_to_gigawallet_account_env_key(game_id: str) -> str:
     return "ARCADE_GIGAWALLET_ACCOUNT_" + game_id.upper().replace("-", "_")
 
@@ -561,15 +569,15 @@ class ArcadeHub:
             h = g.watch_h160
             if h in m and m[h] != gid:
                 log_always(
-                    f"WARNING: duplicate payout hash160 — P2P credits "
-                    f"{m[h]!r} only; also {gid!r}"
+                    f"WARNING: duplicate payout hash160 — P2P credits {gid!r} "
+                    f"(same address as {m[h]!r}; use a unique payout per game)"
                 )
             m[h] = gid
         for h, gid in extra.items():
             if h in m and m[h] != gid:
                 log_always(
-                    f"WARNING: invoice deposit hash160 collides with another game "
-                    f"({m[h]!r} vs {gid!r})"
+                    f"WARNING: invoice deposit hash160 — P2P credits {gid!r} "
+                    f"(same address as {m[h]!r}; use a unique deposit per game)"
                 )
             m[h] = gid
         return m
@@ -1645,7 +1653,6 @@ def main() -> None:
     static_dir = Path(_static_env) if _static_env else (storage / "static")
     storage.mkdir(parents=True, exist_ok=True)
 
-    global_fallback = os.getenv("PAYOUT_DOGE_ADDRESS", "DTqAFgNNUgiPEfGmc4HZUkqJ4sz5vADd1n").strip()
     amount = float(os.getenv("DOGE_AMOUNT_TO_PLAY", "1") or "1")
     minutes = int(float(os.getenv("MINUTES_PER_PAYMENT", "3") or "3"))
     network = os.getenv("DOGE_NETWORK", "mainnet").strip().lower()
@@ -1664,7 +1671,7 @@ def main() -> None:
     for folder_id, meta in manifests:
         gid = str(meta.get("id") or folder_id).strip()
         env_key = game_id_to_payout_env_key(gid)
-        addr = os.getenv(env_key, "").strip() or global_fallback
+        addr = os.getenv(env_key, "").strip() or DEFAULT_GAME_PAYOUT_ADDRESSES.get(gid, "")
         wh: Optional[bytes] = None
         if addr:
             try:
@@ -1702,8 +1709,9 @@ def main() -> None:
         if g.watch_h160 is not None:
             if g.watch_h160 in watch_to_games:
                 log_always(
-                    f"WARNING: duplicate payout hash160 — P2P credits "
-                    f"{watch_to_games[g.watch_h160]!r} only; also {gid!r}"
+                    f"WARNING: duplicate payout hash160 — P2P credits {gid!r} "
+                    f"(same address as {watch_to_games[g.watch_h160]!r}; "
+                    f"use a unique payout per game)"
                 )
             watch_to_games[g.watch_h160] = gid
 

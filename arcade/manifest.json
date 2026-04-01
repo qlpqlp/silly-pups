@@ -2,10 +2,10 @@
   "manifestVersion": 1,
   "meta": {
     "name": "Arcade",
-    "version": "0.0.3",
+    "version": "0.0.4",
     "logoPath": "logo.png",
     "shortDescription": "Retro Dogecoin arcade with pay-to-play timer",
-    "longDescription": "Retro launcher at `/` lists games discovered from `static/games/*/game.json`. Each game can use its own payout address via env `PAYOUT_GAME_<ID>` with hyphens converted to underscores (example: `PAYOUT_GAME_FEAR_THE_DOGE`). If unset, `PAYOUT_DOGE_ADDRESS` is used as fallback for that game.\n\n**GigaWallet (optional):** set `ARCADE_GIGAWALLET_ADMIN_URL` (e.g. `http://gigawallet:8081`), `ARCADE_GIGAWALLET_INVOICE_GAMES` (comma list, e.g. `doge-mine-quest`), and per-game `ARCADE_GIGAWALLET_ACCOUNT_<GAME_ID_UNDERSCORED>` as the [GigaWallet foreign ID](https://gigawallet.dogecoin.org/docs/accounts) (must match an account you created in GigaWallet). The game client calls `POST /api/gigawallet/play-invoice` to mint an invoice (HD deposit address). **Payment detection stays on MemeTracker or arcade P2P mempool** — new invoice addresses are registered for watching; GigaWallet chain sync is not used for playtime. **Reward payouts:** set `ARCADE_ENABLE_PAYOUTS` and `ARCADE_PAYOUT_BACKEND=gigawallet`; the same foreign ID is used for `POST /account/:foreignID/pay` (no WIF on the arcade pup).\n\nPayments: **P2P mode (default)** — mempool detection over Dogecoin peers (BIP144 inv/getdata), watching each deposit address. **MemeTracker mode** — set `USE_MEMETRACKER` to true and `MEMETRACKER_BASE_URL` (e.g. `http://memetracker:8080`); the service polls `GET {base}/track/{address}` for each watched address (including every GigaWallet invoice address).\n\nPlay time counts down only while a game page is open (state poll touch + grace window). Logs: `ARCADE_P2P_LOG`. TOP 10 leaderboard remains SQLite on the pup volume.\n\nAfter configuration changes, disable and re-enable this pup to apply settings.",
+    "longDescription": "Retro launcher at `/` lists games discovered from `static/games/*/game.json`. Each bundled game has its own mainnet P2PKH deposit address built in (Doge Mine Quest, Doge Indy 500, Fear the Doge); set `PAYOUT_GAME_<ID>` (hyphens → underscores, e.g. `PAYOUT_GAME_FEAR_THE_DOGE`) to override. There is no global fallback address — duplicate addresses across games are avoided by default.\n\n**GigaWallet (optional):** set `ARCADE_GIGAWALLET_ADMIN_URL` (e.g. `http://gigawallet:8081`), `ARCADE_GIGAWALLET_INVOICE_GAMES` (comma list, e.g. `doge-mine-quest`), and per-game `ARCADE_GIGAWALLET_ACCOUNT_<GAME_ID_UNDERSCORED>` as the [GigaWallet foreign ID](https://gigawallet.dogecoin.org/docs/accounts) (must match an account you created in GigaWallet). The game client calls `POST /api/gigawallet/play-invoice` to mint an invoice (HD deposit address). **Payment detection stays on MemeTracker or arcade P2P mempool** — new invoice addresses are registered for watching; GigaWallet chain sync is not used for playtime. **Reward payouts:** set `ARCADE_ENABLE_PAYOUTS` and `ARCADE_PAYOUT_BACKEND=gigawallet`; the same foreign ID is used for `POST /account/:foreignID/pay` (no WIF on the arcade pup).\n\nPayments: **P2P mode (default)** — mempool detection over Dogecoin peers (BIP144 inv/getdata), watching each deposit address. **MemeTracker mode** — set `USE_MEMETRACKER` to true and `MEMETRACKER_BASE_URL` (e.g. `http://memetracker:8080`); the service polls `GET {base}/track/{address}` for each watched address (including every GigaWallet invoice address).\n\nPlay time counts down only while a game page is open (state poll touch + grace window). Logs: `ARCADE_P2P_LOG`. TOP 10 leaderboard remains SQLite on the pup volume.\n\nAfter configuration changes, disable and re-enable this pup to apply settings.",
     "upstreamVersions": {
       "Python": "3.12",
       "Style": "Pay-to-Play"
@@ -15,14 +15,8 @@
     "sections": [
       {
         "name": "Common — Pay to play",
-        "description": "Defaults for all games: fallback payout address, DOGE per play, and minutes credited.",
+        "description": "DOGE per play and minutes credited (per-game deposit addresses are under each game section).",
         "fields": [
-          {
-            "name": "PAYOUT_DOGE_ADDRESS",
-            "label": "Default payout (fallback if per-game unset)",
-            "type": "text",
-            "default": "DTqAFgNNUgiPEfGmc4HZUkqJ4sz5vADd1n"
-          },
           {
             "name": "DOGE_AMOUNT_TO_PLAY",
             "label": "Amount to play (DOGE)",
@@ -115,9 +109,9 @@
         "fields": [
           {
             "name": "PAYOUT_GAME_DOGE_INDY_500",
-            "label": "Payout address (empty = use default)",
+            "label": "Payout address (optional override)",
             "type": "text",
-            "default": ""
+            "default": "DTqAFgNNUgiPEfGmc4HZUkqJ4sz5vADd1n"
           }
         ]
       },
@@ -127,7 +121,7 @@
         "fields": [
           {
             "name": "PAYOUT_GAME_FEAR_THE_DOGE",
-            "label": "Payout address (empty = use default)",
+            "label": "Payout address (optional override)",
             "type": "text",
             "default": "DAd3QzjJ2Yh1rwTxxVz7GEKxtNQh2s9zJe"
           }
@@ -139,9 +133,9 @@
         "fields": [
           {
             "name": "PAYOUT_GAME_DOGE_MINE_QUEST",
-            "label": "Payout address (empty = use default)",
+            "label": "Payout address (optional override)",
             "type": "text",
-            "default": ""
+            "default": "D9ArHWcegdLwLq6wtDDhwsR6BHZNr6rkEu"
           },
           {
             "name": "PAYOUT_GAME_DOGE_MINE_QUEST_PRIVKEY_WIF",
@@ -192,7 +186,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "5e0124a43686fbbf53d93e4bfe7621f514bf236414018f3e210cefd27fb97d29"
+      "nixFileSha256": "0fe14a0fde11889a908006409d24a38e19482a8509dbf549bcc29f00c9967f59"
     },
     "services": [
       {

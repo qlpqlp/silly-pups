@@ -759,7 +759,7 @@ func buildVersionPayload(p2pPort int) []byte {
 	_, _ = rand.Read(nonceBytes)
 	nonce := binary.LittleEndian.Uint64(nonceBytes)
 
-	userAgent := "/memetracker-pup:0.0.5/"
+	userAgent := "/memetracker-pup:0.0.6/"
 	uaLen := len(userAgent)
 	ua := make([]byte, 1+uaLen)
 	ua[0] = byte(uaLen)
@@ -1347,7 +1347,8 @@ func memetrackerP2PSession(conn net.Conn, stateLastPeer string, store *Store, pr
 	logv("wrote version message ok")
 
 readLoop:
-	for time.Since(start) < SESSION_SEC {
+	// Compare to time.Duration seconds — bare SESSION_SEC (300) is converted to 300ns, not 300s.
+	for time.Since(start) < time.Duration(SESSION_SEC)*time.Second {
 		_ = conn.SetReadDeadline(time.Now().Add(P2P_READ_IDLE_SEC * time.Second))
 		header, err := readExact(conn, 24)
 		if err != nil {

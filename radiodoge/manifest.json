@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "meta": {
     "name": "RadioDoge",
-    "version": "0.0.2",
+    "version": "0.0.3",
     "logoPath": "logo.png",
     "shortDescription": "LoRa-based Dogecoin transaction relay for offline networks",
     "longDescription": "RadioDoge enables Dogecoin transactions over LoRa radio networks when internet is unavailable. Sign and broadcast Dogecoin transactions peer-to-peer, relay transactions to CORE pup for blockchain validation, and communicate with other RadioDoge devices across long distances using LoRa technology.\n\nKey Features:\n- Offline transaction signing and verification\n- LoRa radio communication for peer-to-peer transaction relay\n- Integration with CORE pup for blockchain operations\n- Mesh network support for multi-hop transaction propagation\n- Transaction queue and retry logic\n\nAfter configuration changes, disable and re-enable the pup to apply settings.",
@@ -64,12 +64,8 @@
         "fields": [
           {
             "name": "LORA_CONNECTION_TYPE",
-            "label": "Connection type",
-            "type": "select",
-            "options": [
-              { "value": "wifi", "label": "Wi-Fi (Heltec HTTP API)" },
-              { "value": "usb", "label": "USB serial" }
-            ],
+            "label": "Connection type (wifi or usb)",
+            "type": "text",
             "default": "wifi"
           },
           {

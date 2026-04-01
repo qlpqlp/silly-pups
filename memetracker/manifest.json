@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "meta": {
     "name": "MemeTracker",
-    "version": "0.0.5",
+    "version": "0.0.6",
     "logoPath": "logo.png",
     "shortDescription": "Track Dogecoin payments to an address (mempool)",
     "longDescription": "MemeTracker is a Go-based Dogecoin mempool tracker. Open the web UI at http://[DogeBOX-IP]:33555 (default HTTP port) for usage and example URLs, or call GET /track/<P2PKH address> on that port to start monitoring a payout address. It uses several parallel Dogecoin P2P sessions (configurable, default 3), rotating DNS seeds and shuffled peer IPs—similar in spirit to the arcade pup—so inv/getdata gossip reaches you faster than a single connection. There is no BIP37 bloom filter; for maximum reliability set P2P_HOST to your own Dogecoin Core. Standard mobile wallets add bloom filters and more peers. Responses include recent matching transactions (limited by config). Addresses are retained for a configurable number of days after the last /track request, then removed with their stored transactions.",
@@ -24,12 +24,8 @@
           },
           {
             "name": "NETWORK",
-            "label": "Dogecoin network",
-            "type": "select",
-            "options": [
-              { "value": "mainnet", "label": "Mainnet" },
-              { "value": "testnet", "label": "Testnet" }
-            ],
+            "label": "Dogecoin network (mainnet or testnet)",
+            "type": "text",
             "default": "mainnet"
           },
           {
@@ -76,13 +72,8 @@
           },
           {
             "name": "P2P_LOG",
-            "label": "P2P log verbosity",
-            "type": "select",
-            "options": [
-              { "value": "0", "label": "0 — off" },
-              { "value": "1", "label": "1 — handshake and messages" },
-              { "value": "2", "label": "2 — wire detail + hex" }
-            ],
+            "label": "P2P log verbosity (0, 1, or 2)",
+            "type": "text",
             "default": "1"
           }
         ]
@@ -92,7 +83,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "d16233d29bc38918b5f92e3531b649378071f2a9838241890f91cf3582859536"
+      "nixFileSha256": "6936832bc7c334970723f5bed56dcd9407a3d0985cb81c2638372cd7d8f729ef"
     },
     "services": [
       {
@@ -121,7 +112,7 @@
   "interfaces": [
     {
       "name": "memetracker-public",
-      "version": "0.0.5",
+      "version": "0.0.6",
       "permissionGroups": [
         {
           "name": "MemeTracker HTTP",

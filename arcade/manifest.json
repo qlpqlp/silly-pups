@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "meta": {
     "name": "Arcade",
-    "version": "0.0.2",
+    "version": "0.0.3",
     "logoPath": "logo.png",
     "shortDescription": "Retro Dogecoin arcade with pay-to-play timer",
     "longDescription": "Retro launcher at `/` lists games discovered from `static/games/*/game.json`. Each game can use its own payout address via env `PAYOUT_GAME_<ID>` with hyphens converted to underscores (example: `PAYOUT_GAME_FEAR_THE_DOGE`). If unset, `PAYOUT_DOGE_ADDRESS` is used as fallback for that game.\n\n**GigaWallet (optional):** set `ARCADE_GIGAWALLET_ADMIN_URL` (e.g. `http://gigawallet:8081`), `ARCADE_GIGAWALLET_INVOICE_GAMES` (comma list, e.g. `doge-mine-quest`), and per-game `ARCADE_GIGAWALLET_ACCOUNT_<GAME_ID_UNDERSCORED>` as the [GigaWallet foreign ID](https://gigawallet.dogecoin.org/docs/accounts) (must match an account you created in GigaWallet). The game client calls `POST /api/gigawallet/play-invoice` to mint an invoice (HD deposit address). **Payment detection stays on MemeTracker or arcade P2P mempool** — new invoice addresses are registered for watching; GigaWallet chain sync is not used for playtime. **Reward payouts:** set `ARCADE_ENABLE_PAYOUTS` and `ARCADE_PAYOUT_BACKEND=gigawallet`; the same foreign ID is used for `POST /account/:foreignID/pay` (no WIF on the arcade pup).\n\nPayments: **P2P mode (default)** — mempool detection over Dogecoin peers (BIP144 inv/getdata), watching each deposit address. **MemeTracker mode** — set `USE_MEMETRACKER` to true and `MEMETRACKER_BASE_URL` (e.g. `http://memetracker:8080`); the service polls `GET {base}/track/{address}` for each watched address (including every GigaWallet invoice address).\n\nPlay time counts down only while a game page is open (state poll touch + grace window). Logs: `ARCADE_P2P_LOG`. TOP 10 leaderboard remains SQLite on the pup volume.\n\nAfter configuration changes, disable and re-enable this pup to apply settings.",
@@ -43,22 +43,14 @@
         "fields": [
           {
             "name": "DOGE_NETWORK",
-            "label": "Dogecoin network",
-            "type": "select",
-            "options": [
-              { "value": "mainnet", "label": "Mainnet" },
-              { "value": "testnet", "label": "Testnet" }
-            ],
+            "label": "Dogecoin network (mainnet or testnet)",
+            "type": "text",
             "default": "mainnet"
           },
           {
             "name": "USE_MEMETRACKER",
-            "label": "Use MemeTracker for payment detection",
-            "type": "select",
-            "options": [
-              { "value": "", "label": "No — local P2P mempool (default)" },
-              { "value": "true", "label": "Yes — poll MemeTracker HTTP API" }
-            ],
+            "label": "Use MemeTracker for payment detection (empty = local P2P; true = MemeTracker HTTP)",
+            "type": "text",
             "default": ""
           },
           {
@@ -69,13 +61,8 @@
           },
           {
             "name": "ARCADE_P2P_LOG",
-            "label": "P2P log verbosity (local mempool mode)",
-            "type": "select",
-            "options": [
-              { "value": "0", "label": "0 — quiet" },
-              { "value": "1", "label": "1 — normal" },
-              { "value": "2", "label": "2 — verbose" }
-            ],
+            "label": "P2P log verbosity — local mempool mode (0, 1, or 2)",
+            "type": "text",
             "default": "1"
           }
         ]
@@ -86,23 +73,14 @@
         "fields": [
           {
             "name": "ARCADE_ENABLE_PAYOUTS",
-            "label": "Enable server reward payouts",
-            "type": "select",
-            "options": [
-              { "value": "", "label": "Disabled" },
-              { "value": "true", "label": "Enabled" }
-            ],
+            "label": "Enable server reward payouts (empty = disabled; true = enabled)",
+            "type": "text",
             "default": ""
           },
           {
             "name": "ARCADE_PAYOUT_BACKEND",
-            "label": "Payout backend",
-            "type": "select",
-            "options": [
-              { "value": "rpc", "label": "Dogecoin Core RPC" },
-              { "value": "libdogecoin", "label": "libdogecoin helper" },
-              { "value": "gigawallet", "label": "GigaWallet Admin API" }
-            ],
+            "label": "Payout backend (rpc, libdogecoin, or gigawallet)",
+            "type": "text",
             "default": "rpc"
           },
           {

@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "meta": {
     "name": "GigaWallet Pro",
-    "version": "0.0.3",
+    "version": "0.0.4",
     "logoPath": "logo.png",
     "shortDescription": "A Dogecoin payment gateway for business apps",
     "longDescription": "Dogecoin GigaWallet Pro is a backend service which provides a convenient integration API for platforms such as online shops, exchanges, social media platforms etc, to transact Dogecoin on behalf of their users.",
@@ -86,17 +86,22 @@
       },
       {
         "name": "Network",
-        "description": "Dogecoin network configuration",
         "fields": [
           {
             "name": "NETWORK",
             "label": "Dogecoin network",
             "type": "select",
             "options": [
-              { "value": "mainnet", "label": "Mainnet" },
-              { "value": "testnet", "label": "Testnet" }
+              {
+                "value": "mainnet",
+                "label": "Mainnet"
+              },
+              {
+                "value": "testnet",
+                "label": "Testnet"
+              }
             ],
-            "default": "mainnet"
+            "value": "mainnet"
           }
         ]
       },
@@ -162,7 +167,7 @@
   "interfaces": [
     {
       "name": "gigawallet-public",
-      "version": "0.0.3",
+      "version": "0.0.4",
       "permissionGroups": [
         {
           "name": "Public API",
@@ -179,7 +184,7 @@
     },
     {
       "name": "gigawallet-admin",
-      "version": "0.0.3",
+      "version": "0.0.4",
       "permissionGroups": [
         {
           "name": "Admin API",

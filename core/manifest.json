@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "meta": {
     "name": "Dogecoin CORE Pro",
-    "version": "420.69.2",
+    "version": "420.69.3",
     "logoPath": "logo.png",
     "shortDescription": "Run a full core node + wallet functions on your dogebox",
     "longDescription": "This pup launches and configures a full Dogecoin Core node on your dogebox, allowing you to sync the blockchain and contribute to the network.\n\nIMPORTANT: After saving configuration changes, you must DISABLE and then ENABLE the CORE pup to apply the new settings.",
@@ -98,7 +98,7 @@
       },
       {
         "name": "ZMQ",
-        "description": "ZMQ publishers: this pup always enables hash-block on tcp://<pup-ip>:28332 (the core-zmq interface). Use a different port for each of hashtx, raw block, and raw tx — never reuse 28332 for those fields.",
+        "description": "ZMQ: hash-block uses tcp://0.0.0.0:28332 (core-zmq). Give hash TX, raw block, and raw TX their own ports — defaults are 28333–28335. If hash TX is set to 28332, run.sh switches it to 28333 so dogecoind does not double-bind and crash.",
         "fields": [
           {
             "name": "ENABLE_ZMQ",
@@ -110,19 +110,19 @@
             "name": "ZMQ_PUBHASHTX",
             "label": "ZMQ Publish Hash TX",
             "type": "text",
-            "default": ""
+            "default": "tcp://0.0.0.0:28333"
           },
           {
             "name": "ZMQ_PUBRAWBLOCK",
             "label": "ZMQ Publish Raw Block",
             "type": "text",
-            "default": ""
+            "default": "tcp://0.0.0.0:28334"
           },
           {
             "name": "ZMQ_PUBRAWTX",
             "label": "ZMQ Publish Raw TX",
             "type": "text",
-            "default": ""
+            "default": "tcp://0.0.0.0:28335"
           }
         ]
       },
@@ -161,7 +161,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "d4cab587b9883763f70b77816e4fc41fc5641e1b1139aaf7a0dfa66996de3e03"
+      "nixFileSha256": "e223103167b5f99bbb0eee1ed9b5c8c0ac7f0edc71923eaa0d619717863d5400"
     },
     "services": [
       {

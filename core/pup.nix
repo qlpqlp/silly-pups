@@ -84,15 +84,47 @@ let
       DOGECOIND_ARGS="$DOGECOIND_ARGS -txindex=1"
     fi
 
-    # Add ZMQ if enabled
+    # Add ZMQ if enabled (each -zmqpub* must bind a unique port)
     if [ "$ENABLE_ZMQ" = "1" ] || [ "$ENABLE_ZMQ" = "true" ]; then
       if [ ! -z "$ZMQ_PUBHASHBLOCK" ]; then
-        DOGECOIND_ARGS="$DOGECOIND_ARGS -zmqpubhashblock=$ZMQ_PUBHASHBLOCK"
+        ZMQ_HASHBLOCK_URL="$ZMQ_PUBHASHBLOCK"
       else
-        DOGECOIND_ARGS="$DOGECOIND_ARGS -zmqpubhashblock=tcp://$DBX_PUP_IP:28332"
+        ZMQ_HASHBLOCK_URL="tcp://0.0.0.0:28332"
+      fi
+      DOGECOIND_ARGS="$DOGECOIND_ARGS -zmqpubhashblock=$ZMQ_HASHBLOCK_URL"
+      ZMQ_HASHBLOCK_PORT="''${ZMQ_HASHBLOCK_URL##*:}"
+
+      # Avoid bind collisions with hash-block (classic crash: zmqpublishnotifier psocket assert)
+      if [ ! -z "$ZMQ_PUBHASHTX" ]; then
+        _p="''${ZMQ_PUBHASHTX##*:}"
+        if [ "$_p" = "$ZMQ_HASHBLOCK_PORT" ]; then
+          echo "core run.sh: ZMQ_PUBHASHTX port conflicts with hash-block; using 28333" >&2
+          ZMQ_PUBHASHTX="''${ZMQ_PUBHASHTX%:*}:28333"
+        fi
+      fi
+      if [ ! -z "$ZMQ_PUBRAWBLOCK" ]; then
+        _p="''${ZMQ_PUBRAWBLOCK##*:}"
+        _ht=""
+        [ ! -z "$ZMQ_PUBHASHTX" ] && _ht="''${ZMQ_PUBHASHTX##*:}"
+        if [ "$_p" = "$ZMQ_HASHBLOCK_PORT" ] || { [ ! -z "$_ht" ] && [ "$_p" = "$_ht" ]; }; then
+          echo "core run.sh: ZMQ_PUBRAWBLOCK port conflict; using 28334" >&2
+          ZMQ_PUBRAWBLOCK="''${ZMQ_PUBRAWBLOCK%:*}:28334"
+        fi
+      fi
+      if [ ! -z "$ZMQ_PUBRAWTX" ]; then
+        _p="''${ZMQ_PUBRAWTX##*:}"
+        _ht=""
+        _rb=""
+        [ ! -z "$ZMQ_PUBHASHTX" ] && _ht="''${ZMQ_PUBHASHTX##*:}"
+        [ ! -z "$ZMQ_PUBRAWBLOCK" ] && _rb="''${ZMQ_PUBRAWBLOCK##*:}"
+        if [ "$_p" = "$ZMQ_HASHBLOCK_PORT" ] || \
+           { [ ! -z "$_ht" ] && [ "$_p" = "$_ht" ]; } || \
+           { [ ! -z "$_rb" ] && [ "$_p" = "$_rb" ]; }; then
+          echo "core run.sh: ZMQ_PUBRAWTX port conflict; using 28335" >&2
+          ZMQ_PUBRAWTX="''${ZMQ_PUBRAWTX%:*}:28335"
+        fi
       fi
 
-      # Add optional ZMQ endpoints if specified
       if [ ! -z "$ZMQ_PUBHASHTX" ]; then
         DOGECOIND_ARGS="$DOGECOIND_ARGS -zmqpubhashtx=$ZMQ_PUBHASHTX"
       fi

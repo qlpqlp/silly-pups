@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "meta": {
     "name": "Dogecoin CORE Pro",
-    "version": "0.0.2",
+    "version": "420.69.2",
     "logoPath": "logo.png",
     "shortDescription": "Run a full core node + wallet functions on your dogebox",
     "longDescription": "This pup launches and configures a full Dogecoin Core node on your dogebox, allowing you to sync the blockchain and contribute to the network.\n\nIMPORTANT: After saving configuration changes, you must DISABLE and then ENABLE the CORE pup to apply the new settings.",

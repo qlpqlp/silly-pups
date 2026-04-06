@@ -39,6 +39,9 @@ let
     UACOMMENT="''${UACOMMENT:-}"
 
     # ZMQ Advanced (custom endpoints)
+    # When ENABLE_ZMQ is on, hashblock always binds to 28332 unless ZMQ_PUBHASHBLOCK is set.
+    # Each -zmqpub* needs its own port — do not use 28332 for hashtx/rawblock/rawtx below.
+    ZMQ_PUBHASHBLOCK="''${ZMQ_PUBHASHBLOCK:-}"
     ZMQ_PUBHASHTX="''${ZMQ_PUBHASHTX:-}"
     ZMQ_PUBRAWBLOCK="''${ZMQ_PUBRAWBLOCK:-}"
     ZMQ_PUBRAWTX="''${ZMQ_PUBRAWTX:-}"

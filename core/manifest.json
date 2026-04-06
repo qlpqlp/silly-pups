@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "meta": {
     "name": "Dogecoin CORE Pro",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "logoPath": "logo.png",
     "shortDescription": "Run a full core node + wallet functions on your dogebox",
     "longDescription": "This pup launches and configures a full Dogecoin Core node on your dogebox, allowing you to sync the blockchain and contribute to the network.\n\nIMPORTANT: After saving configuration changes, you must DISABLE and then ENABLE the CORE pup to apply the new settings.",
@@ -98,7 +98,7 @@
       },
       {
         "name": "ZMQ",
-        "description": "ZMQ message queue endpoints",
+        "description": "ZMQ publishers: this pup always enables hash-block on tcp://<pup-ip>:28332 (the core-zmq interface). Use a different port for each of hashtx, raw block, and raw tx — never reuse 28332 for those fields.",
         "fields": [
           {
             "name": "ENABLE_ZMQ",
@@ -161,7 +161,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "d70ca94851fe53ff8faaea1c9223f4462b5a027368163a80cc50b96bd009a5b0"
+      "nixFileSha256": "d4cab587b9883763f70b77816e4fc41fc5641e1b1139aaf7a0dfa66996de3e03"
     },
     "services": [
       {

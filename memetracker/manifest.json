@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "meta": {
     "name": "MemeTracker",
-    "version": "0.1.6",
+    "version": "0.0.1",
     "logoPath": "logo.png",
     "shortDescription": "Track Dogecoin payments to an address (mempool)",
     "longDescription": "MemeTracker is a Go-based Dogecoin mempool-only tracker: it does not download blocks or headers, only relayed transactions (P2P mempool + inv/getdata for tx). Open the web UI at http://[DogeBOX-IP]:33555 (default HTTP port) for usage and example URLs, or call GET /track/<P2PKH address> on that port to start monitoring a payout address. It uses several parallel Dogecoin P2P sessions (configurable, default 3), rotating DNS seeds and shuffled peer IPs—similar in spirit to the arcade pup—so inv/getdata gossip reaches you faster than a single connection. There is no BIP37 bloom filter; for maximum reliability set P2P_HOST to your own Dogecoin Core. Standard mobile wallets add bloom filters and more peers. Responses include recent matching transactions (limited by config). Addresses are retained for a configurable number of days after the last /track request, then removed with their stored transactions.",
@@ -112,7 +112,7 @@
   "interfaces": [
     {
       "name": "memetracker-public",
-      "version": "0.1.6",
+      "version": "0.0.1",
       "permissionGroups": [
         {
           "name": "MemeTracker HTTP",

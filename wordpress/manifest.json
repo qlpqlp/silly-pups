@@ -138,7 +138,7 @@
   "interfaces": [
     {
       "name": "wordpress-http",
-      "version": "1.0.0",
+      "version": "0.0.1",
       "permissionGroups": [
         {
           "name": "HTTP",
@@ -153,7 +153,7 @@
     },
     {
       "name": "dogecoin-gateway",
-      "version": "1.0.0",
+      "version": "0.0.1",
       "permissionGroups": [
         {
           "name": "Dogecoin Payments",

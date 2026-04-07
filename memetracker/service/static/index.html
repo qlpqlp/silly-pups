@@ -351,7 +351,6 @@
     <nav class="side-nav">
       <button type="button" class="active" data-tab="dash"><span class="material-icons side-nav-ico" aria-hidden="true">dashboard</span><span class="side-nav-label">Dashboard</span></button>
       <button type="button" data-tab="cfg"><span class="material-icons side-nav-ico" aria-hidden="true">tune</span><span class="side-nav-label">Configuration</span></button>
-      <button type="button" data-tab="add"><span class="material-icons side-nav-ico" aria-hidden="true">add_circle</span><span class="side-nav-label">Track address</span></button>
       <button type="button" data-tab="addr"><span class="material-icons side-nav-ico" aria-hidden="true">account_balance_wallet</span><span class="side-nav-label">Tracked addresses</span></button>
       <button type="button" data-tab="tx"><span class="material-icons side-nav-ico" aria-hidden="true">receipt_long</span><span class="side-nav-label">Transactions</span></button>
       <button type="button" data-tab="peers"><span class="material-icons side-nav-ico" aria-hidden="true">device_hub</span><span class="side-nav-label">Peers &amp; mempool</span></button>
@@ -443,6 +442,16 @@
             </div>
           </div>
         </div>
+        <div class="card">
+          <h2>Mempool Live Feed</h2>
+          <p class="muted" style="margin-top:.25rem">Real-time mempool transactions seen by this node. Rows tagged <span class="pill">tracked</span> pay a watched address. Rows disappear when not seen again (stale/evicted).</p>
+          <div class="table-wrap">
+            <table class="responsive" id="table-mempool-live">
+              <thead><tr><th>Last seen (UTC)</th><th>Txid</th><th>Status</th><th>Address</th><th>DOGE</th><th>Actions</th></tr></thead>
+              <tbody id="tbody-mempool-live"></tbody>
+            </table>
+          </div>
+        </div>
         <p class="muted">Automation base URL: <span class="mono" id="api-base"></span></p>
       </section>
 
@@ -464,21 +473,14 @@
         </div>
       </section>
 
-      <section id="panel-add" class="panel">
-        <div class="card">
-          <h2>Track address</h2>
-          <p class="muted">Registers a <strong>P2PKH</strong> (legacy base58) address. Requires P2P running. Refreshes retention timer on each call.</p>
-          <div class="track-row">
-            <input id="track-addr" type="text" placeholder="Mainnet P2PKH address…"/>
-            <button type="button" class="btn btn-with-icon" id="btn-track"><span class="material-icons" aria-hidden="true">add_location_alt</span><span>Track</span></button>
-          </div>
-        </div>
-      </section>
-
       <section id="panel-addr" class="panel">
         <div class="card">
           <h2>Tracked addresses</h2>
-          <p class="muted">Persisted under your data directory. Remove clears the address file and all stored txs for it.</p>
+          <p class="muted">Add and manage watched addresses. Remove clears the address file and all stored tx rows for it.</p>
+          <div class="track-row" style="margin-top:.75rem">
+            <input id="track-addr" type="text" placeholder="Mainnet P2PKH address…"/>
+            <button type="button" class="btn btn-with-icon" id="btn-track"><span class="material-icons" aria-hidden="true">add_location_alt</span><span>Add address</span></button>
+          </div>
           <div class="table-wrap">
             <table class="responsive" id="table-addr">
               <thead><tr><th>Address</th><th>Hash160</th><th>Tracked since</th><th>Last refresh</th><th>Tx count</th><th></th></tr></thead>
@@ -945,6 +947,29 @@ curl -s -X DELETE "BASE/api/transactions?txid=...&amp;hash160_hex=..."</code></p
           '<button type="button" class="btn btn-danger btn-sm btn-with-icon" data-rm-tx="' + encodeURIComponent(tx.hash160_hex) + '" data-txid="' + escapeHtml(tx.txid) + '"><span class="material-icons" aria-hidden="true">delete_outline</span><span>Remove</span></button>' +
           '</div></td>';
         tbx.appendChild(tr);
+      });
+
+      var tml = $("#tbody-mempool-live");
+      tml.innerHTML = "";
+      (st.mempool_transactions || []).forEach(function(tx) {
+        var txid = String(tx.txid || "");
+        var txidEsc = escapeHtml(txid);
+        var tracked = !!tx.tracked_match;
+        var status = tracked ? '<span class="pill">tracked</span>' : '<span class="pill off">seen</span>';
+        var addr = tracked && tx.address ? escapeHtml(String(tx.address)) : "—";
+        var amt = tracked && tx.amount_doge ? escapeHtml(Number(tx.amount_doge).toFixed(8)) : "—";
+        var explore = sochainTxURL(txid);
+        var tr = document.createElement("tr");
+        tr.innerHTML =
+          '<td data-label="Last seen (UTC)">' + escapeHtml(String(tx.last_seen || "—")) + '</td>' +
+          '<td data-label="Txid" class="mono txid-cell"><span class="txid-line">' +
+          '<a href="' + explore + '" target="_blank" rel="noopener noreferrer">' + txidEsc + '</a>' +
+          '<button type="button" class="copy-tx-badge" data-copy-tx="' + txidEsc + '" title="Copy txid" aria-label="Copy txid"><span class="material-icons" aria-hidden="true">content_copy</span></button></span></td>' +
+          '<td data-label="Status">' + status + '</td>' +
+          '<td data-label="Address" class="mono">' + addr + '</td>' +
+          '<td data-label="DOGE">' + amt + '</td>' +
+          '<td data-label="Actions" class="row-actions"><a class="btn btn-sm btn-with-icon" href="' + explore + '" target="_blank" rel="noopener noreferrer"><span class="material-icons" aria-hidden="true">open_in_new</span><span>sochain</span></a></td>';
+        tml.appendChild(tr);
       });
 
       var ps = $("#peer-stats");

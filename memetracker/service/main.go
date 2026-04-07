@@ -1234,6 +1234,16 @@ type MetricsCollector struct {
 	byWorker      map[int]peerSession // one logical session per P2P worker
 	mempoolTxIDs  map[string]struct{}
 	maxMempoolIDs int
+	liveTxByID    map[string]liveMempoolTx
+}
+
+type liveMempoolTx struct {
+	Txid          string    `json:"txid"`
+	FirstSeen     time.Time `json:"first_seen"`
+	LastSeen      time.Time `json:"last_seen"`
+	TrackedMatch  bool      `json:"tracked_match"`
+	Address       string    `json:"address,omitempty"`
+	AmountDoge    float64   `json:"amount_doge,omitempty"`
 }
 
 func NewMetricsCollector(maxMempool int) *MetricsCollector {
@@ -1244,6 +1254,7 @@ func NewMetricsCollector(maxMempool int) *MetricsCollector {
 		byWorker:      make(map[int]peerSession),
 		mempoolTxIDs:  make(map[string]struct{}),
 		maxMempoolIDs: maxMempool,
+		liveTxByID:    make(map[string]liveMempoolTx),
 	}
 }
 
@@ -1276,22 +1287,105 @@ func (m *MetricsCollector) observeMempoolTxid(txid string) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	now := time.Now().UTC()
 	if _, ok := m.mempoolTxIDs[txid]; ok {
+		if row, ok2 := m.liveTxByID[txid]; ok2 {
+			row.LastSeen = now
+			m.liveTxByID[txid] = row
+		}
 		return
 	}
 	for len(m.mempoolTxIDs) >= m.maxMempoolIDs {
 		for k := range m.mempoolTxIDs {
 			delete(m.mempoolTxIDs, k)
+			delete(m.liveTxByID, k)
 			break
 		}
 	}
 	m.mempoolTxIDs[txid] = struct{}{}
+	if row, ok := m.liveTxByID[txid]; ok {
+		row.LastSeen = now
+		m.liveTxByID[txid] = row
+	} else {
+		m.liveTxByID[txid] = liveMempoolTx{
+			Txid:      txid,
+			FirstSeen: now,
+			LastSeen:  now,
+		}
+	}
+}
+
+func (m *MetricsCollector) markTrackedHit(txid, address string, amountDoge float64) {
+	if txid == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	row, ok := m.liveTxByID[txid]
+	if !ok {
+		now := time.Now().UTC()
+		row = liveMempoolTx{
+			Txid:      txid,
+			FirstSeen: now,
+			LastSeen:  now,
+		}
+	}
+	row.TrackedMatch = true
+	if strings.TrimSpace(address) != "" {
+		row.Address = address
+	}
+	if amountDoge > 0 {
+		row.AmountDoge = amountDoge
+	}
+	m.liveTxByID[txid] = row
 }
 
 func (m *MetricsCollector) snapshot() (mempoolN int) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.mempoolTxIDs)
+}
+
+// snapshotLiveMempool returns tx rows still seen "recently enough" to be considered live.
+// Without node-level eviction notifications, we use a short freshness window.
+func (m *MetricsCollector) snapshotLiveMempool(limit int) []map[string]any {
+	if limit <= 0 {
+		limit = 200
+	}
+	cutoff := time.Now().UTC().Add(-2 * time.Minute)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for txid, row := range m.liveTxByID {
+		if row.LastSeen.Before(cutoff) {
+			delete(m.liveTxByID, txid)
+			delete(m.mempoolTxIDs, txid)
+		}
+	}
+
+	rows := make([]liveMempoolTx, 0, len(m.liveTxByID))
+	for _, row := range m.liveTxByID {
+		rows = append(rows, row)
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].LastSeen.After(rows[j].LastSeen)
+	})
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	out := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, map[string]any{
+			"txid":          row.Txid,
+			"first_seen":    row.FirstSeen.Format(time.RFC3339),
+			"last_seen":     row.LastSeen.Format(time.RFC3339),
+			"tracked_match": row.TrackedMatch,
+			"address":       row.Address,
+			"amount_doge":   row.AmountDoge,
+		})
+	}
+	return out
 }
 
 func submitDogeboxMetrics(store *Store, col *MetricsCollector) {
@@ -1743,6 +1837,7 @@ readLoop:
 				if store.AddTx(hashHex, txid, dt, amountDoge) {
 					matchedAny = true
 					addr, cbURL, ok := store.CallbackTarget(hashHex)
+					mcol.markTrackedHit(txid, addr, amountDoge)
 					if ok && cbURL != "" {
 						go notifyCallback(cbURL, PaymentCallbackPayload{
 							Address:    addr,
@@ -2326,6 +2421,7 @@ func apiStatus(w http.ResponseWriter, r *http.Request, app *appState) {
 		"watched_addresses":         app.store.watcherCount(),
 		"stored_transaction_rows":   app.store.StoredTransactionRows(),
 		"mempool_tx_count":          app.mcol.snapshot(),
+		"mempool_transactions":      app.mcol.snapshotLiveMempool(250),
 		"peers_connected_count":     nConn,
 		"peers":                     peerOut,
 		"addresses":                 app.store.ListAddressSnapshots(),

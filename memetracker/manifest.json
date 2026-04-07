@@ -2,10 +2,10 @@
   "manifestVersion": 1,
   "meta": {
     "name": "MemeTracker",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "logoPath": "logo.png",
     "shortDescription": "Track Dogecoin payments to an address (mempool)",
-    "longDescription": "MemeTracker is a Go-based Dogecoin mempool-only tracker: it does not download blocks or headers, only relayed transactions (P2P mempool + inv/getdata for tx). Open the web UI at http://[DogeBOX-IP]:33555 (default HTTP port) for usage and example URLs, or call GET /track/<P2PKH address> on that port to start monitoring a payout address. It uses several parallel Dogecoin P2P sessions (configurable, default 3), rotating DNS seeds and shuffled peer IPs—similar in spirit to the arcade pup—so inv/getdata gossip reaches you faster than a single connection. There is no BIP37 bloom filter; for maximum reliability set P2P_HOST to your own Dogecoin Core. Standard mobile wallets add bloom filters and more peers. Responses include recent matching transactions (limited by config). Addresses are retained for a configurable number of days after the last /track request, then removed with their stored transactions.",
+    "longDescription": "MemeTracker is a Go-based Dogecoin mempool-only tracker: it does not download blocks or headers, only relayed transactions (P2P mempool + inv/getdata for tx). The web UI includes a dashboard (charts, P2P/mempool stats), tracking P2PKH addresses, listing transactions, peers view, optional API IP allowlist, and Start/Stop for the P2P watcher. DogeBOX env seeds memetracker_config.json on first boot so P2P can auto-start. You may still use GET /track/<P2PKH address> or the API. Parallel P2P sessions (default 3), DNS seeds and shuffled peer IPs improve gossip vs a single connection. For maximum reliability set P2P_HOST to your own Dogecoin Core. Addresses expire after retention days without /track refresh.",
     "upstreamVersions": {
       "Go": "1.24"
     }
@@ -14,7 +14,7 @@
     "sections": [
       {
         "name": "Web API",
-        "description": "HTTP API for starting/stopping tracking and reading transactions",
+        "description": "HTTP port, optional API IP allowlist (comma-separated, used when config is first created), and X-Forwarded-For trust toggle for allowlist matching behind a proxy.",
         "fields": [
           {
             "name": "PUBLIC_PORT",
@@ -33,6 +33,18 @@
             "label": "Max recent transactions to return per address",
             "type": "text",
             "default": "10"
+          },
+          {
+            "name": "API_ALLOWED_IPS",
+            "label": "API allowed IPs (optional, comma-separated CIDRs or IPs)",
+            "type": "text",
+            "default": ""
+          },
+          {
+            "name": "MTR_TRUST_XFF",
+            "label": "Trust X-Forwarded-For for API IP allowlist",
+            "type": "toggle",
+            "default": false
           }
         ]
       },
@@ -83,7 +95,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "094f9cc4407e0fb7c25d36593c8d5649acc6fbd3706ab8c294d05f126b5c9bfa"
+      "nixFileSha256": "c91621c1bc6e5fa1d1dbebd4470d38491abd7a5cb18958227fe4b39b1e615b1f"
     },
     "services": [
       {
@@ -112,7 +124,7 @@
   "interfaces": [
     {
       "name": "memetracker-public",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "permissionGroups": [
         {
           "name": "MemeTracker HTTP",
@@ -121,7 +133,9 @@
           "routes": [
             "/",
             "/healthz",
-            "/track/*"
+            "/logo.png",
+            "/track/*",
+            "/api/*"
           ],
           "port": 33555
         }

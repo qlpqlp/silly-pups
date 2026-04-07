@@ -1,3 +1,7 @@
+// MemeTracker — Dogecoin mempool watcher (open source, MIT License; see LICENSE).
+//
+// Copyright (c) Paulo Vidal · https://x.com/inevitable360 · Dogecoin Foundation Dev
+//
 // MemeTracker connects to Dogecoin peers only to observe the relay mempool: after
 // handshake it sends the mempool message, then handles inv (requesting getdata only
 // for MSG_TX / witness-tx inventory types), tx, and ping. It does not sync blocks,
@@ -8,12 +12,12 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
+	"embed"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html/template"
 	"io"
 	"log"
 	"math/big"
@@ -22,7 +26,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,6 +51,9 @@ const (
 	P2P_READ_IDLE_SEC   = 20
 	SESSION_SEC         = 300
 )
+
+//go:embed static/*
+var staticFiles embed.FS
 
 var mainnetP2PKHVersion = byte(0x1E)
 var testnetP2PKHVersion = byte(0x71)
@@ -790,7 +800,7 @@ func buildVersionPayload(p2pPort int) []byte {
 	_, _ = rand.Read(nonceBytes)
 	nonce := binary.LittleEndian.Uint64(nonceBytes)
 
-	userAgent := "/memetracker-pup:0.1.6/"
+	userAgent := "/MemeTracker:1.0.0/"
 	uaLen := len(userAgent)
 	ua := make([]byte, 1+uaLen)
 	ua[0] = byte(uaLen)
@@ -839,6 +849,7 @@ type AddressData struct {
 	Address       string     `json:"address"`
 	Hash160Hex    string     `json:"hash160_hex"`
 	CallbackURL   string     `json:"callback_url,omitempty"`
+	TrackedSince  time.Time  `json:"tracked_since"`
 	LastRequested time.Time  `json:"last_requested"`
 	Txs           []TxRecord `json:"txs"`
 }
@@ -929,6 +940,9 @@ func (s *Store) load() error {
 		if now.Sub(ad.LastRequested) > time.Duration(s.retentionDays)*24*time.Hour {
 			continue
 		}
+		if ad.TrackedSince.IsZero() {
+			ad.TrackedSince = ad.LastRequested
+		}
 		s.watchByHash[ad.Hash160Hex] = &ad
 	}
 	return nil
@@ -948,12 +962,14 @@ func (s *Store) persistAddressLocked(ad *AddressData) error {
 		Address       string     `json:"address"`
 		Hash160Hex    string     `json:"hash160_hex"`
 		CallbackURL   string     `json:"callback_url,omitempty"`
+		TrackedSince  time.Time  `json:"tracked_since"`
 		LastRequested time.Time  `json:"last_requested"`
 		Txs           []TxRecord `json:"txs"`
 	}{
 		Address:       ad.Address,
 		Hash160Hex:    ad.Hash160Hex,
 		CallbackURL:   ad.CallbackURL,
+		TrackedSince:  ad.TrackedSince,
 		LastRequested: ad.LastRequested,
 		Txs:           ad.Txs,
 	}
@@ -979,6 +995,9 @@ func (s *Store) UpsertTracking(address string, hash160 []byte, callbackURL strin
 	if ad, ok := s.watchByHash[hashHex]; ok {
 		alreadyMonitoring = true
 		ad.LastRequested = now
+		if ad.TrackedSince.IsZero() {
+			ad.TrackedSince = now
+		}
 		if strings.TrimSpace(callbackURL) != "" {
 			ad.CallbackURL = strings.TrimSpace(callbackURL)
 		}
@@ -993,6 +1012,7 @@ func (s *Store) UpsertTracking(address string, hash160 []byte, callbackURL strin
 		Address:       address,
 		Hash160Hex:    hashHex,
 		CallbackURL:   strings.TrimSpace(callbackURL),
+		TrackedSince:  now,
 		LastRequested: now,
 		Txs:           []TxRecord{},
 	}
@@ -1055,6 +1075,120 @@ func (s *Store) GetRecent(address string, hash160 []byte) ([]TxRecord, bool) {
 	return ad.Txs, true
 }
 
+func (s *Store) SetLimits(listLimit, retentionDays int) {
+	if listLimit < 1 {
+		listLimit = 1
+	}
+	if retentionDays < 1 {
+		retentionDays = 1
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.listLimit = listLimit
+	s.retentionDays = retentionDays
+	for _, ad := range s.watchByHash {
+		if len(ad.Txs) > s.listLimit {
+			ad.Txs = ad.Txs[:s.listLimit]
+			_ = s.persistAddressLocked(ad)
+		}
+	}
+}
+
+func (s *Store) RemoveAddress(hashHex string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.watchByHash[hashHex]; !ok {
+		return false
+	}
+	delete(s.watchByHash, hashHex)
+	_ = os.Remove(s.fileForHash(hashHex))
+	s.kickMempoolResync()
+	return true
+}
+
+func (s *Store) RemoveTx(hashHex, txid string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ad, ok := s.watchByHash[hashHex]
+	if !ok {
+		return false
+	}
+	out := ad.Txs[:0]
+	for _, r := range ad.Txs {
+		if r.Txid != txid {
+			out = append(out, r)
+		}
+	}
+	if len(out) == len(ad.Txs) {
+		return false
+	}
+	ad.Txs = out
+	_ = s.persistAddressLocked(ad)
+	return true
+}
+
+func (s *Store) ListAddressSnapshots() []map[string]any {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]map[string]any, 0, len(s.watchByHash))
+	for _, ad := range s.watchByHash {
+		ts := ad.TrackedSince
+		if ts.IsZero() {
+			ts = ad.LastRequested
+		}
+		out = append(out, map[string]any{
+			"address":        ad.Address,
+			"hash160_hex":    ad.Hash160Hex,
+			"tracked_since":  ts.UTC().Format(time.RFC3339),
+			"last_requested": ad.LastRequested.UTC().Format(time.RFC3339),
+			"tx_count":       len(ad.Txs),
+		})
+	}
+	return out
+}
+
+func (s *Store) FlattenTransactions() []map[string]any {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var rows []map[string]any
+	for _, ad := range s.watchByHash {
+		for _, tx := range ad.Txs {
+			rows = append(rows, map[string]any{
+				"address":       ad.Address,
+				"hash160_hex":   ad.Hash160Hex,
+				"txid":          tx.Txid,
+				"datetime":      tx.Datetime,
+				"amount_doge":   tx.AmountDoge,
+			})
+		}
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		ti, ei := time.Parse(time.RFC3339, rows[i]["datetime"].(string))
+		tj, ej := time.Parse(time.RFC3339, rows[j]["datetime"].(string))
+		if ei != nil || ej != nil {
+			return i > j
+		}
+		return ti.After(tj)
+	})
+	return rows
+}
+
+func (s *Store) StoredTransactionRows() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	n := 0
+	for _, ad := range s.watchByHash {
+		n += len(ad.Txs)
+	}
+	return n
+}
+
+func (s *Store) Limits() (listLimit, retentionDays int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.listLimit, s.retentionDays
+}
+
 func (s *Store) metricsSnapshot() (watched int, totalTx int, latestPayment string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -1088,10 +1222,16 @@ func (s *Store) metricsSnapshot() (watched int, totalTx int, latestPayment strin
 
 // ------- Dogebox metrics (same contract as CORE monitor) -------
 
+type peerSession struct {
+	WorkerID  int       `json:"worker_id"`
+	Address   string    `json:"address"`
+	Connected bool      `json:"connected"`
+	Updated   time.Time `json:"updated"`
+}
+
 type MetricsCollector struct {
 	mu            sync.RWMutex
-	peerAddr      string
-	peerConnected bool
+	byWorker      map[int]peerSession // one logical session per P2P worker
 	mempoolTxIDs  map[string]struct{}
 	maxMempoolIDs int
 }
@@ -1101,16 +1241,33 @@ func NewMetricsCollector(maxMempool int) *MetricsCollector {
 		maxMempool = 50000
 	}
 	return &MetricsCollector{
+		byWorker:      make(map[int]peerSession),
 		mempoolTxIDs:  make(map[string]struct{}),
 		maxMempoolIDs: maxMempool,
 	}
 }
 
-func (m *MetricsCollector) SetPeer(addr string, connected bool) {
+func (m *MetricsCollector) SetPeerSession(workerID int, addr string, connected bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.peerAddr = addr
-	m.peerConnected = connected
+	m.byWorker[workerID] = peerSession{
+		WorkerID:  workerID,
+		Address:   addr,
+		Connected: connected,
+		Updated:   time.Now().UTC(),
+	}
+}
+
+func (m *MetricsCollector) snapshotPeers() (rows []peerSession, connectedN int) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, s := range m.byWorker {
+		rows = append(rows, s)
+		if s.Connected {
+			connectedN++
+		}
+	}
+	return rows, connectedN
 }
 
 func (m *MetricsCollector) observeMempoolTxid(txid string) {
@@ -1131,10 +1288,10 @@ func (m *MetricsCollector) observeMempoolTxid(txid string) {
 	m.mempoolTxIDs[txid] = struct{}{}
 }
 
-func (m *MetricsCollector) snapshot() (peer string, connected bool, mempoolN int) {
+func (m *MetricsCollector) snapshot() (mempoolN int) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.peerAddr, m.peerConnected, len(m.mempoolTxIDs)
+	return len(m.mempoolTxIDs)
 }
 
 func submitDogeboxMetrics(store *Store, col *MetricsCollector) {
@@ -1145,18 +1302,27 @@ func submitDogeboxMetrics(store *Store, col *MetricsCollector) {
 	}
 
 	watched, totalTx, latestPay := store.metricsSnapshot()
-	peer, p2pOn, mempoolN := col.snapshot()
+	mempoolN := col.snapshot()
+	peerRows, nConn := col.snapshotPeers()
 
 	p2pConnected := "no"
-	if p2pOn {
+	if nConn > 0 {
 		p2pConnected = "yes"
 	}
-	peerDetail := "not connected"
-	switch {
-	case p2pOn && peer != "":
-		peerDetail = fmt.Sprintf("active peer: %s", peer)
-	case peer != "":
-		peerDetail = fmt.Sprintf("last peer: %s (idle)", peer)
+	peerDetail := fmt.Sprintf("connected_workers=%d", nConn)
+	if len(peerRows) > 0 {
+		var b strings.Builder
+		for _, pr := range peerRows {
+			st := "idle"
+			if pr.Connected {
+				st = "live"
+			}
+			if b.Len() > 0 {
+				b.WriteString("; ")
+			}
+			fmt.Fprintf(&b, "w%d:%s:%s", pr.WorkerID, st, pr.Address)
+		}
+		peerDetail = b.String()
 	}
 
 	payload := map[string]interface{}{
@@ -1224,7 +1390,7 @@ func notifyCallback(callbackURL string, payload PaymentCallbackPayload) {
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "memetracker-pup/1")
+	req.Header.Set("User-Agent", "MemeTracker/1.0")
 	client := &http.Client{Timeout: 8 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -1254,6 +1420,12 @@ func (ps *ProcessedSet) Add(k string) {
 	ps.m[k] = struct{}{}
 }
 
+func (ps *ProcessedSet) Remove(k string) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	delete(ps.m, k)
+}
+
 func chooseSeeds(network string) ([]string, int) {
 	if strings.ToLower(network) == "mainnet" {
 		return mainnetDNSSeeds, 22556
@@ -1275,21 +1447,29 @@ func shufflePeerIPs(workerID int, ips []string) []string {
 
 // mempoolSniffer runs several parallel P2P sessions (like the arcade pup rotating seeds/peers)
 // so inv/getdata gossip reaches MemeTracker faster and more reliably than a single connection.
-func mempoolSniffer(store *Store, network string, p2pHost string, p2pPort int, p2pLog int, mcol *MetricsCollector) {
-	parallel := envInt("MTR_P2P_PARALLEL", envInt("P2P_PARALLEL", 3))
+// Closing stop unblocks workers between peers (active sessions may finish naturally up to SESSION_SEC).
+func mempoolSniffer(store *Store, network string, p2pHost string, p2pPort int, p2pLog int, mcol *MetricsCollector, processed *ProcessedSet, parallel int, stop <-chan struct{}) {
 	if parallel < 1 {
 		parallel = 1
 	}
 	if parallel > 8 {
 		parallel = 8
 	}
-	processed := NewProcessedSet()
 	for w := 0; w < parallel; w++ {
-		go mempoolP2PWorker(w, parallel, store, network, p2pHost, p2pPort, p2pLog, mcol, processed)
+		go mempoolP2PWorker(w, parallel, store, network, p2pHost, p2pPort, p2pLog, mcol, processed, stop)
 	}
 }
 
-func mempoolP2PWorker(workerID, parallel int, store *Store, network, p2pHost string, p2pPort, p2pLog int, mcol *MetricsCollector, processed *ProcessedSet) {
+func sleepOrStop(d time.Duration, stop <-chan struct{}) bool {
+	select {
+	case <-stop:
+		return true
+	case <-time.After(d):
+		return false
+	}
+}
+
+func mempoolP2PWorker(workerID, parallel int, store *Store, network, p2pHost string, p2pPort, p2pLog int, mcol *MetricsCollector, processed *ProcessedSet, stop <-chan struct{}) {
 	seeds, defaultPort := chooseSeeds(network)
 	if p2pPort == 0 {
 		p2pPort = defaultPort
@@ -1311,11 +1491,18 @@ func mempoolP2PWorker(workerID, parallel int, store *Store, network, p2pHost str
 	}
 
 	for round := 0; ; round++ {
+		select {
+		case <-stop:
+			return
+		default:
+		}
 		seedHost := seeds[(round*parallel+workerID)%len(seeds)]
 		ips, err := net.LookupHost(seedHost)
 		if err != nil || len(ips) == 0 {
 			log.Printf("[MTR-P2P] [w%d] DNS resolve failed seed=%s:%d err=%v", workerID, seedHost, p2pPort, err)
-			time.Sleep(3 * time.Second)
+			if sleepOrStop(3*time.Second, stop) {
+				return
+			}
 			continue
 		}
 		if len(ips) > 12 {
@@ -1326,6 +1513,11 @@ func mempoolP2PWorker(workerID, parallel int, store *Store, network, p2pHost str
 		// (peers often drop duplicate inbound links from the same host).
 		shuffled := shufflePeerIPs(workerID, ips)
 		for idx := workerID; idx < len(shuffled); idx += parallel {
+			select {
+			case <-stop:
+				return
+			default:
+			}
 			peer := shuffled[idx]
 			if peer == "" {
 				continue
@@ -1335,7 +1527,7 @@ func mempoolP2PWorker(workerID, parallel int, store *Store, network, p2pHost str
 			conn, err := net.DialTimeout("tcp", net.JoinHostPort(peer, strconv.Itoa(p2pPort)), 8*time.Second)
 			if err != nil {
 				logf("connect failed: %v", err)
-				mcol.SetPeer("", false)
+				mcol.SetPeerSession(workerID, "", false)
 				continue
 			}
 			// Do not SetDeadline on the whole conn: sessions run up to SESSION_SEC; a short
@@ -1343,13 +1535,15 @@ func mempoolP2PWorker(workerID, parallel int, store *Store, network, p2pHost str
 			_ = conn.SetDeadline(time.Time{})
 
 			stateLastPeer := net.JoinHostPort(peer, strconv.Itoa(p2pPort))
-			mcol.SetPeer(stateLastPeer, true)
+			mcol.SetPeerSession(workerID, stateLastPeer, true)
 			memetrackerP2PSession(conn, stateLastPeer, store, processed, mcol, p2pPort, logf, logv)
-			mcol.SetPeer(stateLastPeer, false)
+			mcol.SetPeerSession(workerID, stateLastPeer, false)
 			_ = conn.Close()
 		}
 
-		time.Sleep(5 * time.Second)
+		if sleepOrStop(5*time.Second, stop) {
+			return
+		}
 	}
 }
 
@@ -1734,170 +1928,656 @@ func deriveCallbackURL(r *http.Request, address string) string {
 	return fmt.Sprintf("%s://%s/%s/", scheme, net.JoinHostPort(host, strconv.Itoa(port)), url.PathEscape(address))
 }
 
-var landingPageTmpl = template.Must(template.New("memetracker-landing").Parse(`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>MemeTracker</title>
-  <style>
-    :root {
-      color-scheme: light dark;
-      --bg: #0f1419;
-      --surface: #1a2332;
-      --text: #e7ecf3;
-      --muted: #8b9aab;
-      --accent: #f2a900;
-      --accent2: #c2a633;
-      --border: rgba(255, 255, 255, 0.08);
-      --radius: 12px;
-      --font: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
-    }
-    @media (prefers-color-scheme: light) {
-      :root {
-        --bg: #f4f6fa;
-        --surface: #fff;
-        --text: #1a1d23;
-        --muted: #5c6570;
-        --border: rgba(0,0,0,.08);
-      }
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      font-family: var(--font);
-      background: radial-gradient(1200px 600px at 10% -10%, rgba(242,169,0,.12), transparent 50%),
-        radial-gradient(800px 400px at 100% 0%, rgba(194,166,51,.1), transparent 45%),
-        var(--bg);
-      color: var(--text);
-      line-height: 1.55;
-    }
-    .wrap { max-width: 720px; margin: 0 auto; padding: 2.5rem 1.25rem 3rem; }
-    h1 {
-      font-size: 1.75rem;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      margin: 0 0 .35rem;
-    }
-    .lead { color: var(--muted); margin: 0 0 1.75rem; font-size: 1.05rem; }
-    .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.25rem 1.35rem;
-      margin-bottom: 1rem;
-      box-shadow: 0 8px 32px rgba(0,0,0,.12);
-    }
-    .card h2 {
-      margin: 0 0 .65rem;
-      font-size: .82rem;
-      text-transform: uppercase;
-      letter-spacing: .06em;
-      color: var(--accent2);
-    }
-    code, .mono {
-      font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, monospace;
-      font-size: .88em;
-    }
-    .url {
-      display: block;
-      word-break: break-all;
-      padding: .65rem .75rem;
-      background: rgba(0,0,0,.2);
-      border-radius: 8px;
-      margin: .35rem 0 0;
-      border: 1px solid var(--border);
-    }
-    @media (prefers-color-scheme: light) {
-      .url { background: rgba(0,0,0,.04); }
-    }
-    ul { margin: .4rem 0 0; padding-left: 1.2rem; }
-    li { margin: .35rem 0; }
-    .pill {
-      display: inline-block;
-      font-size: .72rem;
-      font-weight: 600;
-      padding: .2rem .5rem;
-      border-radius: 999px;
-      background: rgba(242,169,0,.2);
-      color: var(--accent);
-      margin-left: .35rem;
-      vertical-align: middle;
-    }
-    footer { margin-top: 2rem; font-size: .85rem; color: var(--muted); }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <h1>MemeTracker <span class="pill">Dogebox</span></h1>
-    <p class="lead">Mempool-style watcher for P2PKH Dogecoin addresses. Use the HTTP API on the port configured for this pup (default <strong>33555</strong>).</p>
-
-    <div class="card">
-      <h2>Base URL</h2>
-      <p style="margin:0">Requests use your Dogebox host and this service port:</p>
-      <span class="mono url">{{ .BaseURL }}</span>
-    </div>
-
-    <div class="card">
-      <h2>Endpoints</h2>
-      <ul>
-        <li><span class="mono">GET {{ .BaseURL }}/</span> — This page.</li>
-        <li><span class="mono">GET {{ .BaseURL }}/healthz</span> — JSON health check.</li>
-        <li><span class="mono">GET {{ .BaseURL }}/track/&lt;P2PKH address&gt;</span> — Start or refresh tracking; returns JSON with recent matching mempool-related transactions.</li>
-      </ul>
-    </div>
-
-    <div class="card">
-      <h2>Example</h2>
-      <p style="margin:0">Replace with a valid mainnet P2PKH address:</p>
-      <span class="mono url">{{ .BaseURL }}/track/YOUR_DOGE_ADDRESS</span>
-    </div>
-
-    <footer>Peering uses Dogecoin P2P (seeds or <span class="mono">P2P_HOST</span>). Retention and limits are set in Dogebox pup configuration.</footer>
-  </div>
-</body>
-</html>`))
-
-func publicBaseURL(r *http.Request) string {
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
+func defaultStorageDir() string {
+	if runtime.GOOS == "windows" {
+		d, err := os.UserConfigDir()
+		if err == nil && d != "" {
+			return filepath.Join(d, "MemeTracker", "data")
+		}
+		return filepath.Join(".", "memetracker-data")
 	}
-	if p := strings.ToLower(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))); p == "https" {
-		scheme = "https"
+	if h, err := os.UserHomeDir(); err == nil && h != "" {
+		return filepath.Join(h, ".memetracker", "data")
 	}
-	host := r.Host
-	if host == "" {
-		host = net.JoinHostPort(envString("MTR_HTTP_BIND", "0.0.0.0"), strconv.Itoa(envInt("MTR_HTTP_PORT", envInt("PUBLIC_PORT", 33555))))
-	}
-	return scheme + "://" + host
+	return filepath.Join(".", "memetracker-data")
 }
 
-func handleLanding(w http.ResponseWriter, r *http.Request) {
+type diskSettings struct {
+	ListLimit     int `json:"list_limit"`
+	RetentionDays int `json:"retention_days"`
+}
+
+func readDiskSettings(path string) (diskSettings, bool) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return diskSettings{}, false
+	}
+	var s diskSettings
+	if json.Unmarshal(b, &s) != nil {
+		return diskSettings{}, false
+	}
+	return s, true
+}
+
+func writeDiskSettings(path string, s diskSettings) error {
+	b, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// MemeTrackerConfig is the full on-disk configuration (memetracker_config.json).
+// P2P and retention jobs start only after this file validates as complete (on boot)
+// or after POST /api/start.
+type MemeTrackerConfig struct {
+	HTTPPort       int      `json:"http_port"`
+	HTTPBind       string   `json:"http_bind"`
+	Network        string   `json:"network"`
+	StorageDir     string   `json:"storage_dir"`
+	ListLimit      int      `json:"list_limit"`
+	RetentionDays  int      `json:"retention_days"`
+	P2PHost        string   `json:"p2p_host"`
+	P2PPort        int      `json:"p2p_port"`
+	P2PParallel    int      `json:"p2p_parallel"`
+	P2PLog         int      `json:"p2p_log"`
+	APIAllowedIPs  []string `json:"api_allowed_ips,omitempty"` // empty or omitted = allow all IPs on /api/* and /track/*
+}
+
+func (c *MemeTrackerConfig) ApplyDefaults() {
+	if c.HTTPPort == 0 {
+		c.HTTPPort = 33555
+	}
+	c.HTTPBind = strings.TrimSpace(c.HTTPBind)
+	if c.HTTPBind == "" {
+		c.HTTPBind = "0.0.0.0"
+	}
+	c.Network = strings.TrimSpace(c.Network)
+	if c.Network == "" {
+		c.Network = "mainnet"
+	}
+	if c.ListLimit == 0 {
+		c.ListLimit = 10
+	}
+	if c.RetentionDays == 0 {
+		c.RetentionDays = 7
+	}
+	if c.P2PPort == 0 {
+		c.P2PPort = 22556
+	}
+	if c.P2PParallel == 0 {
+		c.P2PParallel = 3
+	}
+	if c.P2PLog < 0 {
+		c.P2PLog = 0
+	}
+	if c.P2PLog > 2 {
+		c.P2PLog = 2
+	}
+}
+
+func (c *MemeTrackerConfig) IsComplete() bool {
+	c.ApplyDefaults()
+	if c.HTTPPort < 1 || c.HTTPPort > 65535 {
+		return false
+	}
+	if strings.TrimSpace(c.HTTPBind) == "" {
+		return false
+	}
+	n := strings.ToLower(strings.TrimSpace(c.Network))
+	if n != "mainnet" && n != "testnet" {
+		return false
+	}
+	if c.ListLimit < 1 || c.RetentionDays < 1 {
+		return false
+	}
+	if c.P2PPort < 1 || c.P2PPort > 65535 {
+		return false
+	}
+	if c.P2PParallel < 1 || c.P2PParallel > 8 {
+		return false
+	}
+	return true
+}
+
+func normalizeAPIAllowedIPs(in []string) []string {
+	var out []string
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// clientIPForAPI returns the client address for access control.
+// Set MTR_TRUST_XFF=1 to use the first hop in X-Forwarded-For (only behind a trusted reverse proxy).
+func clientIPForAPI(r *http.Request) string {
+	if strings.TrimSpace(os.Getenv("MTR_TRUST_XFF")) == "1" {
+		xff := strings.TrimSpace(r.Header.Get("X-Forwarded-For"))
+		if xff != "" {
+			parts := strings.Split(xff, ",")
+			return strings.TrimSpace(parts[0])
+		}
+	}
+	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
+	if err != nil {
+		return strings.TrimSpace(r.RemoteAddr)
+	}
+	return host
+}
+
+func ipAllowedForAPI(host string, rules []string) bool {
+	rules = normalizeAPIAllowedIPs(rules)
+	if len(rules) == 0 {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	for _, rule := range rules {
+		rule = strings.TrimSpace(rule)
+		if rule == "" {
+			continue
+		}
+		if strings.Contains(rule, "/") {
+			_, cidr, err := net.ParseCIDR(rule)
+			if err != nil {
+				continue
+			}
+			if cidr.Contains(ip) {
+				return true
+			}
+			continue
+		}
+		if rIP := net.ParseIP(rule); rIP != nil && rIP.Equal(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func apiPathNeedsIPCheck(path string) bool {
+	if strings.HasPrefix(path, "/api/") {
+		return true
+	}
+	if strings.HasPrefix(path, "/track/") {
+		return true
+	}
+	return false
+}
+
+func apiAccessMiddleware(app *appState, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !apiPathNeedsIPCheck(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		cfg := app.snapshotCfg()
+		cl := clientIPForAPI(r)
+		if cl == "" {
+			cl = "unknown"
+		}
+		if !ipAllowedForAPI(cl, cfg.APIAllowedIPs) {
+			writeJSONError(w, http.StatusForbidden, fmt.Sprintf("API access denied for IP %s; add this address or your subnet (CIDR) to api_allowed_ips in memetracker_config.json or the API access screen, or clear the list to allow all", cl))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func writeMemeTrackerConfigFile(path string, c *MemeTrackerConfig) error {
+	cp := *c
+	cp.ApplyDefaults()
+	b, err := json.MarshalIndent(&cp, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+type appState struct {
+	mu           sync.RWMutex
+	cfg          MemeTrackerConfig
+	configPath   string
+	dataDir      string
+	store        *Store
+	mcol         *MetricsCollector
+	processed    *ProcessedSet
+	settingsPath string
+	httpPort     int
+	httpBind     string
+	p2pMu        sync.Mutex
+	p2pStarted   bool
+	p2pStopCh    chan struct{} // closed to signal P2P workers + metrics loop to exit
+}
+
+func runMetricsLoop(store *Store, col *MetricsCollector, stop <-chan struct{}) {
+	t := time.NewTicker(10 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			submitDogeboxMetrics(store, col)
+		}
+	}
+}
+
+func (a *appState) snapshotCfg() MemeTrackerConfig {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.cfg
+}
+
+func (a *appState) setCfg(c MemeTrackerConfig) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.cfg = c
+}
+
+func (a *appState) isP2PRunning() bool {
+	a.p2pMu.Lock()
+	defer a.p2pMu.Unlock()
+	return a.p2pStarted
+}
+
+func (a *appState) startP2P() {
+	a.p2pMu.Lock()
+	if a.p2pStarted {
+		a.p2pMu.Unlock()
+		return
+	}
+	stopCh := make(chan struct{})
+	a.p2pStopCh = stopCh
+	a.p2pStarted = true
+	a.p2pMu.Unlock()
+
+	cfg := a.snapshotCfg()
+	network := strings.ToLower(strings.TrimSpace(cfg.Network))
+	host := strings.TrimSpace(cfg.P2PHost)
+	go mempoolSniffer(a.store, network, host, cfg.P2PPort, cfg.P2PLog, a.mcol, a.processed, cfg.P2PParallel, stopCh)
+	go runMetricsLoop(a.store, a.mcol, stopCh)
+	log.Printf("[MTR] P2P mempool watcher started (network=%s, p2p_parallel=%d)", network, cfg.P2PParallel)
+}
+
+func (a *appState) stopP2P() {
+	a.p2pMu.Lock()
+	if !a.p2pStarted || a.p2pStopCh == nil {
+		a.p2pMu.Unlock()
+		return
+	}
+	ch := a.p2pStopCh
+	a.p2pStopCh = nil
+	a.p2pStarted = false
+	a.p2pMu.Unlock()
+	close(ch)
+	log.Printf("[MTR] P2P mempool watcher stop requested (workers exit between peer sessions)")
+}
+
+func openBrowser(urlStr string) {
+	if strings.TrimSpace(os.Getenv("MTR_NO_BROWSER")) != "" {
+		return
+	}
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", "", urlStr)
+	case "darwin":
+		cmd = exec.Command("open", urlStr)
+	default:
+		cmd = exec.Command("xdg-open", urlStr)
+	}
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	_ = cmd.Start()
+}
+
+func serveIndex(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	data := map[string]string{"BaseURL": publicBaseURL(r)}
-	if err := landingPageTmpl.Execute(w, data); err != nil {
-		log.Printf("[MTR] landing template: %v", err)
+	b, err := staticFiles.ReadFile("static/index.html")
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
 	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(b)
+}
+
+func serveLogo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	b, err := staticFiles.ReadFile("static/logo.png")
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	_, _ = w.Write(b)
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func writeJSONError(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+func apiStatus(w http.ResponseWriter, r *http.Request, app *appState) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	cfg := app.snapshotCfg()
+	ll, rd := app.store.Limits()
+	peers, nConn := app.mcol.snapshotPeers()
+	peerOut := make([]map[string]any, 0, len(peers))
+	for _, p := range peers {
+		peerOut = append(peerOut, map[string]any{
+			"worker_id": p.WorkerID,
+			"address":   p.Address,
+			"connected": p.Connected,
+			"updated":   p.Updated.UTC().Format(time.RFC3339),
+		})
+	}
+	allowCopy := cfg.APIAllowedIPs
+	if allowCopy == nil {
+		allowCopy = []string{}
+	}
+	fc := map[string]any{
+		"http_port":        cfg.HTTPPort,
+		"http_bind":        cfg.HTTPBind,
+		"network":          cfg.Network,
+		"storage_dir":      app.dataDir,
+		"list_limit":       cfg.ListLimit,
+		"retention_days":   cfg.RetentionDays,
+		"p2p_host":         cfg.P2PHost,
+		"p2p_port":         cfg.P2PPort,
+		"p2p_parallel":     cfg.P2PParallel,
+		"p2p_log":          cfg.P2PLog,
+		"api_allowed_ips":  allowCopy,
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"p2p_running":               app.isP2PRunning(),
+		"memetracker_config_path":   app.configPath,
+		"watched_addresses":         app.store.watcherCount(),
+		"stored_transaction_rows":   app.store.StoredTransactionRows(),
+		"mempool_tx_count":          app.mcol.snapshot(),
+		"peers_connected_count":     nConn,
+		"peers":                     peerOut,
+		"addresses":                 app.store.ListAddressSnapshots(),
+		"transactions":              app.store.FlattenTransactions(),
+		"full_config":               fc,
+		"config": map[string]any{
+			"network":             strings.ToLower(cfg.Network),
+			"mtr_http_bind":       app.httpBind,
+			"mtr_http_port":       app.httpPort,
+			"mtr_storage_dir":     app.dataDir,
+			"p2p_host":            cfg.P2PHost,
+			"p2p_port":            cfg.P2PPort,
+			"p2p_parallel":        cfg.P2PParallel,
+			"p2p_log":             cfg.P2PLog,
+			"list_limit":          ll,
+			"retention_days":      rd,
+			"settings_file_note":  "list_limit and retention_days sync to settings.json from the Configuration tab when saved",
+		},
+	})
+}
+
+func apiGetConfig(w http.ResponseWriter, r *http.Request, store *Store) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	ll, rd := store.Limits()
+	writeJSON(w, http.StatusOK, map[string]any{"list_limit": ll, "retention_days": rd})
+}
+
+func apiPostConfig(w http.ResponseWriter, r *http.Request, app *appState) {
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var body struct {
+		ListLimit     int `json:"list_limit"`
+		RetentionDays int `json:"retention_days"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if body.ListLimit < 1 || body.RetentionDays < 1 {
+		writeJSONError(w, http.StatusBadRequest, "list_limit and retention_days must be >= 1")
+		return
+	}
+	app.store.SetLimits(body.ListLimit, body.RetentionDays)
+	app.mu.Lock()
+	app.cfg.ListLimit = body.ListLimit
+	app.cfg.RetentionDays = body.RetentionDays
+	app.mu.Unlock()
+	if err := writeDiskSettings(app.settingsPath, diskSettings{ListLimit: body.ListLimit, RetentionDays: body.RetentionDays}); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func apiDeleteAddress(w http.ResponseWriter, r *http.Request, store *Store) {
+	if r.Method != http.MethodDelete {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/api/addresses/")
+	id = strings.TrimSpace(strings.Trim(id, "/"))
+	if id == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing id")
+		return
+	}
+	if !store.RemoveAddress(strings.ToLower(id)) {
+		writeJSONError(w, http.StatusNotFound, "address not tracked")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func apiDeleteTransaction(w http.ResponseWriter, r *http.Request, store *Store, processed *ProcessedSet) {
+	if r.Method != http.MethodDelete {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	txid := strings.TrimSpace(r.URL.Query().Get("txid"))
+	hashHex := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("hash160_hex")))
+	if txid == "" || hashHex == "" {
+		writeJSONError(w, http.StatusBadRequest, "txid and hash160_hex required")
+		return
+	}
+	if !store.RemoveTx(hashHex, txid) {
+		writeJSONError(w, http.StatusNotFound, "transaction not found")
+		return
+	}
+	processed.Remove(txid)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func apiPostStart(w http.ResponseWriter, r *http.Request, app *appState) {
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var body MemeTrackerConfig
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	body.APIAllowedIPs = normalizeAPIAllowedIPs(body.APIAllowedIPs)
+	body.ApplyDefaults()
+	if !body.IsComplete() {
+		writeJSONError(w, http.StatusBadRequest, "incomplete configuration: need valid network (mainnet/testnet), ports, list_limit, retention_days, p2p_parallel 1–8")
+		return
+	}
+	newDataDir := filepath.Clean(strings.TrimSpace(body.StorageDir))
+	if newDataDir == "" {
+		newDataDir = app.dataDir
+	}
+	body.StorageDir = newDataDir
+	if newDataDir != app.dataDir {
+		if err := writeMemeTrackerConfigFile(app.configPath, &body); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":                true,
+			"restart_required":  true,
+			"message":           "storage_dir does not match the running data directory; restart MemeTracker to apply. Config file was saved.",
+			"p2p_running":       false,
+		})
+		return
+	}
+	if err := writeMemeTrackerConfigFile(app.configPath, &body); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	app.setCfg(body)
+	app.store.SetLimits(body.ListLimit, body.RetentionDays)
+	if err := writeDiskSettings(app.settingsPath, diskSettings{ListLimit: body.ListLimit, RetentionDays: body.RetentionDays}); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	app.startP2P()
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "p2p_running": true})
+}
+
+func apiPostStop(w http.ResponseWriter, r *http.Request, app *appState) {
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	app.stopP2P()
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "p2p_running": false})
+}
+
+func apiPostAllowlist(w http.ResponseWriter, r *http.Request, app *appState) {
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var body struct {
+		APIAllowedIPs []string `json:"api_allowed_ips"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	normalized := normalizeAPIAllowedIPs(body.APIAllowedIPs)
+	app.mu.Lock()
+	app.cfg.APIAllowedIPs = normalized
+	cfgCopy := app.cfg
+	app.mu.Unlock()
+	if err := writeMemeTrackerConfigFile(app.configPath, &cfgCopy); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "api_allowed_ips": normalized})
 }
 
 func main() {
 	log.SetOutput(os.Stderr)
 
+	envStorage := strings.TrimSpace(envString("MTR_STORAGE_DIR", ""))
+	if envStorage == "" {
+		envStorage = defaultStorageDir()
+	}
+	configPath := strings.TrimSpace(envString("MTR_CONFIG_PATH", ""))
+	if configPath == "" {
+		configPath = filepath.Join(envStorage, "memetracker_config.json")
+	}
+
+	var fileCfg MemeTrackerConfig
+	configFileRead := false
+	if b, err := os.ReadFile(configPath); err == nil {
+		if json.Unmarshal(b, &fileCfg) == nil {
+			configFileRead = true
+		}
+	}
+	fileCfg.ApplyDefaults()
+
 	publicPort := envInt("MTR_HTTP_PORT", envInt("PUBLIC_PORT", 33555))
 	bindIP := envString("MTR_HTTP_BIND", envString("DBX_PUP_IP", "0.0.0.0"))
-	network := strings.ToLower(envString("MTR_NETWORK", envString("NETWORK", "mainnet")))
+	if configFileRead {
+		if fileCfg.HTTPPort > 0 {
+			publicPort = fileCfg.HTTPPort
+		}
+		if strings.TrimSpace(fileCfg.HTTPBind) != "" {
+			bindIP = fileCfg.HTTPBind
+		}
+	}
+
+	storageDir := envStorage
+	if configFileRead && strings.TrimSpace(fileCfg.StorageDir) != "" {
+		storageDir = filepath.Clean(fileCfg.StorageDir)
+	}
+
 	listLimit := envInt("MTR_LIST_LIMIT", envInt("LIST_LIMIT", 10))
 	retentionDays := envInt("MTR_RETENTION_DAYS", envInt("RETENTION_DAYS", 7))
-	storageDir := envString("MTR_STORAGE_DIR", "/storage/memetracker")
+	network := strings.ToLower(envString("MTR_NETWORK", envString("NETWORK", "mainnet")))
 	p2pHost := strings.TrimSpace(envString("MTR_P2P_HOST", envString("P2P_HOST", "")))
 	p2pPort := envInt("MTR_P2P_PORT", envInt("P2P_PORT", 22556))
 	p2pLog := envInt("MTR_P2P_LOG", envInt("P2P_LOG", 1))
+	p2pParallel := envInt("MTR_P2P_PARALLEL", envInt("P2P_PARALLEL", 3))
+
+	if configFileRead {
+		if fileCfg.ListLimit > 0 {
+			listLimit = fileCfg.ListLimit
+		}
+		if fileCfg.RetentionDays > 0 {
+			retentionDays = fileCfg.RetentionDays
+		}
+		if strings.TrimSpace(fileCfg.Network) != "" {
+			network = strings.ToLower(fileCfg.Network)
+		}
+		if fileCfg.P2PPort > 0 {
+			p2pPort = fileCfg.P2PPort
+		}
+		p2pParallel = fileCfg.P2PParallel
+		p2pLog = fileCfg.P2PLog
+		if strings.TrimSpace(fileCfg.P2PHost) != "" {
+			p2pHost = strings.TrimSpace(fileCfg.P2PHost)
+		}
+		fileCfg.ApplyDefaults()
+	}
+
+	settingsPath := filepath.Join(storageDir, "settings.json")
+	if ds, ok := readDiskSettings(settingsPath); ok {
+		if ds.ListLimit >= 1 {
+			listLimit = ds.ListLimit
+		}
+		if ds.RetentionDays >= 1 {
+			retentionDays = ds.RetentionDays
+		}
+	}
 
 	store, err := NewStore(storageDir, listLimit, retentionDays)
 	if err != nil {
@@ -1915,28 +2595,100 @@ func main() {
 	}()
 
 	mcol := NewMetricsCollector(50000)
-	go mempoolSniffer(store, network, p2pHost, p2pPort, p2pLog, mcol)
+	processed := NewProcessedSet()
 
-	go func() {
-		t := time.NewTicker(10 * time.Second)
-		defer t.Stop()
-		for range t.C {
-			submitDogeboxMetrics(store, mcol)
+	effectiveCfg := MemeTrackerConfig{
+		HTTPPort:      publicPort,
+		HTTPBind:      bindIP,
+		Network:       network,
+		StorageDir:    storageDir,
+		ListLimit:     listLimit,
+		RetentionDays: retentionDays,
+		P2PHost:       p2pHost,
+		P2PPort:       p2pPort,
+		P2PParallel:   p2pParallel,
+		P2PLog:        p2pLog,
+	}
+	effectiveCfg.ApplyDefaults()
+	if configFileRead {
+		effectiveCfg.APIAllowedIPs = normalizeAPIAllowedIPs(fileCfg.APIAllowedIPs)
+	}
+
+	diskComplete := false
+	if configFileRead {
+		var verify MemeTrackerConfig
+		if b, err := os.ReadFile(configPath); err == nil {
+			_ = json.Unmarshal(b, &verify)
+			verify.ApplyDefaults()
+			diskComplete = verify.IsComplete()
 		}
-	}()
+	}
+	autoStart := diskComplete && strings.TrimSpace(os.Getenv("MTR_NO_AUTOSTART")) == ""
+
+	app := &appState{
+		cfg:          effectiveCfg,
+		configPath:   configPath,
+		dataDir:      storageDir,
+		store:        store,
+		mcol:         mcol,
+		processed:    processed,
+		settingsPath: settingsPath,
+		httpPort:     publicPort,
+		httpBind:     bindIP,
+	}
+	if autoStart {
+		app.startP2P()
+	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/allowlist", func(w http.ResponseWriter, r *http.Request) {
+		apiPostAllowlist(w, r, app)
+	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		ll, rd := app.store.Limits()
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":              true,
 			"server_time_utc": time.Now().UTC().Format(time.RFC3339),
-			"retention_days":  retentionDays,
+			"list_limit":      ll,
+			"retention_days":  rd,
+			"storage_dir":     app.dataDir,
+			"p2p_running":     app.isP2PRunning(),
 		})
+	})
+
+	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
+		apiStatus(w, r, app)
+	})
+	mux.HandleFunc("/api/start", func(w http.ResponseWriter, r *http.Request) {
+		apiPostStart(w, r, app)
+	})
+	mux.HandleFunc("/api/stop", func(w http.ResponseWriter, r *http.Request) {
+		apiPostStop(w, r, app)
+	})
+	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			apiGetConfig(w, r, app.store)
+		case http.MethodPost:
+			apiPostConfig(w, r, app)
+		default:
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+	})
+	mux.HandleFunc("/api/addresses/", func(w http.ResponseWriter, r *http.Request) {
+		apiDeleteAddress(w, r, app.store)
+	})
+	mux.HandleFunc("/api/transactions", func(w http.ResponseWriter, r *http.Request) {
+		apiDeleteTransaction(w, r, app.store, app.processed)
 	})
 
 	mux.HandleFunc("/track/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !app.isP2PRunning() {
+			writeJSONError(w, http.StatusServiceUnavailable, "P2P watcher is not running: open the web UI, confirm settings, and click Start (or add a complete memetracker_config.json and restart)")
 			return
 		}
 		addr := strings.TrimPrefix(r.URL.Path, "/track/")
@@ -1947,47 +2699,63 @@ func main() {
 			return
 		}
 
-		hash160, err := decodePayoutToHash160(addr, network)
+		netw := strings.ToLower(app.snapshotCfg().Network)
+		hash160, err := decodePayoutToHash160(addr, netw)
 		if err != nil {
 			http.Error(w, "invalid address: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
 		callbackURL := deriveCallbackURL(r, addr)
-		already, recents, appliedCallback, err := store.UpsertTracking(addr, hash160, callbackURL)
+		already, recents, appliedCallback, err := app.store.UpsertTracking(addr, hash160, callbackURL)
 		if err != nil {
 			http.Error(w, "storage error: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-
+		ll, rd := app.store.Limits()
 		w.Header().Set("Content-Type", "application/json")
 		resp := map[string]any{
-			"address":            addr,
-			"monitored":          true,
-			"already_monitoring": already,
-			"callback_url":       appliedCallback,
-			"retention_days":     retentionDays,
-			"stored_tx_limit":    listLimit,
-			"transactions":       recents,
+			"address":             addr,
+			"monitored":           true,
+			"already_monitoring":  already,
+			"callback_url":        appliedCallback,
+			"retention_days":      rd,
+			"stored_tx_limit":     ll,
+			"transactions":        recents,
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	})
 
+	mux.HandleFunc("/logo.png", serveLogo)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
 			return
 		}
-		handleLanding(w, r)
+		serveIndex(w, r)
 	})
 
+	handler := apiAccessMiddleware(app, mux)
 	srv := &http.Server{
-		Addr:         net.JoinHostPort(bindIP, strconv.Itoa(publicPort)),
-		Handler:      mux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		Handler:      handler,
+		ReadTimeout:  60 * time.Second,
+		WriteTimeout: 60 * time.Second,
 	}
 
-	log.Printf("[MTR] listening on %s (network=%s, listLimit=%d, retentionDays=%d)", srv.Addr, network, listLimit, retentionDays)
-	log.Fatal(srv.ListenAndServe())
+	addr := net.JoinHostPort(bindIP, strconv.Itoa(publicPort))
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Fatalf("listen: %v", err)
+	}
+
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		_, portStr, _ := net.SplitHostPort(ln.Addr().String())
+		openBrowser("http://127.0.0.1:" + portStr + "/")
+	}()
+
+	ll, rd := store.Limits()
+	log.Printf("[MTR] listening on %s (storage=%s, p2p_running=%v config=%s)", ln.Addr(), storageDir, app.isP2PRunning(), configPath)
+	log.Printf("[MTR] effective listLimit=%d retentionDays=%d (network=%s)", ll, rd, network)
+	log.Fatal(srv.Serve(ln))
 }

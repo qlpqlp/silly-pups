@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "meta": {
     "name": "Dogecoin CORE Pro",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "logoPath": "logo.png",
     "shortDescription": "Run a full core node + wallet functions on your dogebox",
     "longDescription": "This pup launches and configures a full Dogecoin Core node on your dogebox, allowing you to sync the blockchain and contribute to the network.\n\nIMPORTANT: After saving configuration changes, you must DISABLE and then ENABLE the CORE pup to apply the new settings.",
@@ -215,7 +215,34 @@
         "interfaces": [
           "core-zmq"
         ],
-        "listenOnHost": false
+        "listenOnHost": true
+      },
+      {
+        "name": "zmq-hashtx",
+        "type": "tcp",
+        "port": 28333,
+        "interfaces": [
+          "core-zmq"
+        ],
+        "listenOnHost": true
+      },
+      {
+        "name": "zmq-rawblock",
+        "type": "tcp",
+        "port": 28334,
+        "interfaces": [
+          "core-zmq"
+        ],
+        "listenOnHost": true
+      },
+      {
+        "name": "zmq-rawtx",
+        "type": "tcp",
+        "port": 28335,
+        "interfaces": [
+          "core-zmq"
+        ],
+        "listenOnHost": true
       }
     ],
     "requiresInternet": true
@@ -223,7 +250,7 @@
   "interfaces": [
     {
       "name": "core-rpc",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "permissionGroups": [
         {
           "name": "RPC",

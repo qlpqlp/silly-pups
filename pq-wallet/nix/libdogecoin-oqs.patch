@@ -1,0 +1,24 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -212,6 +212,8 @@ IF(USE_YUBIKEY)
+ ENDIF()
+ IF(USE_LIBOQS)
+     ADD_DEFINITIONS(-DUSE_LIBOQS=1)
++    find_package(PkgConfig REQUIRED)
++    pkg_check_modules(OQS REQUIRED liboqs)
+ ENDIF()
+ IF(TEST_PASSWD)
+     ADD_DEFINITIONS(-DTEST_PASSWD=1)
+@@ -492,6 +492,12 @@ IF(WITH_NET)
+         )
+     ENDIF()
+ ENDIF()
+ 
++IF(USE_LIBOQS)
++    target_include_directories(${LIBDOGECOIN_NAME} PUBLIC ${OQS_INCLUDE_DIRS})
++    target_link_libraries(${LIBDOGECOIN_NAME} PUBLIC ${OQS_LIBRARIES})
++ENDIF()
++
+ IF(WITH_TOOLS)
+     IF(USE_TESTS)
+         TARGET_SOURCES(tests ${visibility}

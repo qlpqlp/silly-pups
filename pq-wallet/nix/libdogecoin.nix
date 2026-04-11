@@ -12,7 +12,11 @@ stdenv.mkDerivation rec {
     hash = "sha256-O0Km5jlSFFtXfN6aO2FsPzQfdo7YvI7LwFy4l3ldXkc=";
   };
 
-  patches = [ ./libdogecoin-oqs.patch ./libdogecoin-libevent-hints.patch ];
+  patches = [
+    ./libdogecoin-oqs.patch
+    ./libdogecoin-libevent-hints.patch
+    ./libdogecoin-with-net-link.patch
+  ];
 
   nativeBuildInputs = [ cmake pkg-config ninja ];
   buildInputs = [ gmp liboqs openssl ];

@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "meta": {
     "name": "PQ Doge Wallet",
-    "version": "0.0.2",
+    "version": "0.0.3",
     "logoPath": "logo.png",
     "shortDescription": "The first Post Quantum Secure Dogecoin wallet",
     "longDescription": "Built in with libdogecoin liboqs that includes: `such` (P2PKH keys, Falcon-512 keygen, sign, commitments), `sendtx` (P2P broadcast), `spvnode` (headers + BIP37 + SMPV).",
@@ -84,7 +84,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "9a376f81de8705e16457678275ce06630e1ceef1f3f88524e2d5f22dab4d79a8"
+      "nixFileSha256": "7108b11eea2fb8e6fa3449361b3cd4c4ab90b3471c749ab159da9a2f393339db"
     },
     "services": [
       {
@@ -113,7 +113,7 @@
   "interfaces": [
     {
       "name": "pq-wallet-http",
-      "version": "0.0.2",
+      "version": "0.0.3",
       "permissionGroups": [
         {
           "name": "PQ Wallet HTTP",

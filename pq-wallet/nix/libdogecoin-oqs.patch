@@ -1,9 +1,6 @@
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -211,11 +211,13 @@ IF(USE_YUBIKEY)
- IF(USE_YUBIKEY)
-     FIND_LIBRARY(LIBYKPIV NAMES ykpiv REQUIRED HINTS /usr/lib/x86_64-linux-gnu)
-     ADD_DEFINITIONS(-DUSE_YUBIKEY=1)
+@@ -214,6 +214,8 @@
  ENDIF()
  IF(USE_LIBOQS)
      ADD_DEFINITIONS(-DUSE_LIBOQS=1)
@@ -12,16 +9,7 @@
  ENDIF()
  IF(TEST_PASSWD)
      ADD_DEFINITIONS(-DTEST_PASSWD=1)
-     ADD_DEFINITIONS(-DPASSWD_STR="${PASSWD_STR}")
- ENDIF()
-@@ -305,12 +305,17 @@
-     src/utils.c
-     src/validation.c
-     src/vector.c
- )
- IF(USE_LIBOQS)
- TARGET_SOURCES(${LIBDOGECOIN_NAME} PRIVATE
-     src/pqc_dilithium.c
+@@ -312,6 +314,11 @@
      src/pqc_falcon.c
  )
  ENDIF()

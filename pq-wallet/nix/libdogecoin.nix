@@ -9,7 +9,7 @@ stdenv.mkDerivation rec {
     owner = "dogecoinfoundation";
     repo = "libdogecoin";
     rev = "a120e0377650f247398b8b76c5d74e5ed89ec437";
-    hash = "sha256-jq/owuNMzMG68gFT2nBC20fZS8qIhlp+AcA3IXKVfqs=";
+    hash = "sha256-O0Km5jlSFFtXfN6aO2FsPzQfdo7YvI7LwFy4l3ldXkc=";
   };
 
   patches = [ ./libdogecoin-oqs.patch ];

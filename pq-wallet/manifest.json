@@ -4,8 +4,8 @@
     "name": "PQ Doge Wallet",
     "version": "0.0.2",
     "logoPath": "logo.png",
-    "shortDescription": "Dogecoin wallet with libdogecoin (such, sendtx, spvnode), Falcon-512 PQ keys, SPV/SMPV, and optional Core RPC",
-    "longDescription": "Ships libdogecoin built with liboqs: `such` (P2PKH keys, Falcon-512 keygen, sign, commitments), `sendtx` (P2P broadcast), `spvnode` (headers + BIP37 + SMPV). The Go UI only shells out to `such` for keys and signing; it does not use btcd/btcsuite. P2PKH script hex for `such -c sign` is built from the libdogecoin pubkey using standard SHA256+RIPEMD160 (same template libdogecoin uses). Optional PQ keys via such, spvnode after wallet creation. JSON APIs for sign/broadcast/RPC. Optional MemeTracker and explorer. Set DOGE_RPC_URL for Core sendtoaddress/gettransaction when available.",
+    "shortDescription": "The first Post Quantum Secure Dogecoin wallet",
+    "longDescription": "Built in with libdogecoin liboqs that includes: `such` (P2PKH keys, Falcon-512 keygen, sign, commitments), `sendtx` (P2P broadcast), `spvnode` (headers + BIP37 + SMPV).",
     "upstreamVersions": {
       "Go": "1.24",
       "libdogecoin": "a120e03 + liboqs"

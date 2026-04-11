@@ -1,5 +1,4 @@
-// P2PKH script assembly for `such -c sign -s` (not btcd/btcsuite: pubkey bytes come from libdogecoin;
-// hash is standard SHA256+RIPEMD160 per Bitcoin script template).
+// P2PKH scriptPubKey hex for `such -c sign -s` from libdogecoin pubkey hex (SHA256 + RIPEMD-160, standard template).
 package main
 
 import (

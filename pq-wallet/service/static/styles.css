@@ -1049,6 +1049,59 @@ a {
   margin: 0.75rem 0 0;
 }
 
+.wallet-hero-pending {
+  margin: 0.5rem 0 0;
+  color: #9fd6ff;
+  font-weight: 600;
+}
+
+.wallet-hero-pending:empty {
+  display: none;
+}
+
+.wallet-lock-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(5, 8, 12, 0.92);
+  backdrop-filter: blur(8px);
+}
+
+.wallet-lock-screen.hidden {
+  display: none !important;
+}
+
+.wallet-lock-panel {
+  max-width: 420px;
+  width: 100%;
+}
+
+.wallet-lock-panel h2 {
+  margin-top: 0;
+}
+
+.peer-recent-title {
+  margin: 1rem 0 0.35rem;
+}
+
+.peer-recent-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  max-height: 8rem;
+  overflow: auto;
+}
+
+.peer-recent-list li {
+  margin: 0.2rem 0;
+  word-break: break-all;
+}
+
 /* Send: address + scan */
 .send-to-row {
   display: flex;

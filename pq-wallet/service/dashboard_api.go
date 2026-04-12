@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"math"
 	"net/http"
@@ -20,7 +21,15 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	wf, err := s.loadWallet()
-	if err != nil || wf == nil {
+	if err != nil {
+		if errors.Is(err, ErrWalletLocked) {
+			writeJSON(w, http.StatusOK, map[string]any{"wallet": nil, "dashboard": nil, "locked": true, "sealed": true})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"wallet": nil, "dashboard": nil})
+		return
+	}
+	if wf == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"wallet": nil, "dashboard": nil})
 		return
 	}
@@ -61,6 +70,15 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	if hdr.CurrentPeer != nil {
 		currentPeer = hdr.CurrentPeer
 	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	pendingMeme, memeErr := s.syncMemeTracker(ctx, wf, st)
+	memeErrStr := ""
+	if memeErr != nil {
+		memeErrStr = memeErr.Error()
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"wallet": wf,
 		"dashboard": map[string]any{
@@ -69,20 +87,21 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 				"header_height":         hdr.HeaderHeight,
 				"best_block_hash":       hdr.BestBlockHash,
 				"peer_count":            hdr.PeerCount,
-				"smpv_active":           hdr.SMPVActive,
 				"header_count_hint":     hdr.HeaderCountHint,
 				"spv_peer_hosts":        hdr.SPVPeerHosts,
-				"smpv_peer_hosts":       hdr.SMPVPeerHosts,
 				"mempool_tx_count":      hdr.MempoolTxCount,
 				"current_peer":          currentPeer,
+				"peers_recent":          hdr.PeersRecent,
 				"log_tail":              logTail,
 			},
 			"totals": map[string]any{
-				"received_doge":       round4(inSum),
-				"sent_doge":           round4(outSum),
-				"spendable_hint_doge": round4(spendable),
-				"tx_count":            len(st.Transactions),
-				"last_explorer_sync":  st.LastExplorerSync,
+				"received_doge":         round4(inSum),
+				"sent_doge":             round4(outSum),
+				"spendable_hint_doge":   round4(spendable),
+				"pending_mempool_doge":  round4(pendingMeme),
+				"memetracker_error":     memeErrStr,
+				"tx_count":              len(st.Transactions),
+				"last_explorer_sync":    st.LastExplorerSync,
 			},
 			"metrics_sample": tailMetrics(st.Metrics, 120),
 		},
@@ -126,7 +145,15 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	wf, err := s.loadWallet()
-	if err != nil || wf == nil {
+	if err != nil {
+		if errors.Is(err, ErrWalletLocked) {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "locked", "need_unlock": true, "transactions": []TxRecord{}})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"transactions": []TxRecord{}})
+		return
+	}
+	if wf == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"transactions": []TxRecord{}})
 		return
 	}
@@ -324,6 +351,10 @@ func (s *Server) backgroundMetricsLoop() {
 	for range tick.C {
 		s.mu.Lock()
 		wf, err := s.loadWallet()
+		if errors.Is(err, ErrWalletLocked) {
+			s.mu.Unlock()
+			continue
+		}
 		if err != nil || wf == nil {
 			s.mu.Unlock()
 			continue
@@ -344,7 +375,6 @@ func (s *Server) backgroundMetricsLoop() {
 			BestBlockHash: hdr.BestBlockHash,
 			SPVRunning:    running,
 			PeerCount:     hdr.PeerCount,
-			SMPVActive:    true,
 			MempoolTxCount: hdr.MempoolTxCount,
 		})
 		_ = s.saveState(st)

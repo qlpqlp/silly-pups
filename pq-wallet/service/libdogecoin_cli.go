@@ -257,13 +257,12 @@ func (s *Server) startSPVNode(w *WalletFile) {
 		return
 	}
 	testnet := strings.EqualFold(w.Network, "testnet")
-	// -x enables SMPV — libdogecoin’s Simple Mempool Verification (P2P mempool path). Always on for this wallet.
 	args := []string{
 		"-f", "0", "-c", "-l",
 		"-a", addr,
 		"-w", filepath.Join(s.storageDir, "spv_wallet.db"),
 		"-h", filepath.Join(s.storageDir, "headers.db"),
-		"-b", "-x", "scan",
+		"-b", "scan",
 	}
 	if testnet {
 		args = append([]string{"-t"}, args...)

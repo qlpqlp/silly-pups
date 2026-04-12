@@ -7,7 +7,7 @@ let
 
   pq_bin = pkgs.buildGoModule {
     pname = "pq-wallet";
-    version = "0.0.6";
+    version = "0.0.7";
     src = ./service;
     vendorHash = null;
     go = pkgs.go_1_24;
@@ -38,6 +38,9 @@ let
     export EXPLORER_TX_API="''${EXPLORER_TX_API:-}"
     export EXPLORER_ADDRESS_API="''${EXPLORER_ADDRESS_API:-}"
     export SPVNODE_ENABLE="''${SPVNODE_ENABLE:-1}"
+    export MTR_P2P_PORT="''${MTR_P2P_PORT:-}"
+    export MTR_P2P_PARALLEL="''${MTR_P2P_PARALLEL:-}"
+    export MTR_LIST_LIMIT="''${MTR_LIST_LIMIT:-}"
 
     if [ "$SPVNODE_ENABLE" = "1" ] && [ -f "$STORAGE/wallet.json" ]; then
       if [ ! -f "$STORAGE/spv.pid" ] || ! kill -0 "$(cat "$STORAGE/spv.pid" 2>/dev/null)" 2>/dev/null; then
@@ -47,7 +50,7 @@ let
         if [ -n "$ADDR" ]; then
           TN_FLAG=""
           if [ "$NET" = "testnet" ]; then TN_FLAG="-t"; fi
-          nohup spvnode $TN_FLAG -f 0 -c -l -a "$ADDR" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b -x scan >>"$STORAGE/spv.log" 2>&1 &
+          nohup spvnode $TN_FLAG -f 0 -c -l -a "$ADDR" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >>"$STORAGE/spv.log" 2>&1 &
           echo $! >"$STORAGE/spv.pid"
         fi
       fi

@@ -1,0 +1,102 @@
+{
+  "manifestVersion": 1,
+  "meta": {
+    "name": "HTTPS Proxy",
+    "version": "0.1.1",
+    "logoPath": "logo.png",
+    "shortDescription": "Local HTTPS reverse proxy for other pups (self-signed TLS + web admin)",
+    "longDescription": "Generates **one self-signed TLS certificate** per config (default SAN **dogebox**; ports are not part of certs — the same cert works for `https://dogebox:8080`, `https://dogebox:10000`, etc.). Use **port listeners** in the web UI so each HTTPS port forwards to that pup’s HTTP URL (e.g. `8080` → `http://127.0.0.1:8080`). If you leave port listeners empty, a single **PUBLIC_PORT** uses host-based routes instead. Admin is at `/__proxy/` on every listener. Trust `cert.pem` from the admin API. This is **not** Let’s Encrypt.",
+    "upstreamVersions": {
+      "Go": "1.24"
+    }
+  },
+  "config": {
+    "sections": [
+      {
+        "name": "HTTP/TLS",
+        "description": "When no port listeners are configured in the UI, HTTPS binds to this port on 0.0.0.0. If you add port listeners, each row uses its own HTTPS port (PUBLIC_PORT is ignored).",
+        "fields": [
+          {
+            "name": "PUBLIC_PORT",
+            "label": "HTTPS listen port",
+            "type": "text",
+            "default": "10000"
+          }
+        ]
+      },
+      {
+        "name": "Storage & admin",
+        "description": "Config and TLS material persist under HTTPS_PROXY_STORAGE. Set a fixed admin token to skip the generated admin.token file.",
+        "fields": [
+          {
+            "name": "HTTPS_PROXY_STORAGE",
+            "label": "Storage directory",
+            "type": "text",
+            "default": "/storage/https-proxy"
+          },
+          {
+            "name": "HTTPS_PROXY_ADMIN_TOKEN",
+            "label": "Admin API token (optional; empty = auto-generated file)",
+            "type": "text",
+            "default": ""
+          }
+        ]
+      }
+    ]
+  },
+  "container": {
+    "build": {
+      "nixFile": "pup.nix",
+      "nixFileSha256": "4a2638aeb64cb0598a7ec34f6c1fcb73fa3e0e4b80d357a7d17ca09ba9115111"
+    },
+    "services": [
+      {
+        "name": "https-proxy",
+        "command": {
+          "exec": "/bin/run.sh",
+          "cwd": "",
+          "env": null
+        }
+      }
+    ],
+    "exposes": [
+      {
+        "name": "https",
+        "type": "http",
+        "port": 10000,
+        "interfaces": [
+          "https-proxy-https"
+        ],
+        "listenOnHost": true,
+        "webUI": true
+      }
+    ],
+    "requiresInternet": false
+  },
+  "interfaces": [
+    {
+      "name": "https-proxy-https",
+      "version": "0.1.1",
+      "permissionGroups": [
+        {
+          "name": "HTTPS Proxy UI",
+          "description": "Web admin and proxied HTTPS traffic",
+          "severity": 2,
+          "routes": [
+            "/*"
+          ],
+          "port": 10000
+        }
+      ]
+    }
+  ],
+  "dependencies": [],
+  "metrics": [
+    {
+      "name": "uptime_seconds",
+      "label": "Uptime",
+      "type": "int",
+      "history": 30
+    }
+  ]
+}

@@ -30,6 +30,9 @@
     },
     {
       "location": "pq-wallet"
+    },
+    {
+      "location": "https-proxy"
     }
   ]
 }

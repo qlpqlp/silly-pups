@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -49,7 +50,15 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	wf, err := s.loadWallet()
 	s.mu.Unlock()
-	if err != nil || wf == nil {
+	if err != nil {
+		if errors.Is(err, ErrWalletLocked) {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "locked", "need_unlock": true})
+			return
+		}
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no wallet"})
+		return
+	}
+	if wf == nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no wallet"})
 		return
 	}

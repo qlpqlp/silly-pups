@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -12,6 +13,36 @@ import (
 
 type primaryBody struct {
 	ID string `json:"id"`
+}
+
+func cloneWallet(w *WalletFile) (*WalletFile, error) {
+	b, err := json.Marshal(w)
+	if err != nil {
+		return nil, err
+	}
+	var out WalletFile
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (s *Server) loadWalletRaw() (*WalletFile, error) {
+	if s.hasSealedWallet() {
+		if s.memWallet != nil && time.Now().Before(s.unlockUntil) {
+			return cloneWallet(s.memWallet)
+		}
+		return nil, ErrWalletLocked
+	}
+	b, err := os.ReadFile(s.walletPath)
+	if err != nil {
+		return nil, err
+	}
+	var w WalletFile
+	if err := json.Unmarshal(b, &w); err != nil {
+		return nil, err
+	}
+	return &w, nil
 }
 
 func (s *Server) loadWalletMigrate() (*WalletFile, error) {
@@ -26,19 +57,8 @@ func (s *Server) loadWalletMigrate() (*WalletFile, error) {
 	if needsSave && len(wf.Addresses) > 0 {
 		_ = s.saveWallet(wf)
 	}
+	s.touchUnlockSession()
 	return wf, nil
-}
-
-func (s *Server) loadWalletRaw() (*WalletFile, error) {
-	b, err := os.ReadFile(s.walletPath)
-	if err != nil {
-		return nil, err
-	}
-	var w WalletFile
-	if err := json.Unmarshal(b, &w); err != nil {
-		return nil, err
-	}
-	return &w, nil
 }
 
 // loadWallet is used by handlers after migration.
@@ -49,6 +69,10 @@ func (s *Server) loadWallet() (*WalletFile, error) {
 func (s *Server) saveWallet(w *WalletFile) error {
 	w.ensurePrimaryUnique()
 	w.syncLegacyFromPrimary()
+	if s.walletKey != nil {
+		s.memWallet = w
+		return s.persistSealedWallet(w)
+	}
 	b, err := json.MarshalIndent(w, "", "  ")
 	if err != nil {
 		return err
@@ -76,7 +100,9 @@ func (s *Server) handleWalletDelete(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.stopSPVNode()
+	s.lockWalletSession()
 	_ = os.Remove(s.walletPath)
+	_ = os.Remove(s.sealedPath())
 	_ = os.Remove(s.statePath())
 	_ = os.Remove(filepath.Join(s.storageDir, "spv.log"))
 	_ = os.Remove(s.spvPidPath())
@@ -106,7 +132,11 @@ func (s *Server) handleWalletImport(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, err := s.loadWalletRaw(); err == nil {
+	if s.hasSealedWallet() {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "sealed wallet exists — delete or unlock first"})
+		return
+	}
+	if _, err := s.loadWalletRawPlaintext(); err == nil {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "wallet already exists — delete first"})
 		return
 	}
@@ -133,7 +163,15 @@ func (s *Server) handleWalletNewAddress(w http.ResponseWriter, r *http.Request) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	wf, err := s.loadWallet()
-	if err != nil || wf == nil {
+	if err != nil {
+		if errors.Is(err, ErrWalletLocked) {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "locked", "need_unlock": true})
+			return
+		}
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if wf == nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no wallet"})
 		return
 	}
@@ -169,7 +207,15 @@ func (s *Server) handleWalletSetPrimary(w http.ResponseWriter, r *http.Request) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	wf, err := s.loadWallet()
-	if err != nil || wf == nil {
+	if err != nil {
+		if errors.Is(err, ErrWalletLocked) {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "locked", "need_unlock": true})
+			return
+		}
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if wf == nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no wallet"})
 		return
 	}

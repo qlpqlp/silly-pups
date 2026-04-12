@@ -1,0 +1,31 @@
+--- a/src/net.c
++++ b/src/net.c
+@@ -72,6 +72,7 @@
+ #include <dogecoin/mem.h>
+ 
+ #define UNUSED(x) (void)(x)
++#define PQ_INET6_BUF 64
+ static const int DOGECOIN_PERIODICAL_NODE_TIMER_S = 3;
+ static const int DOGECOIN_PING_INTERVAL_S = 120;
+ static const int DOGECOIN_CONNECT_TIMEOUT_S = 10;
+@@ -741,6 +742,21 @@ int dogecoin_node_parse_message(dogecoin_node* node, dogecoin_p2p_msg_hdr* hdr,
+             node->services = v_msg_check.services;
+             node->bestknownheight = v_msg_check.start_height;
+             node->nodegroup->log_write_cb("Connected to node %d: %s (%d)\n", node->nodeid, v_msg_check.useragent, v_msg_check.start_height);
++            {
++                char pq_ip[PQ_INET6_BUF];
++                pq_ip[0] = '\0';
++                if (node->addr.sa_family == AF_INET) {
++                    struct sockaddr_in* ad4 = (struct sockaddr_in*)&node->addr;
++                    evutil_inet_ntop(AF_INET, &ad4->sin_addr, pq_ip, sizeof(pq_ip));
++                } else if (node->addr.sa_family == AF_INET6) {
++                    struct sockaddr_in6* ad6 = (struct sockaddr_in6*)&node->addr;
++                    evutil_inet_ntop(AF_INET6, &ad6->sin6_addr, pq_ip, sizeof(pq_ip));
++                }
++                if (pq_ip[0] != '\0') {
++                    node->nodegroup->log_write_cb("PQ_PEER node=%d ip=%s height=%d\n", node->nodeid, pq_ip, (int)v_msg_check.start_height);
++                }
++            }
+             /* confirm version via verack */
+             cstring* verack = dogecoin_p2p_message_new(node->nodegroup->chainparams->netmagic, DOGECOIN_MSG_VERACK, NULL, 0);
+             dogecoin_node_send(node, verack);

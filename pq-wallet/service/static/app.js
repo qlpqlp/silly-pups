@@ -1,4 +1,4 @@
-/* global Chart, QRCode, Html5Qrcode */
+/* global Chart, QRCode, Html5Qrcode, jsQR */
 
 async function api(path, opts) {
   const r = await fetch(path, {
@@ -15,8 +15,10 @@ async function api(path, opts) {
 
 const state = {
   wallet: null,
+  walletLocked: false,
+  lastPendingDoge: 0,
   view: "dashboard",
-  charts: { height: null, smpv: null },
+  charts: { height: null },
   pollFast: null,
   pollTx: null,
   pollLogs: null,
@@ -39,7 +41,7 @@ function showView(name) {
     addresses: ["Addresses", "Generate keys and choose which address SPV watches"],
     transactions: ["Transactions", "PQ badges = explorer OP_RETURN hints (not a full audit)"],
     tools: ["Send Doge", "Destination & amount, or paste a signed raw hex for P2P broadcast"],
-    logs: ["Logs", "SPV, SMPV/mempool filter, and broadcast tails (~420 lines)"],
+    logs: ["Logs", "SPV and broadcast log tails (~420 lines each)"],
     learn: ["How it works", "ECDSA vs PQ · send · verify · broadcast"],
     settings: ["Wallet file", "Backup or remove this pup’s wallet"],
   };
@@ -66,16 +68,13 @@ function showView(name) {
 
 async function refreshLogs() {
   try {
-    const [spv, smpv, bc] = await Promise.all([
+    const [spv, bc] = await Promise.all([
       fetch("/api/logs/spv?lines=420").then((r) => r.text()),
-      fetch("/api/logs/smpv?lines=420").then((r) => r.text()),
       fetch("/api/logs/broadcast?lines=420").then((r) => r.text()),
     ]);
     const elS = $("log-spv");
-    const elM = $("log-smpv");
     const elB = $("log-bc");
     if (elS) elS.textContent = spv;
-    if (elM) elM.textContent = smpv;
     if (elB) elB.textContent = bc;
   } catch {
     /* ignore */
@@ -174,7 +173,7 @@ function mdBold(s) {
 }
 
 function setOnboarding(w) {
-  const has = !!w;
+  const has = !!w || state.walletLocked;
   if (!has) {
     if (state.pollFast) clearInterval(state.pollFast);
     if (state.pollTx) clearInterval(state.pollTx);
@@ -192,7 +191,7 @@ function setOnboarding(w) {
     $(id).classList.toggle("hidden", !has);
   });
   if (has) {
-    $("net-badge").textContent = (w.network || "mainnet").toUpperCase();
+    if (w && w.network) $("net-badge").textContent = (w.network || "mainnet").toUpperCase();
     showView(state.view || "dashboard");
     updateReceiveView();
     startPollers();
@@ -224,18 +223,10 @@ function initCharts() {
     },
   };
   const ctxH = $("chart-height");
-  const ctxSm = $("chart-smpv");
   if (ctxH && !state.charts.height) {
     state.charts.height = new Chart(ctxH, {
       type: "line",
       data: { labels: [], datasets: [{ label: "height", data: [], borderColor: "#f2cb2c", tension: 0.25, fill: false }] },
-      options: common,
-    });
-  }
-  if (ctxSm && !state.charts.smpv) {
-    state.charts.smpv = new Chart(ctxSm, {
-      type: "line",
-      data: { labels: [], datasets: [{ label: "mempool txs", data: [], borderColor: "#c48cff", tension: 0.2, fill: false }] },
       options: common,
     });
   }
@@ -245,22 +236,22 @@ function updateCharts(metrics) {
   if (!metrics || !metrics.length) return;
   const labels = metrics.map((m) => fmtTime(m.t));
   const heights = metrics.map((m) => Number(m.header_height) || 0);
-  const mp = metrics.map((m) => Number(m.mempool_tx_count) || 0);
   if (state.charts.height) {
     state.charts.height.data.labels = labels;
     state.charts.height.data.datasets[0].data = heights;
     state.charts.height.update("none");
   }
-  if (state.charts.smpv) {
-    state.charts.smpv.data.labels = labels;
-    state.charts.smpv.data.datasets[0].data = mp;
-    state.charts.smpv.update("none");
-  }
 }
 
 async function refreshWallet() {
   const data = await api("/api/wallet");
+  state.walletLocked = !!(data.locked && data.sealed);
   state.wallet = data.wallet;
+  const lockEl = $("wallet-lock-screen");
+  if (lockEl) {
+    lockEl.classList.toggle("hidden", !state.walletLocked);
+    lockEl.setAttribute("aria-hidden", state.walletLocked ? "false" : "true");
+  }
   setOnboarding(data.wallet);
   if (data.wallet) {
     renderAddresses(data.wallet);
@@ -268,6 +259,20 @@ async function refreshWallet() {
     await refreshDashboard();
     await refreshTxList(false);
   }
+}
+
+function maybeNotifyPending(pending) {
+  const p = Number(pending) || 0;
+  if (p > 0 && p > state.lastPendingDoge && "Notification" in window && Notification.permission === "granted") {
+    try {
+      new Notification("PQ Wallet — mempool pending", {
+        body: `≈ ${p.toFixed(4)} DOGE pending (MemeTracker)`,
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+  state.lastPendingDoge = p;
 }
 
 async function refreshDashboard() {
@@ -279,6 +284,16 @@ async function refreshDashboard() {
   $("stat-spend").textContent = spendStr;
   const balBig = $("wallet-balance-big");
   if (balBig) balBig.textContent = spendStr;
+  const pend = t.pending_mempool_doge;
+  const pendEl = $("wallet-pending-line");
+  if (pendEl) {
+    if (pend != null && Number(pend) > 0) {
+      pendEl.textContent = `Pending (mempool / MemeTracker): ${Number(pend).toFixed(4)} DOGE`;
+    } else {
+      pendEl.textContent = "";
+    }
+  }
+  maybeNotifyPending(pend);
   $("stat-in").textContent = t.received_doge != null ? String(t.received_doge) : "—";
   $("stat-out").textContent = t.sent_doge != null ? String(t.sent_doge) : "—";
   const spv = data.dashboard.spv || {};
@@ -301,6 +316,23 @@ async function refreshDashboard() {
     setPeer("peer-c-node", "");
     setPeer("peer-c-ua", "");
     setPeer("peer-c-h", "");
+  }
+  const prList = $("peer-recent-list");
+  if (prList && Array.isArray(spv.peers_recent)) {
+    prList.innerHTML = "";
+    spv.peers_recent.forEach((p) => {
+      const li = document.createElement("li");
+      li.textContent =
+        "#" +
+        (p.node_id != null ? p.node_id : "") +
+        " " +
+        (p.address || "") +
+        " · " +
+        (p.sub_version || "") +
+        " · h=" +
+        (p.remote_start_height != null ? p.remote_start_height : "");
+      prList.appendChild(li);
+    });
   }
   const h = spv.header_height;
   $("pill-height").textContent = h != null && Number(h) > 0 ? `height ${h}` : "height —";
@@ -448,9 +480,47 @@ async function closeQrScanner() {
   if (el) el.innerHTML = "";
 }
 
+function decodeQrFromImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        reject(new Error("canvas"));
+        return;
+      }
+      ctx.drawImage(img, 0, 0);
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      if (typeof jsQR === "undefined") {
+        reject(new Error("jsQR"));
+        return;
+      }
+      const code = jsQR(imgData.data, imgData.width, imgData.height);
+      if (code && code.data) resolve(code.data);
+      else reject(new Error("no QR in image"));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("image"));
+    };
+    img.src = url;
+  });
+}
+
 async function openQrScanner() {
   const modal = $("qr-scan-modal");
   if (!modal) return;
+  if (!window.isSecureContext) {
+    alert("Camera QR needs HTTPS. Pick a screenshot or photo of the QR code instead.");
+    const fin = $("qr-file-input");
+    if (fin) fin.click();
+    return;
+  }
   if (typeof Html5Qrcode === "undefined") {
     alert("QR scanner is not available. Check your network or use HTTPS.");
     return;
@@ -702,6 +772,70 @@ document.getElementById("btn-manual-broadcast").addEventListener("click", async 
   $("manual-bc-out").textContent = JSON.stringify(bc, null, 2);
 });
 
+const qrFileInp = $("qr-file-input");
+if (qrFileInp) {
+  qrFileInp.addEventListener("change", async () => {
+    const f = qrFileInp.files && qrFileInp.files[0];
+    qrFileInp.value = "";
+    if (!f) return;
+    try {
+      const text = await decodeQrFromImageFile(f);
+      const t = parseQrAddress(text);
+      const send = $("send-to");
+      if (send) send.value = t;
+      showView("tools");
+    } catch {
+      alert("Could not read a QR code from that image. Try another photo or paste the address.");
+    }
+  });
+}
+
+const btnUnlock = $("btn-unlock-wallet");
+if (btnUnlock) {
+  btnUnlock.addEventListener("click", async () => {
+    const pin = ($("unlock-pin-input") && $("unlock-pin-input").value) || "";
+    const errEl = $("unlock-err");
+    if (errEl) errEl.textContent = "";
+    const res = await api("/api/security/unlock", {
+      method: "POST",
+      body: JSON.stringify({ pin }),
+    });
+    if (res.error) {
+      if (errEl) errEl.textContent = res.error;
+      return;
+    }
+    const inp = $("unlock-pin-input");
+    if (inp) inp.value = "";
+    await refreshWallet();
+  });
+}
+
+const btnSeal = $("btn-seal-wallet");
+if (btnSeal) {
+  btnSeal.addEventListener("click", async () => {
+    const pin = ($("seal-pin-input") && $("seal-pin-input").value) || "";
+    const msg = $("seal-msg");
+    const res = await api("/api/security/seal", {
+      method: "POST",
+      body: JSON.stringify({ pin }),
+    });
+    if (res.error) {
+      if (msg) msg.textContent = res.error;
+      return;
+    }
+    if (msg) msg.textContent = "Wallet sealed. Unlock with PIN when you return.";
+    await refreshWallet();
+  });
+}
+
+const btnLockSess = $("btn-lock-session");
+if (btnLockSess) {
+  btnLockSess.addEventListener("click", async () => {
+    await api("/api/security/lock", { method: "POST", body: "{}" });
+    await refreshWallet();
+  });
+}
+
 function startPollers() {
   if (state.pollFast) clearInterval(state.pollFast);
   if (state.pollTx) clearInterval(state.pollTx);
@@ -760,5 +894,9 @@ function wireImportFileUI() {
 }
 
 wireImportFileUI();
+
+if (typeof Notification !== "undefined" && Notification.permission === "default") {
+  Notification.requestPermission().catch(() => {});
+}
 
 refreshWallet();

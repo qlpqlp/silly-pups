@@ -18,10 +18,11 @@ var (
 	reConnEq       = regexp.MustCompile(`(?i)(?:connections?|connected)\s*[:=]\s*(\d+)`)
 	reNetAddr      = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}:\d{2,5}\b`)
 	reConnectedPeer = regexp.MustCompile(`(?i)Successfully connected to peer\s+(\d+)\s+\(([^)]+)\)`)
+	rePQPeer = regexp.MustCompile(`(?i)PQ_PEER node=(\d+) ip=(\S+) height=(\d+)`)
 	reConnectedNode = regexp.MustCompile(`(?i)Connected to node\s+(\d+):\s*(.+)\s+\((\d+)\)\s*$`)
 	reMempoolExplicit1 = regexp.MustCompile(`(?i)mempool[^\n]{0,64}(?:size|count|transactions?|txs?)\s*[:=]\s*(\d{1,9})`)
 	reMempoolExplicit2 = regexp.MustCompile(`(?i)(?:^|\s)(\d{1,9})\s+transactions?\s+in\s+mempool`)
-	reMempoolExplicit3 = regexp.MustCompile(`(?i)\[smpv\][^\n]{0,120}(\d{1,9})\s*(?:tx|txn|transaction)`)
+	reMempoolExplicit3 = regexp.MustCompile(`(?i)\[(?:smpv|mempool)\][^\n]{0,120}(\d{1,9})\s*(?:tx|txn|transaction)`)
 )
 
 // PeerConnectionInfo is parsed from libdogecoin net.c log lines (current / last handshake in the tail).
@@ -35,16 +36,16 @@ type PeerConnectionInfo struct {
 // SPVHeaderInfo is parsed from spvnode log tail (best-effort).
 // Real spvnode output often uses lines: 64hex|height|timestamp|work…
 type SPVHeaderInfo struct {
-	HeaderHeight       int64
-	BestBlockHash      string
-	PeerCount          int
-	SMPVActive         bool
-	HeaderCountHint    int64 // e.g. lone first line "25139" (header index count)
-	SPVPeerHosts       []string
-	SMPVPeerHosts      []string
-	// MempoolTxCount is derived only from libdogecoin spvnode spv.log (SMPV = mempool over P2P), never third-party APIs.
+	HeaderHeight    int64
+	BestBlockHash   string
+	PeerCount       int
+	HeaderCountHint int64 // e.g. lone first line "25139" (header index count)
+	SPVPeerHosts    []string
+	// MempoolTxCount is a heuristic from spv.log (not the embedded mempool tracker).
 	MempoolTxCount int
 	CurrentPeer    *PeerConnectionInfo
+	// PeersRecent is a short history of handshakes (newest last), for dashboard detail.
+	PeersRecent []PeerConnectionInfo
 }
 
 func parseSPVLogHeaderInfo(log string) SPVHeaderInfo {
@@ -64,14 +65,10 @@ func parseSPVLogHeaderInfo(log string) SPVHeaderInfo {
 		out.BestBlockHash = hash
 	}
 	out.PeerCount = parsePeerCountFromLog(tail)
-	out.SMPVActive = true // spvnode is always started with -x (SMPV); do not depend on log wording
-	out.SPVPeerHosts = parsePeerHostsNonSMPV(tail)
-	out.SMPVPeerHosts = parsePeerHostsSMPVLines(tail)
-	if len(out.SMPVPeerHosts) == 0 && out.SMPVActive {
-		out.SMPVPeerHosts = append([]string(nil), out.SPVPeerHosts...)
-	}
+	out.SPVPeerHosts = parsePeerHostsFromLog(tail)
 	out.MempoolTxCount = parseLibdogecoinMempoolTxCount(tail)
 	out.CurrentPeer = parseCurrentPeerInfo(tail)
+	out.PeersRecent = parsePeersRecent(tail)
 
 	if out.HeaderHeight == 0 {
 		if m := reHeaderHeight.FindStringSubmatch(tail); len(m) > 1 {
@@ -180,14 +177,8 @@ func parsePeerCountFromLog(log string) int {
 	return best
 }
 
-// parseCurrentPeerInfo returns the latest "Connected to node …" handshake in the log, merged with
-// "Successfully connected to peer … (addr)" for the same node id (libdogecoin net.c).
-func parseCurrentPeerInfo(log string) *PeerConnectionInfo {
-	if strings.TrimSpace(log) == "" {
-		return nil
-	}
+func mergePeerIPMaps(log string) map[int]string {
 	addrs := make(map[int]string)
-	var nodes []PeerConnectionInfo
 	for _, line := range strings.Split(log, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -199,6 +190,30 @@ func parseCurrentPeerInfo(log string) *PeerConnectionInfo {
 				continue
 			}
 			addrs[id] = strings.TrimSpace(m[2])
+		}
+		if m := rePQPeer.FindStringSubmatch(line); len(m) == 4 {
+			id, err := strconv.Atoi(m[1])
+			if err != nil {
+				continue
+			}
+			addrs[id] = strings.TrimSpace(m[2])
+		}
+	}
+	return addrs
+}
+
+// parseCurrentPeerInfo returns the latest "Connected to node …" handshake in the log, merged with
+// "Successfully connected to peer … (addr)" and PQ_PEER lines (libdogecoin net.c + pq patch).
+func parseCurrentPeerInfo(log string) *PeerConnectionInfo {
+	if strings.TrimSpace(log) == "" {
+		return nil
+	}
+	addrs := mergePeerIPMaps(log)
+	var nodes []PeerConnectionInfo
+	for _, line := range strings.Split(log, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
 		}
 		if m := reConnectedNode.FindStringSubmatch(line); len(m) == 4 {
 			id, err := strconv.Atoi(m[1])
@@ -224,6 +239,40 @@ func parseCurrentPeerInfo(log string) *PeerConnectionInfo {
 	return &last
 }
 
+// parsePeersRecent returns up to maxPeerLogEntries handshake rows with merged IPs.
+func parsePeersRecent(log string) []PeerConnectionInfo {
+	const maxPeerLogEntries = 12
+	if strings.TrimSpace(log) == "" {
+		return nil
+	}
+	addrs := mergePeerIPMaps(log)
+	var nodes []PeerConnectionInfo
+	for _, line := range strings.Split(log, "\n") {
+		line = strings.TrimSpace(line)
+		if m := reConnectedNode.FindStringSubmatch(line); len(m) == 4 {
+			id, err := strconv.Atoi(m[1])
+			if err != nil {
+				continue
+			}
+			h, err := strconv.ParseInt(m[3], 10, 64)
+			if err != nil {
+				h = 0
+			}
+			p := PeerConnectionInfo{
+				NodeID:            id,
+				SubVersion:        strings.TrimSpace(m[2]),
+				RemoteStartHeight: h,
+				Address:           addrs[id],
+			}
+			nodes = append(nodes, p)
+		}
+	}
+	if len(nodes) <= maxPeerLogEntries {
+		return nodes
+	}
+	return nodes[len(nodes)-maxPeerLogEntries:]
+}
+
 func uniqueSorted(ss []string) []string {
 	seen := make(map[string]struct{})
 	for _, s := range ss {
@@ -241,33 +290,13 @@ func uniqueSorted(ss []string) []string {
 	return out
 }
 
-func parsePeerHostsNonSMPV(log string) []string {
-	var b strings.Builder
-	for _, line := range strings.Split(log, "\n") {
-		if strings.Contains(strings.ToLower(line), "smpv") {
-			continue
-		}
-		b.WriteString(line)
-		b.WriteByte('\n')
-	}
-	return uniqueSorted(reNetAddr.FindAllString(b.String(), -1))
-}
-
-func parsePeerHostsSMPVLines(log string) []string {
-	var b strings.Builder
-	for _, line := range strings.Split(log, "\n") {
-		low := strings.ToLower(line)
-		if strings.Contains(low, "smpv") || strings.Contains(low, "mempool") {
-			b.WriteString(line)
-			b.WriteByte('\n')
-		}
-	}
-	return uniqueSorted(reNetAddr.FindAllString(b.String(), -1))
+func parsePeerHostsFromLog(log string) []string {
+	return uniqueSorted(reNetAddr.FindAllString(log, -1))
 }
 
 // parseLibdogecoinMempoolTxCount estimates mempool-related transaction activity from spv.log only.
 // It first looks for explicit mempool size/count lines; otherwise it counts distinct 64-hex txids on
-// mempool / SMPV / inv lines (what your P2P peer has relayed into the log).
+// mempool / inv lines (what your P2P peer has relayed into the log).
 func parseLibdogecoinMempoolTxCount(log string) int {
 	if strings.TrimSpace(log) == "" {
 		return 0
@@ -296,7 +325,7 @@ func countDistinctMempoolTxHints(log string) int {
 			continue
 		}
 		low := strings.ToLower(line)
-		if !strings.Contains(low, "mempool") && !strings.Contains(low, "smpv") && !strings.Contains(low, "inv") {
+		if !strings.Contains(low, "mempool") && !strings.Contains(low, "inv") {
 			continue
 		}
 		for _, hx := range reBlockHash.FindAllString(line, -1) {

@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dogebox HTTPS Proxy</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --card: #1a2332;
+      --text: #e8eef5;
+      --muted: #8a9bb3;
+      --accent: #f2cb2c;
+      --border: rgba(255, 255, 255, 0.08);
+      --err: #f87171;
+      --ok: #4ade80;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: system-ui, Segoe UI, Roboto, sans-serif;
+      background: var(--bg); color: var(--text); line-height: 1.5;
+      min-height: 100vh; padding: 1.5rem;
+    }
+    h1 { font-size: 1.35rem; margin: 0 0 0.5rem; }
+    p.lead { color: var(--muted); margin: 0 0 1.25rem; font-size: 0.95rem; }
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 1.25rem; max-width: 920px;
+    }
+    label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
+    input, textarea {
+      width: 100%; padding: 0.5rem 0.65rem; border-radius: 8px;
+      border: 1px solid var(--border); background: #0c1016; color: var(--text);
+      font-family: ui-monospace, Consolas, monospace; font-size: 0.9rem;
+    }
+    textarea { min-height: 4.5rem; resize: vertical; }
+    .row { margin-bottom: 1rem; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
+    button {
+      cursor: pointer; border: none; border-radius: 8px; padding: 0.55rem 1rem;
+      font-weight: 600; font-size: 0.95rem;
+    }
+    .btn-primary { background: var(--accent); color: #111; }
+    .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 1rem; }
+    .msg { font-size: 0.9rem; margin-top: 0.75rem; }
+    .msg.ok { color: var(--ok); }
+    .msg.err { color: var(--err); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    th, td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 500; }
+    .hint { font-size: 0.8rem; color: var(--muted); margin-top: 0.35rem; }
+    a { color: var(--accent); }
+    h2 { font-size: 1rem; margin: 1.25rem 0 0.5rem; color: var(--muted); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>HTTPS reverse proxy</h1>
+    <p class="lead">
+      One <strong>self-signed</strong> certificate is generated for the names you list below (default <code>dogebox</code>).
+      Certificates do <strong>not</strong> include port numbers — the same cert is valid for <code>https://dogebox:8080</code>,
+      <code>https://dogebox:10000</code>, etc. Add one row per <strong>HTTPS listen port</strong>, each forwarding to that pup’s plain HTTP URL.
+      Admin UI stays at <code id="admin-path-label">/__proxy</code> on every listener.
+    </p>
+
+    <div class="row">
+      <label for="token">Admin token</label>
+      <input id="token" type="password" autocomplete="off" placeholder="Paste token from admin.token or HTTPS_PROXY_ADMIN_TOKEN" />
+      <p class="hint">Saved in this browser only (localStorage).</p>
+    </div>
+
+    <h2>TLS names (certificate)</h2>
+    <div class="grid2">
+      <div class="row" style="margin:0">
+        <label for="tls-domains">DNS names (comma or newline)</label>
+        <textarea id="tls-domains" placeholder="dogebox"></textarea>
+      </div>
+      <div class="row" style="margin:0">
+        <label for="tls-ips">IP addresses (optional SANs)</label>
+        <textarea id="tls-ips" placeholder="192.168.x.x"></textarea>
+      </div>
+    </div>
+
+    <h2>Port listeners (recommended for dogebox:8080, dogebox:33880, …)</h2>
+    <p class="hint" style="margin:0 0 0.5rem">Leave empty to use a single HTTPS port from the pup env (<code>PUBLIC_PORT</code>) + host-based routes below.</p>
+    <table>
+      <thead><tr><th>HTTPS port</th><th>HTTP upstream (pup)</th><th></th></tr></thead>
+      <tbody id="listeners-body"></tbody>
+    </table>
+    <div class="toolbar">
+      <button type="button" class="btn-ghost" id="btn-add-listener">+ Add port listener</button>
+    </div>
+
+    <h2>Host-based routes (single-port mode)</h2>
+    <p class="hint" style="margin:0 0 0.5rem">Used when port listeners are empty. Match <code>Host</code> (ignore port) → upstream.</p>
+    <div class="row">
+      <label for="default-up">Default upstream (optional)</label>
+      <input id="default-up" type="text" placeholder="http://127.0.0.1:8080" />
+    </div>
+    <table>
+      <thead><tr><th>Host</th><th>Upstream</th><th></th></tr></thead>
+      <tbody id="routes-body"></tbody>
+    </table>
+    <div class="toolbar">
+      <button type="button" class="btn-ghost" id="btn-add-route">+ Add host route</button>
+    </div>
+
+    <div class="toolbar">
+      <button type="button" class="btn-primary" id="btn-save">Save &amp; reload TLS / listeners</button>
+      <button type="button" class="btn-ghost" id="btn-reload">Reload from server</button>
+      <a id="cert-link" href="#" target="_blank" rel="noopener">Download cert.pem</a>
+    </div>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <script>
+    const LS = "https-proxy-admin-token";
+    const BASE = (() => {
+      let p = window.location.pathname.replace(/\/+$/, "");
+      return p || "/__proxy";
+    })();
+    const api = (path) => BASE + path;
+
+    document.getElementById("admin-path-label").textContent = BASE;
+
+    const tokenEl = document.getElementById("token");
+    tokenEl.value = localStorage.getItem(LS) || "";
+
+    function authHeaders() {
+      const t = tokenEl.value.trim();
+      const h = { "Content-Type": "application/json" };
+      if (t) h["Authorization"] = "Bearer " + t;
+      return h;
+    }
+
+    function setMsg(text, ok) {
+      const m = document.getElementById("msg");
+      m.textContent = text;
+      m.className = "msg " + (ok ? "ok" : "err");
+    }
+
+    function rowRoute(host, up) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td><input data-k="host" value="${host || ""}" placeholder="dogebox" /></td>` +
+        `<td><input data-k="up" value="${up || ""}" placeholder="http://127.0.0.1:33880" /></td>` +
+        `<td><button type="button" class="btn-ghost" data-remove>Remove</button></td>`;
+      tr.querySelector("[data-remove]").onclick = () => tr.remove();
+      return tr;
+    }
+
+    function rowListener(port, up) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td><input type="number" data-k="port" min="1" max="65535" value="${port || ""}" placeholder="8080" /></td>` +
+        `<td><input data-k="up" value="${up || ""}" placeholder="http://127.0.0.1:8080" /></td>` +
+        `<td><button type="button" class="btn-ghost" data-remove>Remove</button></td>`;
+      tr.querySelector("[data-remove]").onclick = () => tr.remove();
+      return tr;
+    }
+
+    document.getElementById("btn-add-route").onclick = () => {
+      document.getElementById("routes-body").appendChild(rowRoute());
+    };
+    document.getElementById("btn-add-listener").onclick = () => {
+      document.getElementById("listeners-body").appendChild(rowListener());
+    };
+
+    function collectRoutes() {
+      const out = [];
+      document.querySelectorAll("#routes-body tr").forEach((tr) => {
+        const host = tr.querySelector('[data-k="host"]').value.trim();
+        const upstream = tr.querySelector('[data-k="up"]').value.trim();
+        if (host && upstream) out.push({ host, upstream });
+      });
+      return out;
+    }
+
+    function collectListeners() {
+      const out = [];
+      document.querySelectorAll("#listeners-body tr").forEach((tr) => {
+        const p = parseInt(tr.querySelector('[data-k="port"]').value, 10);
+        const upstream = tr.querySelector('[data-k="up"]').value.trim();
+        if (!Number.isFinite(p) || p < 1 || p > 65535) return;
+        if (!upstream) return;
+        out.push({ listen_port: p, upstream });
+      });
+      return out;
+    }
+
+    function splitList(s) {
+      return s.split(/[\n,]+/).map((x) => x.trim()).filter(Boolean);
+    }
+
+    function fill(cfg) {
+      document.getElementById("tls-domains").value = (cfg.tls_domains || []).join(", ");
+      document.getElementById("tls-ips").value = (cfg.tls_ips || []).join("\n");
+      document.getElementById("default-up").value = cfg.default_upstream || "";
+
+      const lt = document.getElementById("listeners-body");
+      lt.innerHTML = "";
+      (cfg.listeners || []).forEach((x) => lt.appendChild(rowListener(x.listen_port, x.upstream)));
+
+      const tb = document.getElementById("routes-body");
+      tb.innerHTML = "";
+      (cfg.routes || []).forEach((r) => tb.appendChild(rowRoute(r.host, r.upstream)));
+      if (!tb.children.length && !(cfg.listeners && cfg.listeners.length)) {
+        tb.appendChild(rowRoute("dogebox", "http://127.0.0.1:33880"));
+      }
+    }
+
+    async function loadCfg() {
+      setMsg("", true);
+      const r = await fetch(api("/api/config"), { headers: authHeaders() });
+      if (r.status === 401) {
+        setMsg("Unauthorized — check admin token.", false);
+        return;
+      }
+      if (!r.ok) {
+        setMsg("Load failed: " + r.status, false);
+        return;
+      }
+      fill(await r.json());
+      setMsg("Loaded.", true);
+    }
+
+    document.getElementById("btn-reload").onclick = () => loadCfg();
+
+    document.getElementById("btn-save").onclick = async () => {
+      localStorage.setItem(LS, tokenEl.value.trim());
+      const listeners = collectListeners();
+      const cfg = {
+        tls_domains: splitList(document.getElementById("tls-domains").value),
+        tls_ips: splitList(document.getElementById("tls-ips").value),
+        listeners,
+        routes: collectRoutes(),
+        default_upstream: document.getElementById("default-up").value.trim(),
+        admin_path_prefix: "/__proxy",
+      };
+      if (listeners.length) {
+        cfg.routes = [];
+        cfg.default_upstream = "";
+      }
+      setMsg("Saving…", true);
+      const res = await fetch(api("/api/config"), {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(cfg),
+      });
+      if (res.status === 401) {
+        setMsg("Unauthorized — check admin token.", false);
+        return;
+      }
+      if (!res.ok) {
+        const t = await res.text();
+        setMsg("Save failed: " + res.status + " " + t, false);
+        return;
+      }
+      setMsg("Saved. TLS + listeners updated (trust new cert if SANs changed).", true);
+    };
+
+    document.getElementById("cert-link").onclick = (e) => {
+      e.preventDefault();
+      const t = tokenEl.value.trim();
+      const u = api("/api/cert.pem") + (t ? "?token=" + encodeURIComponent(t) : "");
+      window.open(u, "_blank");
+    };
+
+    loadCfg();
+  </script>
+</body>
+</html>

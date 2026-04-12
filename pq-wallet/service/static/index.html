@@ -12,8 +12,21 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" crossorigin="anonymous" defer></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" crossorigin="anonymous" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous" defer></script>
 </head>
 <body>
+  <div id="wallet-lock-screen" class="wallet-lock-screen hidden" aria-hidden="true">
+    <div class="wallet-lock-panel card">
+      <h2><span class="material-symbols-outlined icon-inline">lock</span> Unlock wallet</h2>
+      <p class="small muted">Sealed with a PIN (Argon2id + AES-GCM). Enter your PIN to use keys and the dashboard.</p>
+      <label class="field"><span>PIN</span>
+        <input type="password" class="input-modern" id="unlock-pin-input" autocomplete="current-password" />
+      </label>
+      <button type="button" class="btn primary" id="btn-unlock-wallet"><span class="material-symbols-outlined btn-ico">lock_open</span> Unlock</button>
+      <p class="small muted" id="unlock-err"></p>
+    </div>
+  </div>
+  <input type="file" id="qr-file-input" accept="image/*" class="hidden" aria-hidden="true" />
   <div class="app" id="app">
     <aside class="sidebar" id="sidebar" aria-label="Main navigation">
       <div class="sidebar-brand">
@@ -130,10 +143,11 @@
 
         <section id="view-dashboard" class="view hidden">
           <div class="wallet-hero card">
-            <p class="wallet-hero-label">Total balance</p>
+            <p class="wallet-hero-label">Available balance</p>
             <p class="wallet-hero-balance" id="wallet-balance-big">—</p>
             <p class="wallet-hero-unit">DOGE</p>
-            <p class="wallet-hero-hint small muted">Spendable hint (explorer + cached txs)</p>
+            <p class="wallet-hero-pending small" id="wallet-pending-line"></p>
+            <p class="wallet-hero-hint small muted">Available = spendable hint (explorer + cached txs). Pending = embedded mempool tracker (P2P relay watch for your primary address).</p>
           </div>
           <div class="stat-grid">
             <div class="stat card">
@@ -156,7 +170,7 @@
             <div class="stat card">
               <span class="stat-label">Mempool</span>
               <span class="stat-val" id="stat-mempool">—</span>
-              <span class="stat-hint">SMPV mempool (libdogecoin P2P, spv.log)</span>
+              <span class="stat-hint">Heuristic from spv.log (not wallet mempool)</span>
             </div>
           </div>
           <div class="card block-live">
@@ -165,7 +179,7 @@
               <span class="pill" id="pill-height">height —</span>
             </div>
             <p class="mono hash" id="hdr-hash">—</p>
-            <p class="small muted">Tip height and hash are parsed from <code>spv.log</code> lines like <code>blockhash|height|…</code>. <strong>SMPV</strong> (libdogecoin’s mempool over P2P) is always on (<code>spvnode -x</code>). The peer panel shows the latest handshake (address, user agent, remote height). Set <code>EXPLORER_ADDRESS_API</code> for optional balance sync.</p>
+            <p class="small muted">Tip height and hash are parsed from <code>spv.log</code> lines like <code>blockhash|height|…</code>. The peer panel shows the latest handshake (address, user agent, remote height). Set <code>EXPLORER_ADDRESS_API</code> for optional balance sync.</p>
             <div class="peer-detail">
               <h3 class="peer-detail-title"><span class="material-symbols-outlined icon-inline">lan</span> Current P2P peer</h3>
               <dl class="peer-dl">
@@ -178,16 +192,14 @@
                 <dt>Remote start height</dt>
                 <dd class="mono" id="peer-c-h">—</dd>
               </dl>
+              <p class="small muted peer-recent-title">Recent handshakes (spv.log)</p>
+              <ul class="peer-recent-list" id="peer-recent-list"></ul>
             </div>
           </div>
           <div class="charts">
             <div class="card chart-card">
               <h3>Header height</h3>
               <canvas id="chart-height" height="120"></canvas>
-            </div>
-            <div class="card chart-card">
-              <h3>SMPV (mempool txs from libdogecoin log)</h3>
-              <canvas id="chart-smpv" height="120"></canvas>
             </div>
           </div>
         </section>
@@ -307,14 +319,10 @@
 
         <section id="view-logs" class="view hidden">
           <p class="small muted toolbar">Latest ~420 lines each; refreshes while this view is open.</p>
-          <div class="dos-grid dos-grid-3">
+          <div class="dos-grid">
             <div class="card dos-panel">
               <h3>spv.log (full tail)</h3>
               <pre class="dos-screen" id="log-spv">…</pre>
-            </div>
-            <div class="card dos-panel">
-              <h3>SMPV mempool (filtered log)</h3>
-              <pre class="dos-screen" id="log-smpv">…</pre>
             </div>
             <div class="card dos-panel">
               <h3>broadcast.log</h3>
@@ -341,8 +349,18 @@
 
         <section id="view-settings" class="view hidden">
           <div class="card">
+            <h2><span class="material-symbols-outlined icon-inline">encrypted</span> Seal wallet (encrypt on disk)</h2>
+            <p class="small muted">Replaces plaintext <code>wallet.json</code> with <code>wallet.sealed</code> (Argon2id + AES-GCM). Unlock with PIN in the lock screen. Optional WebAuthn/biometrics can be added later for device-bound keys.</p>
+            <label class="field"><span>PIN (min 6 characters)</span>
+              <input type="password" class="input-modern" id="seal-pin-input" autocomplete="new-password" />
+            </label>
+            <button type="button" class="btn primary" id="btn-seal-wallet"><span class="material-symbols-outlined btn-ico">lock</span> Seal and encrypt</button>
+            <p class="small muted" id="seal-msg"></p>
+            <button type="button" class="btn" id="btn-lock-session"><span class="material-symbols-outlined btn-ico">logout</span> Lock session (clear PIN from memory)</button>
+          </div>
+          <div class="card">
             <h2>Backup</h2>
-            <p class="small muted">Downloads <code>wallet.json</code>.</p>
+            <p class="small muted">Downloads wallet JSON (only while not sealed, or export after unlock).</p>
             <button type="button" class="btn primary" id="btn-backup"><span class="material-symbols-outlined btn-ico">payments</span> Download backup</button>
           </div>
           <div class="card danger-zone">

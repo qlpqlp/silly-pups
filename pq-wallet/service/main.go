@@ -2,13 +2,14 @@
 //
 // Standard Dogecoin P2PKH + WIF come from libdogecoin (`such -c generate_private_key` / `generate_public_key`). Post-quantum signing material
 // (Falcon-512 / Dilithium2 via liboqs) using the bundled `such` CLI. `sendtx` broadcasts signed txs;
-// `spvnode` runs SPV headers + libdogecoin SMPV (mempool over P2P, `-x`). Broadcasting uses `sendtx` (P2P), not Core RPC.
+// `spvnode` runs SPV headers + BIP37 watch; broadcasting uses `sendtx` (P2P), not Core RPC.
 package main
 
 import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"io"
 	"io/fs"
 	"log"
@@ -19,17 +20,25 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/inevitable360/silly-pups/pq-wallet/service/mempooltracker"
 )
 
 //go:embed static/*
 var staticFS embed.FS
 
 type Server struct {
-	mu           sync.Mutex
-	storageDir   string
-	walletPath   string
-	explorer     string
-	explorerAddr string
+	mu             sync.Mutex
+	storageDir     string
+	walletPath     string
+	explorer       string
+	explorerAddr   string
+	mempoolMu      sync.Mutex
+	mempoolEngine  *mempooltracker.Engine
+	walletKey      []byte
+	sealSalt       []byte
+	memWallet      *WalletFile
+	unlockUntil    time.Time
 }
 
 func env(key, def string) string {
@@ -62,7 +71,7 @@ func (s *Server) generateDogecoinWallet(testnet bool) (*WalletFile, error) {
 			"commitment; an optional 1-DOGE carrier output can be spent in TX_R to reveal the full PQ " +
 			"public key and signature on-chain. Standard P2PKH keys above fund and control DOGE; PQ " +
 			"material is additional attestation per Dogecoin Foundation experiments.",
-		LibdogecoinSPV: "Bundled spvnode: headers + BIP37 + SMPV (libdogecoin mempool over P2P, `-x`). Starts after wallet creation when SPVNODE_ENABLE=1; SMPV always on for this pup. " +
+		LibdogecoinSPV: "Bundled spvnode: headers + BIP37 address watch. Starts after wallet creation when SPVNODE_ENABLE=1. " +
 			"Check GET /api/spv/status and GET /api/logs/spv.",
 		ExperimentalDiscl: "Experimental research software. You may lose funds. Back up your WIF. " +
 			"PQ proofs on mainnet are early-phase; verify any third-party tooling.",
@@ -95,6 +104,10 @@ func (s *Server) handleWalletGet(w http.ResponseWriter, _ *http.Request) {
 	defer s.mu.Unlock()
 	wf, err := s.loadWallet()
 	if err != nil {
+		if errors.Is(err, ErrWalletLocked) {
+			writeJSON(w, http.StatusOK, map[string]any{"wallet": nil, "locked": true, "sealed": true})
+			return
+		}
 		if os.IsNotExist(err) {
 			writeJSON(w, http.StatusOK, map[string]any{"wallet": nil})
 			return
@@ -121,7 +134,11 @@ func (s *Server) handleWalletCreate(w http.ResponseWriter, r *http.Request) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, err := s.loadWallet(); err == nil {
+	if s.hasSealedWallet() {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "wallet already exists (sealed on disk)"})
+		return
+	}
+	if _, err := os.Stat(s.walletPath); err == nil {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "wallet already exists; delete wallet.json on disk to reset"})
 		return
 	}
@@ -219,6 +236,10 @@ func main() {
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	mux.HandleFunc("/api/security/status", srv.handleSecurityStatus)
+	mux.HandleFunc("/api/security/unlock", srv.handleSecurityUnlock)
+	mux.HandleFunc("/api/security/lock", srv.handleSecurityLock)
+	mux.HandleFunc("/api/security/seal", srv.handleSecuritySeal)
 	mux.HandleFunc("/api/education", srv.handleEducation)
 	mux.HandleFunc("/api/wallet", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -241,7 +262,6 @@ func main() {
 	mux.HandleFunc("/api/explorer/tx/", srv.handleExplorerTx)
 	mux.HandleFunc("/api/spv/status", srv.handleSPVStatus)
 	mux.HandleFunc("/api/logs/spv", srv.handleLogsSPV)
-	mux.HandleFunc("/api/logs/smpv", srv.handleLogsSMPV)
 	mux.HandleFunc("/api/logs/broadcast", srv.handleLogsBroadcast)
 	mux.HandleFunc("/api/tx/sign", srv.handleTxSign)
 	mux.HandleFunc("/api/tx/broadcast", srv.handleTxBroadcast)

@@ -2,10 +2,10 @@
   "manifestVersion": 1,
   "meta": {
     "name": "PQ Doge Wallet",
-    "version": "0.0.6",
+    "version": "0.0.7",
     "logoPath": "logo.png",
     "shortDescription": "The first Post Quantum Secure Dogecoin wallet",
-    "longDescription": "Built with libdogecoin (+ liboqs): `such` (P2PKH keys, Falcon-512 keygen, sign, commitments), `sendtx` (P2P broadcast), and `spvnode` (headers + BIP37). **SMPV** (Simple Mempool Verification) is libdogecoin’s mempool path over P2P — enabled with `spvnode -x`.",
+    "longDescription": "Built with libdogecoin (+ liboqs): `such` (P2PKH keys, Falcon-512 keygen, sign, commitments), `sendtx` (P2P broadcast), and `spvnode` (headers + BIP37 address watch). **Pending** incoming DOGE uses an embedded MemeTracker-compatible P2P mempool watcher (storage under `mempooltracker/`); no separate MemeTracker pup is required.",
     "upstreamVersions": {
       "Go": "1.24",
       "libdogecoin": "a120e03 + liboqs"
@@ -27,7 +27,7 @@
       },
       {
         "name": "Chain & SPV",
-        "description": "libdogecoin `spvnode` syncs headers and watches your address. SMPV is the mempool layer (P2P); this pup runs it with `-x` so unconfirmed traffic can surface in `spv.log`.",
+        "description": "libdogecoin `spvnode` syncs headers and watches your primary address. Log tail parsing drives chain tip and peer hints in the dashboard.",
         "fields": [
           {
             "name": "SPVNODE_ENABLE",
@@ -54,13 +54,37 @@
             "default": ""
           }
         ]
+      },
+      {
+        "name": "Mempool watcher (embedded)",
+        "description": "Optional tuning for the in-process P2P mempool relay watcher (same semantics as MemeTracker `MTR_*` env). Data lives under `PQ_STORAGE_DIR/mempooltracker/`.",
+        "fields": [
+          {
+            "name": "MTR_P2P_PORT",
+            "label": "Dogecoin P2P port (mainnet default 22556)",
+            "type": "text",
+            "default": ""
+          },
+          {
+            "name": "MTR_P2P_PARALLEL",
+            "label": "Parallel peer workers (1–8, empty = default)",
+            "type": "text",
+            "default": ""
+          },
+          {
+            "name": "MTR_LIST_LIMIT",
+            "label": "Stored mempool tx rows per address (empty = default)",
+            "type": "text",
+            "default": ""
+          }
+        ]
       }
     ]
   },
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "bc42153c6679e1754a6437d87ec663c3bc3b7e6751b647a61354588c05d33036"
+      "nixFileSha256": "cfb7e11fb48c0f8a55591b5e6807a0fdf7424566c7b6e1ab2950397dac3e8c9a"
     },
     "services": [
       {
@@ -89,7 +113,7 @@
   "interfaces": [
     {
       "name": "pq-wallet-http",
-      "version": "0.0.6",
+      "version": "0.0.7",
       "permissionGroups": [
         {
           "name": "PQ Wallet HTTP",

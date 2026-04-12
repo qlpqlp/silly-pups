@@ -69,7 +69,7 @@
       {
         "name": "http",
         "type": "http",
-        "port": 80000,
+        "port": 8800,
         "interfaces": [
           "https-proxy-http"
         ],
@@ -79,7 +79,7 @@
       {
         "name": "https",
         "type": "http",
-        "port": 44443,
+        "port": 4443,
         "interfaces": [
           "https-proxy-tls"
         ],

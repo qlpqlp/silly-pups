@@ -76,15 +76,18 @@ body {
   overflow: hidden;
 }
 
-.sidebar.collapsed {
-  width: var(--sidebar-collapsed);
-}
+/* Desktop only: “collapsed” is the narrow icon rail. On mobile we use .sidebar-drawer-closed instead. */
+@media (min-width: 901px) {
+  .sidebar.collapsed {
+    width: var(--sidebar-collapsed);
+  }
 
-.sidebar.collapsed .sidebar-titles,
-.sidebar.collapsed .nav-txt,
-.sidebar.collapsed .sidebar-sub,
-.sidebar.collapsed .sidebar-foot {
-  display: none;
+  .sidebar.collapsed .sidebar-titles,
+  .sidebar.collapsed .nav-txt,
+  .sidebar.collapsed .sidebar-sub,
+  .sidebar.collapsed .sidebar-foot {
+    display: none;
+  }
 }
 
 .sidebar-brand {
@@ -205,18 +208,26 @@ body {
 
 .sidebar-foundation-logo {
   display: block;
-  width: 80%;
-  max-width: calc(var(--sidebar-w) * 0.8);
+  width: 55%;
+  max-width: min(calc(var(--sidebar-w) * 0.55), 140px);
+  max-height: 26px;
   height: auto;
   margin: 0 auto;
   object-fit: contain;
+  object-position: center bottom;
   filter: invert(1) brightness(1.15);
 }
 
 @media (max-width: 900px) {
   .sidebar-foot {
     margin-top: 0;
-    padding-top: 0.65rem;
+    padding: 0.5rem 0.45rem 0.55rem;
+  }
+
+  .sidebar-foundation-logo {
+    width: 50%;
+    max-width: min(130px, 50vw);
+    max-height: 22px;
   }
 }
 
@@ -522,14 +533,22 @@ body {
     left: 0;
     top: 0;
     z-index: 40;
+    width: var(--sidebar-w) !important;
     height: 100vh;
+    max-height: 100dvh;
     box-shadow: 8px 0 32px rgba(0, 0, 0, 0.35);
   }
-  /* Mobile drawer hidden off-screen (separate from desktop .collapsed rail). */
-  #app.has-wallet .sidebar.sidebar-drawer-closed {
+
+  /* Drawer off-screen (do not require #app.has-wallet — avoids race with class toggles). */
+  .sidebar.sidebar-drawer-closed {
     transform: translateX(-100%);
-    width: var(--sidebar-w);
+    pointer-events: none;
   }
+
+  .sidebar:not(.sidebar-drawer-closed) {
+    pointer-events: auto;
+  }
+
   .main-wrap {
     margin-left: 0;
   }

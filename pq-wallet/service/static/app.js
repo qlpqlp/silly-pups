@@ -228,18 +228,38 @@ function setOnboarding(w) {
   if (has) {
     if (w && w.network) $("net-badge").textContent = (w.network || "mainnet").toUpperCase();
     showView(state.view || "dashboard");
+    ensureMobileSidebarLayout();
     updateReceiveView();
     startPollers();
   }
 }
 
 function isNarrowViewport() {
+  if (typeof window === "undefined") return false;
+  const iw = window.innerWidth;
+  const cw = document.documentElement ? document.documentElement.clientWidth : iw;
+  const x = Math.min(typeof iw === "number" ? iw : 9999, typeof cw === "number" ? cw : 9999);
+  if (x <= 900) return true;
   try {
     if (window.matchMedia("(max-width: 900px)").matches) return true;
   } catch {
     /* ignore */
   }
-  return typeof window.innerWidth === "number" && window.innerWidth <= 900;
+  return false;
+}
+
+/** Keep desktop “collapsed” rail and mobile drawer separate; default mobile drawer shut when wallet UI is active. */
+function ensureMobileSidebarLayout() {
+  const sb = $("sidebar");
+  const app = $("app");
+  if (!sb || !app || !app.classList.contains("has-wallet")) return;
+  if (isNarrowViewport()) {
+    sb.classList.remove("collapsed");
+    sb.classList.add("sidebar-drawer-closed");
+  } else {
+    sb.classList.remove("sidebar-drawer-closed");
+  }
+  syncSidebarDrawerToggleIcon();
 }
 
 function syncSidebarDrawerToggleIcon() {
@@ -1217,8 +1237,13 @@ window.addEventListener("resize", () => {
   clearTimeout(qrResizeTimer);
   qrResizeTimer = setTimeout(() => {
     const sb = $("sidebar");
-    if (sb && !isNarrowViewport()) {
-      sb.classList.remove("sidebar-drawer-closed");
+    const app = $("app");
+    if (sb && app && app.classList.contains("has-wallet")) {
+      if (isNarrowViewport()) {
+        sb.classList.remove("collapsed");
+      } else {
+        sb.classList.remove("sidebar-drawer-closed");
+      }
       syncSidebarDrawerToggleIcon();
     }
     if (state.view !== "receive") return;

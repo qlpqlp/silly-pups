@@ -49,6 +49,18 @@
   padding: 0.35rem;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 * { box-sizing: border-box; }
 
 body {
@@ -256,7 +268,7 @@ body {
 
 .topbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   padding: 1.25rem 1.5rem 0.5rem;
   gap: 1rem;
@@ -294,16 +306,40 @@ body {
   }
 }
 
-.topbar h1 {
+.page-title-row {
   margin: 0;
   font-size: 1.5rem;
+  font-weight: 700;
   letter-spacing: -0.03em;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  cursor: default;
+}
+
+.page-title-ico {
+  font-size: 1.45rem !important;
+  flex-shrink: 0;
+  opacity: 0.95;
+  color: var(--doge);
+}
+
+.page-title-row #page-title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .page-sub {
   margin: 0.25rem 0 0;
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.page-sub.sr-only {
+  margin: 0;
 }
 
 .badge {
@@ -577,6 +613,8 @@ body {
 
   .sidebar:not(.sidebar-drawer-closed) {
     pointer-events: auto;
+    /* Above .mobile-tabbar (z-index 50) so the foundation logo is not covered */
+    z-index: 60;
   }
 
   .main-wrap {
@@ -1415,6 +1453,20 @@ a {
   color: var(--text);
 }
 
+.learn-ref-links {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.learn-ref-links a,
+#learn-root a {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.45;
+}
+
 /* Wallet hero (large balance on dashboard) */
 .wallet-hero {
   text-align: center;
@@ -1769,13 +1821,12 @@ a {
     flex-shrink: 0;
   }
 
-  #app.has-wallet .topbar h1 {
+  #app.has-wallet .page-title-row {
     font-size: 1.2rem;
   }
 
-  #app.has-wallet .page-sub {
-    font-size: 0.78rem;
-    margin-top: 0.1rem;
+  #app.has-wallet .page-title-ico {
+    font-size: 1.25rem !important;
   }
 
   #view-receive:not(.hidden),
@@ -1836,21 +1887,6 @@ a {
     font-size: 0.76rem;
     line-height: 1.35;
     word-break: break-all;
-  }
-
-  #view-tools .wizard-intro {
-    padding: 0.5rem 0.65rem;
-    margin-bottom: 0.3rem;
-    flex-shrink: 0;
-  }
-
-  #view-tools .wizard-intro h2 {
-    font-size: 1.05rem;
-    margin: 0;
-  }
-
-  #view-tools .wizard-intro > p.small {
-    display: none;
   }
 
   #view-tools .send-tabs {

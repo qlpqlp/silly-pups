@@ -80,8 +80,11 @@
           <span class="material-symbols-outlined">menu</span>
         </button>
         <div class="topbar-titles">
-          <h1 id="page-title">Dashboard</h1>
-          <p class="page-sub" id="page-sub">SPV headers, balances, and post-quantum hints</p>
+          <h1 id="page-title" class="page-title-row" title="">
+            <span class="material-symbols-outlined page-title-ico" id="page-title-ico" aria-hidden="true">space_dashboard</span>
+            <span id="page-title-text">Dashboard</span>
+          </h1>
+          <p class="page-sub sr-only" id="page-sub">SPV headers, balances, and post-quantum hints</p>
         </div>
         <div class="topbar-actions">
           <span class="badge" id="net-badge">mainnet</span>
@@ -221,11 +224,6 @@
         </section>
 
         <section id="view-tools" class="view hidden">
-          <div class="card wizard-intro">
-            <h2><span class="material-symbols-outlined icon-inline">send</span> Send Doge</h2>
-            <p class="small muted">Broadcasting uses libdogecoin sendtx over Dogecoin P2P.</p>
-          </div>
-
           <div class="send-tabs" role="tablist">
             <button type="button" class="wiz-tab active" data-send-tab="0" aria-selected="true">Send Doge</button>
             <button type="button" class="wiz-tab" data-send-tab="1">Manual PQ hex</button>

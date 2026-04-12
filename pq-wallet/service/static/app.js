@@ -48,9 +48,30 @@ function showView(name) {
     learn: ["How it works", "ECDSA vs PQ · send · verify · broadcast"],
     settings: ["Wallet file", "Backup or remove this pup’s wallet"],
   };
+  const icons = {
+    dashboard: "space_dashboard",
+    receive: "qr_code_2",
+    addresses: "account_balance_wallet",
+    transactions: "swap_horiz",
+    tools: "send",
+    logs: "terminal",
+    learn: "school",
+    settings: "payments",
+  };
   const [t, s] = titles[name] || [name, ""];
-  $("page-title").textContent = t;
-  $("page-sub").textContent = s;
+  const ico = icons[name] || "pets";
+  const titleText = $("page-title-text");
+  const titleIco = $("page-title-ico");
+  const titleEl = $("page-title");
+  const subEl = $("page-sub");
+  if (titleText) titleText.textContent = t;
+  if (titleIco) titleIco.textContent = ico;
+  if (subEl) subEl.textContent = s;
+  if (titleEl) {
+    titleEl.setAttribute("title", s || "");
+    if (s) titleEl.setAttribute("aria-describedby", "page-sub");
+    else titleEl.removeAttribute("aria-describedby");
+  }
 
   if (state.pollLogs) {
     clearInterval(state.pollLogs);
@@ -174,17 +195,21 @@ async function loadEducation() {
     }
     if (data.references) {
       const card = document.createElement("div");
-      card.className = "card";
-      card.innerHTML = "<h3>Links</h3>";
+      card.className = "card learn-links-card";
+      const h3 = document.createElement("h3");
+      h3.textContent = "Links";
+      card.appendChild(h3);
+      const linksWrap = document.createElement("div");
+      linksWrap.className = "learn-ref-links";
       data.references.forEach((url) => {
         const a = document.createElement("a");
         a.href = url;
         a.target = "_blank";
         a.rel = "noopener";
         a.textContent = url;
-        card.appendChild(document.createElement("br"));
-        card.appendChild(a);
+        linksWrap.appendChild(a);
       });
+      card.appendChild(linksWrap);
       root.appendChild(card);
     }
     if (data.libdogecoin_build) {

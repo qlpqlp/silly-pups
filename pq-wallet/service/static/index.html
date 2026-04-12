@@ -4,6 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>PQ Doge Wallet</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:ital,wght@0,300;0,400;0,700;1,400&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet" />
   <link rel="stylesheet" href="/static/styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
 </head>
@@ -16,33 +20,35 @@
           <span class="sidebar-name">PQ Doge Wallet</span>
           <span class="sidebar-sub">libdogecoin · liboqs</span>
         </div>
-        <button type="button" class="sidebar-toggle" id="btn-sidebar-toggle" title="Collapse sidebar" aria-expanded="true">⟨</button>
+        <button type="button" class="sidebar-toggle icon-btn" id="btn-sidebar-toggle" title="Collapse sidebar" aria-expanded="true">
+          <span class="material-symbols-outlined">menu_open</span>
+        </button>
       </div>
       <nav class="sidebar-nav">
         <button type="button" class="nav-item active" data-view="dashboard">
-          <span class="nav-ico">◉</span><span class="nav-txt">Dashboard</span>
+          <span class="material-symbols-outlined nav-ico" aria-hidden="true">space_dashboard</span><span class="nav-txt">Dashboard</span>
         </button>
         <button type="button" class="nav-item" data-view="addresses">
-          <span class="nav-ico">◎</span><span class="nav-txt">Addresses</span>
+          <span class="material-symbols-outlined nav-ico" aria-hidden="true">account_balance_wallet</span><span class="nav-txt">Addresses</span>
         </button>
         <button type="button" class="nav-item" data-view="transactions">
-          <span class="nav-ico">⇄</span><span class="nav-txt">Transactions</span>
+          <span class="material-symbols-outlined nav-ico" aria-hidden="true">swap_horiz</span><span class="nav-txt">Transactions</span>
         </button>
         <button type="button" class="nav-item" data-view="tools">
-          <span class="nav-ico">⚙</span><span class="nav-txt">Sign &amp; broadcast</span>
+          <span class="material-symbols-outlined nav-ico" aria-hidden="true">send</span><span class="nav-txt">Send wizard</span>
         </button>
         <button type="button" class="nav-item" data-view="network">
-          <span class="nav-ico">🌐</span><span class="nav-txt">Network &amp; SPV</span>
+          <span class="material-symbols-outlined nav-ico" aria-hidden="true">public</span><span class="nav-txt">Network &amp; SPV</span>
         </button>
         <button type="button" class="nav-item" data-view="learn">
-          <span class="nav-ico">📖</span><span class="nav-txt">How it works</span>
+          <span class="material-symbols-outlined nav-ico" aria-hidden="true">school</span><span class="nav-txt">How it works</span>
         </button>
         <button type="button" class="nav-item" data-view="settings">
-          <span class="nav-ico">⎔</span><span class="nav-txt">Wallet file</span>
+          <span class="material-symbols-outlined nav-ico" aria-hidden="true">payments</span><span class="nav-txt">Wallet file</span>
         </button>
       </nav>
       <div class="sidebar-foot">
-        <span class="muted small" id="conn-pill">● live</span>
+        <span class="muted small" id="conn-pill"><span class="material-symbols-outlined icon-inline">verified</span> live</span>
       </div>
     </aside>
 
@@ -58,39 +64,43 @@
       </header>
 
       <main class="content">
-        <!-- No wallet -->
         <section id="view-onboarding" class="view">
           <div class="card warn">
+            <span class="material-symbols-outlined icon-inline warn-ico">warning</span>
             <strong>Experimental.</strong> Research software — back up keys offline. PQ proofs on mainnet are early-phase.
           </div>
           <div class="card grid-2">
             <div>
               <h2>Create wallet</h2>
               <p class="small muted">P2PKH + WIF via <code>such</code>; optional Falcon-512 PQ keys. State is stored under the pup volume.</p>
-              <label class="field"><span>Network</span>
-                <select id="net-select">
+              <label class="field"><span>Network</span></label>
+              <div class="select-wrap">
+                <select id="net-select" class="input-modern">
                   <option value="mainnet">Mainnet</option>
                   <option value="testnet">Testnet</option>
                 </select>
-              </label>
-              <label class="field check">
-                <input type="checkbox" id="pq-keys" />
+                <span class="material-symbols-outlined select-caret" aria-hidden="true">expand_more</span>
+              </div>
+              <div class="field switch-row">
                 <span>Generate Falcon-512 PQ keys</span>
-              </label>
-              <button type="button" class="btn primary" id="btn-create">Generate wallet</button>
+                <label class="switch">
+                  <input type="checkbox" id="pq-keys" />
+                  <span class="slider" aria-hidden="true"></span>
+                </label>
+              </div>
+              <button type="button" class="btn primary" id="btn-create"><span class="material-symbols-outlined btn-ico">add_link</span> Generate wallet</button>
             </div>
             <div>
               <h2>Restore</h2>
-              <p class="small muted">Import a <code>wallet.json</code> backup (replaces only if no wallet exists — use Wallet file to delete first).</p>
+              <p class="small muted">Import a <code>wallet.json</code> backup (only when no wallet exists — delete first in Wallet file).</p>
               <label class="field"><span>Backup JSON</span>
-                <input type="file" id="import-file" accept="application/json,.json" />
+                <input type="file" id="import-file" class="input-modern" accept="application/json,.json" />
               </label>
-              <button type="button" class="btn" id="btn-import">Import backup</button>
+              <button type="button" class="btn" id="btn-import"><span class="material-symbols-outlined btn-ico">draw</span> Import backup</button>
             </div>
           </div>
         </section>
 
-        <!-- Dashboard -->
         <section id="view-dashboard" class="view hidden">
           <div class="stat-grid">
             <div class="stat card">
@@ -113,11 +123,11 @@
           </div>
           <div class="card block-live">
             <div class="block-live-head">
-              <h2>Chain tip (from SPV log)</h2>
+              <h2><span class="material-symbols-outlined icon-inline">currency_bitcoin</span> Chain tip (SPV log + metrics)</h2>
               <span class="pill" id="pill-height">height —</span>
             </div>
             <p class="mono hash" id="hdr-hash">—</p>
-            <p class="small muted">Parsed live from <code>spv.log</code> tail. When <code>EXPLORER_ADDRESS_API</code> is set, balances sync from the indexer.</p>
+            <p class="small muted">Height is parsed from <code>spv.log</code> and falls back to the last sampled metric if the log format does not match. Hash is the last 64-hex token in the tail. Set <code>EXPLORER_ADDRESS_API</code> for balance sync.</p>
           </div>
           <div class="charts">
             <div class="card chart-card">
@@ -131,11 +141,10 @@
           </div>
         </section>
 
-        <!-- Addresses -->
         <section id="view-addresses" class="view hidden">
           <div class="toolbar">
-            <button type="button" class="btn primary" id="btn-new-addr">Generate new address</button>
-            <p class="small muted">SPV watches the <strong>primary</strong> address. Switch primary to rescan with a new key.</p>
+            <button type="button" class="btn primary" id="btn-new-addr"><span class="material-symbols-outlined btn-ico">add_link</span> Generate new address</button>
+            <p class="small muted">SPV watches the <strong>primary</strong> address.</p>
           </div>
           <div class="card table-wrap">
             <table class="data-table" id="addr-table">
@@ -152,10 +161,9 @@
           </div>
         </section>
 
-        <!-- Transactions -->
         <section id="view-transactions" class="view hidden">
           <div class="toolbar">
-            <button type="button" class="btn primary" id="btn-sync-tx">Sync with explorer / RPC</button>
+            <button type="button" class="btn primary" id="btn-sync-tx"><span class="material-symbols-outlined btn-ico">swap_horiz</span> Sync with explorer / RPC</button>
             <span class="small muted" id="tx-sync-hint"></span>
           </div>
           <div class="card table-wrap">
@@ -165,7 +173,7 @@
                   <th>Txid</th>
                   <th>Dir</th>
                   <th>Amount</th>
-                  <th>PQ hint</th>
+                  <th>PQ</th>
                   <th>Source</th>
                 </tr>
               </thead>
@@ -174,83 +182,129 @@
           </div>
         </section>
 
-        <!-- Tools -->
         <section id="view-tools" class="view hidden">
-          <div class="grid-2">
+          <div class="card wizard-intro">
+            <h2><span class="material-symbols-outlined icon-inline">auto_awesome</span> Send wizard</h2>
+            <p class="small muted">Signing uses <strong>ECDSA</strong> (<code>such -c sign</code>) for Dogecoin P2PKH. Broadcasting uses <strong>libdogecoin <code>sendtx</code></strong> (P2P peers) — not JSON-RPC <code>sendrawtransaction</code>. Full auto input selection needs a node or external builder; paste an <strong>unsigned</strong> raw hex you created elsewhere, then sign and broadcast here.</p>
+          </div>
+
+          <div class="wizard-steps" role="tablist">
+            <button type="button" class="wiz-tab active" data-wiz="0" aria-selected="true">1 · Plan</button>
+            <button type="button" class="wiz-tab" data-wiz="1">2 · Paste unsigned hex</button>
+            <button type="button" class="wiz-tab" data-wiz="2">3 · Sign (ECDSA)</button>
+            <button type="button" class="wiz-tab" data-wiz="3">4 · Broadcast (P2P)</button>
+          </div>
+
+          <div class="wiz-panel" data-wiz-panel="0">
             <div class="card">
-              <h2>Sign raw transaction</h2>
-              <p class="small muted">Uses <strong>primary</strong> address WIF + P2PKH script.</p>
-              <textarea id="raw-hex" rows="4" placeholder="unsigned raw tx hex"></textarea>
-              <label class="field"><span>Input index</span><input type="number" id="vin-idx" value="0" min="0" /></label>
-              <button type="button" class="btn primary" id="btn-sign">Sign</button>
-              <pre id="sign-out" class="mono small out"></pre>
+              <h3><span class="material-symbols-outlined icon-inline">help</span> What you need</h3>
+              <p class="small">Amount and destination below are <strong>notes only</strong> — they help you track intent. This wallet does not auto-pick UTXOs yet. Build the unsigned transaction with Dogecoin Core, another tool, or your own script, then paste the hex in step 2.</p>
+              <label class="field"><span>Planned amount (DOGE) — optional note</span>
+                <input type="text" class="input-modern" id="wiz-note-amount" placeholder="e.g. 42" inputmode="decimal" />
+              </label>
+              <label class="field"><span>Destination — optional note</span>
+                <input type="text" class="input-modern" id="wiz-note-to" placeholder="D…" />
+              </label>
+              <label class="field"><span>Change back to primary address</span></label>
+              <p class="small muted">When you build the raw tx externally, send change to your primary P2PKH address shown under Addresses.</p>
+              <button type="button" class="btn primary wiz-next" data-next="1">Next <span class="material-symbols-outlined btn-ico">expand_more</span></button>
             </div>
+          </div>
+
+          <div class="wiz-panel hidden" data-wiz-panel="1">
             <div class="card">
-              <h2>Broadcast</h2>
-              <textarea id="signed-hex" rows="4" placeholder="signed raw tx hex"></textarea>
-              <label class="field"><span>Peers (optional)</span><input type="text" id="peers-input" placeholder="host:port,…" /></label>
-              <button type="button" class="btn primary" id="btn-broadcast">Broadcast</button>
+              <h3>Unsigned raw transaction (hex)</h3>
+              <textarea id="raw-hex" class="input-modern mono" rows="5" placeholder="01000000…"></textarea>
+              <label class="field"><span>Input index to sign</span>
+                <input type="number" class="input-modern" id="vin-idx" value="0" min="0" />
+              </label>
+              <div class="btn-row">
+                <button type="button" class="btn wiz-prev" data-prev="0">Back</button>
+                <button type="button" class="btn primary wiz-next" data-next="2">Next</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="wiz-panel hidden" data-wiz-panel="2">
+            <div class="card">
+              <h3>Sign with primary key</h3>
+              <p class="small muted" id="wiz-sign-blurb">Creates an ECDSA signature for the input. PQ keys are for commitments separately — see How it works.</p>
+              <button type="button" class="btn primary" id="btn-sign"><span class="material-symbols-outlined btn-ico">draw</span> Sign transaction</button>
+              <div class="field switch-row">
+                <span>After sign, broadcast immediately via <code>sendtx</code></span>
+                <label class="switch">
+                  <input type="checkbox" id="wiz-auto-broadcast" checked />
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <pre id="sign-out" class="mono small out"></pre>
+              <div class="btn-row">
+                <button type="button" class="btn wiz-prev" data-prev="1">Back</button>
+                <button type="button" class="btn primary wiz-next" data-next="3" id="btn-wiz-to-bc">Next</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="wiz-panel hidden" data-wiz-panel="3">
+            <div class="card">
+              <h3><span class="material-symbols-outlined icon-inline">rss_feed</span> Broadcast to Dogecoin peers</h3>
+              <p class="small muted">Uses <strong>libdogecoin sendtx</strong> — handshakes peers and relays. Not Core RPC.</p>
+              <textarea id="signed-hex" class="input-modern mono" rows="5" placeholder="signed raw hex (filled after sign)"></textarea>
+              <label class="field"><span>Peers (optional)</span>
+                <input type="text" class="input-modern" id="peers-input" placeholder="empty = DNS seeds" />
+              </label>
+              <button type="button" class="btn primary" id="btn-broadcast"><span class="material-symbols-outlined btn-ico">send</span> Broadcast now</button>
               <pre id="bc-out" class="mono small out"></pre>
             </div>
             <div class="card">
-              <h2>Core RPC send</h2>
-              <p class="small muted">Requires <code>DOGE_RPC_URL</code>.</p>
-              <label class="field"><span>To</span><input type="text" id="rpc-to" placeholder="D…" /></label>
-              <label class="field"><span>Amount DOGE</span><input type="text" id="rpc-amt" /></label>
-              <button type="button" class="btn" id="btn-rpc-send">Send</button>
+              <h3>Optional: Core wallet send</h3>
+              <p class="small muted">Uses your node’s <code>sendtoaddress</code> — different path from the wizard above.</p>
+              <label class="field"><span>To</span><input type="text" class="input-modern" id="rpc-to" placeholder="D…" /></label>
+              <label class="field"><span>Amount DOGE</span><input type="text" class="input-modern" id="rpc-amt" /></label>
+              <button type="button" class="btn" id="btn-rpc-send">RPC send</button>
               <pre id="rpc-out" class="mono small out"></pre>
             </div>
           </div>
         </section>
 
-        <!-- Network -->
         <section id="view-network" class="view hidden">
           <div class="card">
             <h2>SPV status</h2>
-            <button type="button" class="btn" id="btn-spv-status">Refresh</button>
+            <button type="button" class="btn" id="btn-spv-status"><span class="material-symbols-outlined btn-ico">swap_horiz</span> Refresh</button>
             <pre id="spv-out" class="mono small out"></pre>
           </div>
           <div class="card">
             <h2>MemeTracker</h2>
             <div class="btn-row">
               <button type="button" class="btn" id="btn-mem-status">Health</button>
-              <button type="button" class="btn" id="btn-mem-track">Track primary address</button>
+              <button type="button" class="btn" id="btn-mem-track">Track primary</button>
             </div>
             <pre id="mem-out" class="mono small out"></pre>
           </div>
           <div class="card">
             <h2>Explorer tx</h2>
-            <label class="field"><span>Txid</span><input type="text" id="txid-input" /></label>
+            <label class="field"><span>Txid</span><input type="text" class="input-modern" id="txid-input" /></label>
             <button type="button" class="btn" id="btn-explorer">Fetch</button>
             <pre id="ex-out" class="mono small out"></pre>
           </div>
         </section>
 
-        <!-- Learn -->
         <section id="view-learn" class="view hidden">
-          <div class="card">
-            <h2>TX_C and TX_R</h2>
-            <ol class="steps">
-              <li><strong>Normal tx</strong> — ECDSA P2PKH as usual.</li>
-              <li><strong>TX_C</strong> — OP_RETURN carries a commitment to the PQ signature.</li>
-              <li><strong>Optional carrier</strong> — small output for the reveal path (TX_R).</li>
-            </ol>
-            <p class="small"><a href="https://github.com/dogecoinfoundation/libdogecoin/pull/294" target="_blank" rel="noopener">PR #294</a></p>
-          </div>
+          <div id="learn-loading" class="card muted">Loading education…</div>
+          <div id="learn-root" class="hidden"></div>
         </section>
 
-        <!-- Settings -->
         <section id="view-settings" class="view hidden">
           <div class="card">
             <h2>Backup</h2>
-            <p class="small muted">Downloads <code>wallet.json</code> including all generated addresses and PQ keys.</p>
-            <button type="button" class="btn primary" id="btn-backup">Download backup</button>
+            <p class="small muted">Downloads <code>wallet.json</code>.</p>
+            <button type="button" class="btn primary" id="btn-backup"><span class="material-symbols-outlined btn-ico">payments</span> Download backup</button>
           </div>
           <div class="card danger-zone">
             <h2>Remove wallet</h2>
-            <p class="small">Deletes wallet, SPV DBs, and cached state. Requires typing <code>DELETE</code>.</p>
-            <input type="text" id="delete-confirm" placeholder="Type DELETE" autocomplete="off" />
-            <button type="button" class="btn danger" id="btn-delete" disabled>Remove wallet from this pup</button>
+            <p class="small">Deletes wallet, SPV DBs, and cached state.</p>
+            <input type="text" class="input-modern" id="delete-confirm" placeholder="Type DELETE" autocomplete="off" />
+            <button type="button" class="btn danger" id="btn-delete" disabled>Remove wallet</button>
           </div>
         </section>
       </main>

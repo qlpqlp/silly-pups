@@ -11,11 +11,42 @@
   --ok: #3ecf8e;
   --sidebar-w: 260px;
   --sidebar-collapsed: 72px;
-  font-family: "Segoe UI", system-ui, sans-serif;
+  --input-bg: #0e141c;
+  font-family: "Comic Neue", "Comic Sans MS", "Segoe UI", cursive, sans-serif;
   color: var(--text);
   background: var(--bg);
   line-height: 1.5;
   min-height: 100vh;
+}
+
+.material-symbols-outlined {
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+  vertical-align: middle;
+}
+
+.icon-inline {
+  font-size: 1.25rem !important;
+  margin-right: 0.25rem;
+  vertical-align: -0.25rem;
+}
+
+.btn-ico {
+  font-size: 1.15rem !important;
+  vertical-align: -0.2rem;
+  margin-right: 0.15rem;
+}
+
+.warn-ico {
+  vertical-align: -0.35rem;
+  margin-right: 0.25rem;
+  color: #e6b422;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem;
 }
 
 * { box-sizing: border-box; }
@@ -204,6 +235,9 @@ body {
 .card.warn {
   background: #2a2218;
   border-color: #5c4a28;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
 }
 
 .card.danger-zone {
@@ -390,13 +424,103 @@ body {
 }
 
 input, select, textarea {
-  background: var(--bg);
+  background: var(--input-bg);
   border: 1px solid var(--border);
   color: var(--text);
-  padding: 0.5rem 0.65rem;
-  border-radius: 8px;
+  padding: 0.55rem 0.75rem;
+  border-radius: 10px;
   font-size: 0.95rem;
   width: 100%;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.input-modern:focus,
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: rgba(242, 203, 44, 0.55);
+  box-shadow: 0 0 0 3px rgba(242, 203, 44, 0.12);
+}
+
+.select-wrap {
+  position: relative;
+  display: block;
+}
+
+.select-wrap select {
+  appearance: none;
+  padding-right: 2.5rem;
+  cursor: pointer;
+}
+
+.select-wrap .select-caret {
+  position: absolute;
+  right: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--muted);
+  font-size: 1.35rem !important;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 48px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: #2a3545;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  transition: 0.2s;
+}
+
+.slider::before {
+  position: absolute;
+  content: "";
+  height: 20px;
+  width: 20px;
+  left: 3px;
+  bottom: 2px;
+  background: #fff;
+  border-radius: 50%;
+  transition: 0.2s;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+.switch input:checked + .slider {
+  background: linear-gradient(135deg, #c9a227, #e6a317);
+  border-color: transparent;
+}
+
+.switch input:checked + .slider::before {
+  transform: translateX(22px);
+}
+
+input[type="file"].input-modern {
+  padding: 0.45rem;
+  cursor: pointer;
 }
 
 textarea {
@@ -473,4 +597,74 @@ a {
 
 #conn-pill {
   color: var(--ok);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
 }
+
+.wizard-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+}
+
+.wiz-tab {
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  color: var(--muted);
+  padding: 0.45rem 0.75rem;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-family: inherit;
+}
+
+.wiz-tab.active {
+  color: #1a1408;
+  background: linear-gradient(135deg, var(--doge), #e6a317);
+  border-color: transparent;
+  font-weight: 700;
+}
+
+.wiz-panel.hidden {
+  display: none !important;
+}
+
+.badge-pq {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.45rem;
+  border-radius: 6px;
+  background: rgba(126, 200, 255, 0.12);
+  color: #9fd6ff;
+  border: 1px solid rgba(126, 200, 255, 0.35);
+}
+
+.badge-pq.off {
+  background: transparent;
+  color: var(--muted);
+  border-color: var(--border);
+  font-weight: 500;
+}
+
+.learn-section {
+  margin-bottom: 1.25rem;
+}
+
+.learn-section h3 {
+  margin: 0 0 0.5rem;
+  color: var(--accent);
+  font-size: 1.05rem;
+}
+
+.learn-section p {
+  margin: 0.4rem 0;
+  color: var(--text);
+}
+

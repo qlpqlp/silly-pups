@@ -29,6 +29,17 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	spv := s.readSPVStatus()
 	logTail, _ := spv["log_tail"].(string)
 	hdr := parseSPVLogHeaderInfo(logTail)
+	if hdr.HeaderHeight == 0 && len(st.Metrics) > 0 {
+		for i := len(st.Metrics) - 1; i >= 0; i-- {
+			if st.Metrics[i].HeaderHeight > 0 {
+				hdr.HeaderHeight = st.Metrics[i].HeaderHeight
+				if hdr.BestBlockHash == "" && st.Metrics[i].BestBlockHash != "" {
+					hdr.BestBlockHash = st.Metrics[i].BestBlockHash
+				}
+				break
+			}
+		}
+	}
 	running, _ := spv["running"].(bool)
 
 	inSum := 0.0

@@ -31,12 +31,12 @@ function showView(name) {
     b.classList.toggle("active", b.dataset.view === name);
   });
   const titles = {
-    dashboard: ["Dashboard", "SPV headers, balances, and PQ hints"],
+    dashboard: ["Dashboard", "SPV headers, balances, and post-quantum hints"],
     addresses: ["Addresses", "Generate keys and choose which address SPV watches"],
-    transactions: ["Transactions", "Explorer/RPC cache with OP_RETURN PQ hints"],
-    tools: ["Sign & broadcast", "such + sendtx + optional Core RPC"],
+    transactions: ["Transactions", "PQ badges = explorer OP_RETURN hints (not a full audit)"],
+    tools: ["Send wizard", "ECDSA sign · libdogecoin sendtx P2P (not RPC broadcast)"],
     network: ["Network & SPV", "Logs, MemeTracker, explorer"],
-    learn: ["How it works", "TX_C / TX_R overview"],
+    learn: ["How it works", "ECDSA vs PQ · send · verify · broadcast"],
     settings: ["Wallet file", "Backup or remove this pup’s wallet"],
   };
   const [t, s] = titles[name] || [name, ""];
@@ -46,6 +46,97 @@ function showView(name) {
   document.querySelectorAll(".content .view").forEach((v) => v.classList.add("hidden"));
   const el = $("view-" + name);
   if (el) el.classList.remove("hidden");
+  if (name === "learn") loadEducation();
+}
+
+function setWizPanel(n) {
+  document.querySelectorAll(".wiz-tab").forEach((t) => {
+    t.classList.toggle("active", parseInt(t.dataset.wiz, 10) === n);
+    t.setAttribute("aria-selected", parseInt(t.dataset.wiz, 10) === n ? "true" : "false");
+  });
+  document.querySelectorAll("[data-wiz-panel]").forEach((p) => {
+    p.classList.toggle("hidden", parseInt(p.getAttribute("data-wiz-panel"), 10) !== n);
+  });
+}
+
+async function loadEducation() {
+  const root = $("learn-root");
+  const loading = $("learn-loading");
+  if (!root || root.dataset.loaded === "1") return;
+  try {
+    const data = await api("/api/education");
+    loading.classList.add("hidden");
+    root.classList.remove("hidden");
+    root.dataset.loaded = "1";
+    root.innerHTML = "";
+    const h = document.createElement("h2");
+    h.textContent = data.title || "Education";
+    root.appendChild(h);
+    if (data.summary) {
+      const p = document.createElement("p");
+      p.className = "small muted";
+      p.textContent = data.summary;
+      root.appendChild(p);
+    }
+    (data.sections || []).forEach((sec) => {
+      const card = document.createElement("div");
+      card.className = "card learn-section";
+      const th = document.createElement("h3");
+      th.textContent = sec.title || "";
+      card.appendChild(th);
+      (sec.body || []).forEach((line) => {
+        const p = document.createElement("p");
+        p.className = "small";
+        p.innerHTML = mdBold(line);
+        card.appendChild(p);
+      });
+      root.appendChild(card);
+    });
+    if (data.flow && data.flow.length) {
+      const card = document.createElement("div");
+      card.className = "card learn-section";
+      card.innerHTML = "<h3>Quick flow</h3><ol class=\"steps\"></ol>";
+      const ol = card.querySelector("ol");
+      data.flow.forEach((f) => {
+        const li = document.createElement("li");
+        li.innerHTML = "<strong>" + escapeHtml(f.name || "") + "</strong> — " + escapeHtml(f.detail || "");
+        ol.appendChild(li);
+      });
+      root.appendChild(card);
+    }
+    if (data.references) {
+      const card = document.createElement("div");
+      card.className = "card";
+      card.innerHTML = "<h3>Links</h3>";
+      data.references.forEach((url) => {
+        const a = document.createElement("a");
+        a.href = url;
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.textContent = url;
+        card.appendChild(document.createElement("br"));
+        card.appendChild(a);
+      });
+      root.appendChild(card);
+    }
+    if (data.libdogecoin_build) {
+      const p = document.createElement("p");
+      p.className = "small muted";
+      p.textContent = data.libdogecoin_build;
+      root.appendChild(p);
+    }
+  } catch (e) {
+    loading.textContent = "Could not load education.";
+  }
+}
+
+function mdBold(s) {
+  const parts = String(s).split(/\*\*(.+?)\*\*/g);
+  let out = "";
+  for (let i = 0; i < parts.length; i++) {
+    out += i % 2 === 1 ? "<strong>" + escapeHtml(parts[i]) + "</strong>" : escapeHtml(parts[i]);
+  }
+  return out;
 }
 
 function setOnboarding(w) {
@@ -139,7 +230,7 @@ async function refreshWallet() {
 
 async function refreshDashboard() {
   const data = await api("/api/dashboard");
-  $("conn-pill").textContent = "● live";
+  $("conn-pill").innerHTML = '<span class="material-symbols-outlined icon-inline">verified</span> live';
   if (!data.dashboard) return;
   const t = data.dashboard.totals || {};
   $("stat-spend").textContent = t.spendable_hint_doge != null ? String(t.spendable_hint_doge) : "—";
@@ -147,7 +238,8 @@ async function refreshDashboard() {
   $("stat-out").textContent = t.sent_doge != null ? String(t.sent_doge) : "—";
   const spv = data.dashboard.spv || {};
   $("stat-spv").textContent = spv.running ? "running" : "stopped";
-  $("pill-height").textContent = spv.header_height ? `height ${spv.header_height}` : "height —";
+  const h = spv.header_height;
+  $("pill-height").textContent = h != null && Number(h) > 0 ? `height ${h}` : "height —";
   $("hdr-hash").textContent = spv.best_block_hash || "—";
   const sample = data.dashboard.metrics_sample || [];
   initCharts();
@@ -164,7 +256,10 @@ async function refreshTxList(refresh) {
   txs.forEach((tx) => {
     const tr = document.createElement("tr");
     const short = (tx.txid || "").slice(0, 18) + (tx.txid && tx.txid.length > 18 ? "…" : "");
-    tr.innerHTML = `<td class="mono">${short}</td><td>${tx.direction || ""}</td><td>${tx.amount_doge != null ? tx.amount_doge : ""}</td><td>${tx.pq_hint ? "yes" : ""}</td><td>${tx.source || ""}</td>`;
+    const pqBadge = tx.pq_hint
+      ? '<span class="badge-pq"><span class="material-symbols-outlined" style="font-size:15px">verified</span> PQ</span>'
+      : '<span class="badge-pq off">—</span>';
+    tr.innerHTML = `<td class="mono">${escapeHtml(short)}</td><td>${escapeHtml(tx.direction || "")}</td><td>${tx.amount_doge != null ? escapeHtml(String(tx.amount_doge)) : ""}</td><td>${pqBadge}</td><td>${escapeHtml(tx.source || "")}</td>`;
     tb.appendChild(tr);
   });
 }
@@ -221,7 +316,18 @@ $("btn-sidebar-toggle").addEventListener("click", () => {
   const sb = $("sidebar");
   const collapsed = sb.classList.toggle("collapsed");
   $("btn-sidebar-toggle").setAttribute("aria-expanded", (!collapsed).toString());
-  $("btn-sidebar-toggle").textContent = collapsed ? "⟩" : "⟨";
+  const icon = $("btn-sidebar-toggle").querySelector(".material-symbols-outlined");
+  if (icon) icon.textContent = collapsed ? "menu" : "menu_open";
+});
+
+document.querySelectorAll(".wiz-tab").forEach((tab) => {
+  tab.addEventListener("click", () => setWizPanel(parseInt(tab.dataset.wiz, 10)));
+});
+document.querySelectorAll(".wiz-next").forEach((b) => {
+  b.addEventListener("click", () => setWizPanel(parseInt(b.dataset.next, 10)));
+});
+document.querySelectorAll(".wiz-prev").forEach((b) => {
+  b.addEventListener("click", () => setWizPanel(parseInt(b.dataset.prev, 10)));
 });
 
 document.getElementById("btn-create").addEventListener("click", async () => {
@@ -322,26 +428,31 @@ document.getElementById("btn-spv-status").addEventListener("click", async () => 
 document.getElementById("btn-sign").addEventListener("click", async () => {
   const raw = document.getElementById("raw-hex").value.trim();
   const inputIndex = parseInt(document.getElementById("vin-idx").value, 10) || 0;
-  $("sign-out").textContent = JSON.stringify(
-    await api("/api/tx/sign", {
-      method: "POST",
-      body: JSON.stringify({ raw_hex: raw, input_index: inputIndex, sighash_type: 1 }),
-    }),
-    null,
-    2
-  );
+  const res = await api("/api/tx/sign", {
+    method: "POST",
+    body: JSON.stringify({ raw_hex: raw, input_index: inputIndex, sighash_type: 1 }),
+  });
+  $("sign-out").textContent = JSON.stringify(res, null, 2);
+  if (res.signed_raw_hex) {
+    $("signed-hex").value = res.signed_raw_hex;
+    if ($("wiz-auto-broadcast").checked) {
+      const bc = await api("/api/tx/broadcast", {
+        method: "POST",
+        body: JSON.stringify({ raw_hex: res.signed_raw_hex, peers: $("peers-input").value.trim() }),
+      });
+      $("bc-out").textContent = JSON.stringify(bc, null, 2);
+      setWizPanel(3);
+    }
+  }
 });
 document.getElementById("btn-broadcast").addEventListener("click", async () => {
   const hex = document.getElementById("signed-hex").value.trim();
   const peers = document.getElementById("peers-input").value.trim();
-  $("bc-out").textContent = JSON.stringify(
-    await api("/api/tx/broadcast", {
-      method: "POST",
-      body: JSON.stringify({ raw_hex: hex, peers }),
-    }),
-    null,
-    2
-  );
+  const bc = await api("/api/tx/broadcast", {
+    method: "POST",
+    body: JSON.stringify({ raw_hex: hex, peers }),
+  });
+  $("bc-out").textContent = JSON.stringify(bc, null, 2);
 });
 document.getElementById("btn-rpc-send").addEventListener("click", async () => {
   const to_address = document.getElementById("rpc-to").value.trim();
@@ -364,7 +475,7 @@ function startPollers() {
     try {
       await refreshDashboard();
     } catch {
-      $("conn-pill").textContent = "● stale";
+      $("conn-pill").innerHTML = '<span class="material-symbols-outlined icon-inline">warning</span> stale';
     }
   }, 4000);
   state.pollTx = setInterval(async () => {

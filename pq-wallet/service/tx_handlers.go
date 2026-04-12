@@ -54,7 +54,13 @@ func (s *Server) handleTxSign(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "signed_raw_hex": signed})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":               true,
+		"signed_raw_hex":   signed,
+		"signing_kind":     "ecdsa_secp256k1_p2pkh",
+		"signing_tool":     "such -c sign",
+		"pq_note":          "This step signs the Dogecoin transaction with your P2PKH key (ECDSA). Falcon/Dilithium PQ material is separate and used in commitment / experimental flows — not as a replacement for this chain signature.",
+	})
 }
 
 func (s *Server) handleTxBroadcast(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +83,12 @@ func (s *Server) handleTxBroadcast(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sendtx_output": out})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":             true,
+		"sendtx_output":  out,
+		"transport":      "libdogecoin_sendtx_p2p",
+		"transport_note": "Relayed via libdogecoin sendtx to Dogecoin peers (P2P). JSON-RPC sendrawtransaction is not used.",
+	})
 }
 
 func (s *Server) handleSPVStatus(w http.ResponseWriter, _ *http.Request) {

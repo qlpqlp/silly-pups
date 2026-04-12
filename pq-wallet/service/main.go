@@ -88,21 +88,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func (s *Server) handleEducation(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"title": "Post-quantum proofs on Dogecoin (experimental)",
-		"references": []string{
-			"https://github.com/dogecoinfoundation/libdogecoin/pull/294",
-			"https://github.com/dogecoinfoundation/libdogecoin",
-		},
-		"flow": []map[string]string{
-			{"step": "1", "name": "Ordinary Dogecoin transaction", "detail": "You build and sign a normal DOGE transaction (ECDSA secp256k1 P2PKH); keys from libdogecoin such."},
-			{"step": "2", "name": "TX_C — commitment", "detail": "A small OP_RETURN carries a fingerprint (commitment) of the quantum-safe signature (e.g. Falcon-512)."},
-			{"step": "3", "name": "Optional carrier", "detail": "A 1 DOGE output can hold the carrier; TX_R spends it to publish the full PQ public key and signature; the DOGE returns minus fees."},
-			{"step": "4", "name": "Testing", "detail": "For many experiments the commitment alone is enough; the carrier/reveal step is optional."},
-		},
-		"libdogecoin_build": "This pup ships such/sendtx/spvnode built with -DUSE_LIBOQS=ON (Falcon-512, Dilithium2).",
-		"this_pup": "PQ keys: such -c falcon_keygen. Sign: such -c sign. Broadcast: sendtx <hex>. SPV: spvnode scan. Optional Core RPC for send/confirm.",
-	})
+	writeJSON(w, http.StatusOK, educationPayload())
 }
 
 func (s *Server) handleWalletGet(w http.ResponseWriter, _ *http.Request) {

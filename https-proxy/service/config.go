@@ -24,7 +24,7 @@ type PortListener struct {
 
 // Config is persisted JSON for the proxy + TLS SANs.
 type Config struct {
-	// HTTPSEnabled false = plain HTTP only (Dogebox default). Set true in admin to terminate TLS.
+	// HTTPSEnabled true = TLS + self-signed cert by default. Set false in admin for plain HTTP only.
 	HTTPSEnabled    bool           `json:"https_enabled"`
 	TLSDomains      []string       `json:"tls_domains"`
 	TLSIPs          []string       `json:"tls_ips"`
@@ -36,7 +36,7 @@ type Config struct {
 
 func defaultConfig() Config {
 	return Config{
-		HTTPSEnabled:    false,
+		HTTPSEnabled:    true,
 		TLSDomains:      []string{"dogebox"},
 		TLSIPs:          []string{},
 		Listeners:       nil,

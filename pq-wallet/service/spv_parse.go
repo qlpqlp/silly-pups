@@ -386,6 +386,38 @@ func parseLibdogecoinMempoolTxCount(log string) int {
 	return countDistinctMempoolTxHints(log)
 }
 
+// parseSPVTxSeenCount counts distinct 64-char txids on spv.log lines that look like wallet/P2P tx
+// activity (not chain tip header rows). Used for the “SPV transaction count” chart.
+func parseSPVTxSeenCount(log string) int {
+	if strings.TrimSpace(log) == "" {
+		return 0
+	}
+	seen := make(map[string]struct{})
+	for _, line := range strings.Split(log, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Skip header tip lines: hash|height|timestamp|...
+		if len(line) > 64 && line[64] == '|' && strings.Count(line, "|") >= 2 {
+			continue
+		}
+		low := strings.ToLower(line)
+		// Avoid matching unrelated words like "context" (contains "tx").
+		if !strings.Contains(low, "inv") && !strings.Contains(low, "merkle") && !strings.Contains(low, "watch") &&
+			!strings.Contains(low, "bloom") && !strings.Contains(low, "wallet") && !strings.Contains(low, "transaction") &&
+			!strings.Contains(low, "txid") && !strings.Contains(low, " tx") && !strings.Contains(low, "tx ") {
+			continue
+		}
+		for _, hx := range reBlockHash.FindAllString(line, -1) {
+			if len(hx) == 64 && isHex64(hx) {
+				seen[strings.ToLower(hx)] = struct{}{}
+			}
+		}
+	}
+	return len(seen)
+}
+
 func countDistinctMempoolTxHints(log string) int {
 	seen := make(map[string]struct{})
 	for _, line := range strings.Split(log, "\n") {

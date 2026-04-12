@@ -3,8 +3,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,14 +40,6 @@ func env(k, def string) string {
 		return v
 	}
 	return def
-}
-
-func randomHex(n int) string {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return "changeme"
-	}
-	return hex.EncodeToString(b)
 }
 
 func hostKey(host string) string {
@@ -499,6 +489,7 @@ func main() {
 		}
 	}
 
+	const defaultAdminToken = "DOGECOIN"
 	token := strings.TrimSpace(env("HTTPS_PROXY_ADMIN_TOKEN", ""))
 	if token == "" {
 		tokenPath := filepath.Join(storage, "admin.token")
@@ -506,11 +497,11 @@ func main() {
 		if err == nil && strings.TrimSpace(string(b)) != "" {
 			token = strings.TrimSpace(string(b))
 		} else {
-			token = randomHex(16)
+			token = defaultAdminToken
 			if err := os.WriteFile(tokenPath, []byte(token), 0600); err != nil {
 				log.Fatal(err)
 			}
-			log.Printf("[https-proxy] wrote admin token to %s (or set HTTPS_PROXY_ADMIN_TOKEN)", tokenPath)
+			log.Printf("[https-proxy] wrote default admin token to %s (override with HTTPS_PROXY_ADMIN_TOKEN)", tokenPath)
 		}
 	}
 

@@ -4,7 +4,7 @@
 let
   proxy_bin = pkgs.buildGoModule {
     pname = "https-proxy";
-    version = "0.1.4";
+    version = "0.1.5";
     src = ./service;
     vendorHash = null;
     go = pkgs.go_1_24;
@@ -27,7 +27,7 @@ let
 
     export PUBLIC_PORT
     export HTTPS_PROXY_STORAGE="$STORAGE"
-    export HTTPS_PROXY_ADMIN_TOKEN="''${HTTPS_PROXY_ADMIN_TOKEN:-}"
+    export HTTPS_PROXY_ADMIN_TOKEN="''${HTTPS_PROXY_ADMIN_TOKEN:-DOGECOIN}"
 
     exec ${proxy_bin}/bin/https-proxy
   '';

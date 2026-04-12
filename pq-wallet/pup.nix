@@ -7,7 +7,7 @@ let
 
   pq_bin = pkgs.buildGoModule {
     pname = "pq-wallet";
-    version = "0.0.9";
+    version = "0.0.10";
     src = ./service;
     vendorHash = null;
     go = pkgs.go_1_24;
@@ -50,7 +50,11 @@ let
         if [ -n "$ADDR" ]; then
           TN_FLAG=""
           if [ "$NET" = "testnet" ]; then TN_FLAG="-t"; fi
-          nohup spvnode $TN_FLAG -f 0 -c -l -a "$ADDR" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >>"$STORAGE/spv.log" 2>&1 &
+          if command -v stdbuf >/dev/null 2>&1; then
+            nohup stdbuf -oL -eL spvnode $TN_FLAG -f 0 -c -l -a "$ADDR" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >>"$STORAGE/spv.log" 2>&1 &
+          else
+            nohup spvnode $TN_FLAG -f 0 -c -l -a "$ADDR" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >>"$STORAGE/spv.log" 2>&1 &
+          fi
           echo $! >"$STORAGE/spv.pid"
         fi
       fi

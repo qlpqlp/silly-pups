@@ -18,7 +18,7 @@ const state = {
   walletLocked: false,
   lastPendingDoge: 0,
   view: "dashboard",
-  charts: { height: null },
+  charts: { spvTx: null, mempool: null },
   pollFast: null,
   pollTx: null,
   pollLogs: null,
@@ -222,27 +222,58 @@ function initCharts() {
     plugins: { legend: { display: false } },
     scales: {
       x: { ticks: { maxTicksLimit: 8, color: "#8a9bb3" }, grid: { color: "rgba(255,255,255,0.06)" } },
-      y: { ticks: { color: "#8a9bb3" }, grid: { color: "rgba(255,255,255,0.06)" } },
+      y: { ticks: { color: "#8a9bb3", beginAtZero: true }, grid: { color: "rgba(255,255,255,0.06)" } },
     },
   };
-  const ctxH = $("chart-height");
-  if (ctxH && !state.charts.height) {
-    state.charts.height = new Chart(ctxH, {
+  const ctxS = $("chart-spv-tx");
+  if (ctxS && !state.charts.spvTx) {
+    state.charts.spvTx = new Chart(ctxS, {
       type: "line",
-      data: { labels: [], datasets: [{ label: "height", data: [], borderColor: "#f2cb2c", tension: 0.25, fill: false }] },
+      data: {
+        labels: [],
+        datasets: [{ label: "SPV tx count", data: [], borderColor: "#f2cb2c", tension: 0.25, fill: false }],
+      },
+      options: common,
+    });
+  }
+  const ctxM = $("chart-mempool");
+  if (ctxM && !state.charts.mempool) {
+    state.charts.mempool = new Chart(ctxM, {
+      type: "line",
+      data: {
+        labels: [],
+        datasets: [{ label: "Mempool", data: [], borderColor: "#4ade80", tension: 0.25, fill: false }],
+      },
       options: common,
     });
   }
 }
 
+function filterMetrics24h(metrics) {
+  if (!metrics || !metrics.length) return [];
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  return metrics.filter((m) => {
+    if (!m.t) return false;
+    const ms = new Date(m.t).getTime();
+    return !Number.isNaN(ms) && ms >= cutoff;
+  });
+}
+
 function updateCharts(metrics) {
-  if (!metrics || !metrics.length) return;
-  const labels = metrics.map((m) => fmtTime(m.t));
-  const heights = metrics.map((m) => Number(m.header_height) || 0);
-  if (state.charts.height) {
-    state.charts.height.data.labels = labels;
-    state.charts.height.data.datasets[0].data = heights;
-    state.charts.height.update("none");
+  const m = filterMetrics24h(metrics || []);
+  if (!m.length) return;
+  const labels = m.map((x) => fmtTime(x.t));
+  const spvTx = m.map((x) => Number(x.spv_tx_seen_count) || 0);
+  const mem = m.map((x) => Number(x.mempool_relay_count) || 0);
+  if (state.charts.spvTx) {
+    state.charts.spvTx.data.labels = labels;
+    state.charts.spvTx.data.datasets[0].data = spvTx;
+    state.charts.spvTx.update("none");
+  }
+  if (state.charts.mempool) {
+    state.charts.mempool.data.labels = labels;
+    state.charts.mempool.data.datasets[0].data = mem;
+    state.charts.mempool.update("none");
   }
 }
 
@@ -268,8 +299,8 @@ function maybeNotifyPending(pending) {
   const p = Number(pending) || 0;
   if (p > 0 && p > state.lastPendingDoge && "Notification" in window && Notification.permission === "granted") {
     try {
-      new Notification("PQ Wallet — mempool pending", {
-        body: `≈ ${p.toFixed(4)} DOGE pending (MemeTracker)`,
+      new Notification("PQ Wallet — pending", {
+        body: `≈ ${p.toFixed(4)} DOGE unconfirmed`,
       });
     } catch {
       /* ignore */
@@ -288,33 +319,27 @@ async function refreshDashboard() {
   const balBig = $("wallet-balance-big");
   if (balBig) balBig.textContent = spendStr;
   const pend = t.pending_mempool_doge;
+  const pendRow = $("wallet-pending-row");
   const pendEl = $("wallet-pending-line");
-  if (pendEl) {
+  if (pendRow && pendEl) {
     if (pend != null && Number(pend) > 0) {
-      pendEl.textContent = `Pending (mempool / MemeTracker): ${Number(pend).toFixed(4)} DOGE`;
+      pendEl.textContent = `${Number(pend).toFixed(4)} DOGE`;
+      pendRow.hidden = false;
     } else {
-      pendEl.textContent = "";
+      pendEl.textContent = "—";
+      pendRow.hidden = true;
     }
   }
   maybeNotifyPending(pend);
   $("stat-in").textContent = t.received_doge != null ? String(t.received_doge) : "—";
   $("stat-out").textContent = t.sent_doge != null ? String(t.sent_doge) : "—";
   const spv = data.dashboard.spv || {};
-  $("stat-spv").textContent = spv.running ? "running" : "stopped";
-  const mtc = spv.mempool_tx_count;
-  const elMp = $("stat-mempool");
-  const elMpHint = $("stat-mempool-hint");
-  if (elMp) elMp.textContent = mtc != null && Number(mtc) >= 0 ? String(mtc) : "—";
-  if (elMpHint) {
-    const mtr = data.dashboard.memetracker || {};
-    const ok = mtr.engine_ok;
-    elMpHint.textContent = ok
-      ? "Unique tx ids visible on Dogecoin P2P relay (embedded MemeTracker)."
-      : "MemeTracker engine unavailable — showing spv.log mempool heuristic if any.";
-  }
   const mtr = data.dashboard.memetracker || {};
   const mtrMeta = $("mtr-mempool-meta");
   const mtrTb = $("mtr-mempool-tbody");
+  const mtrExpand = $("btn-mtr-mempool-expand");
+  const mtrCard = $("mtr-mempool-card");
+  const MTR_VISIBLE = 10;
   if (mtrMeta && mtrTb) {
     if (mtr.engine_ok) {
       mtrMeta.textContent = `P2P workers connected: ${mtr.workers_connected ?? 0} · unique tx ids on relay: ${mtr.mempool_tx_count ?? 0}`;
@@ -322,13 +347,27 @@ async function refreshDashboard() {
       mtrMeta.textContent = mtr.engine_error || "Mempool engine not available.";
     }
     mtrTb.innerHTML = "";
-    (mtr.mempool_transactions || []).slice(0, 50).forEach((row) => {
+    const rows = mtr.mempool_transactions || [];
+    rows.forEach((row, i) => {
       const tr = document.createElement("tr");
+      if (i >= MTR_VISIBLE) tr.classList.add("mtr-extra-row");
       const tx = row.txid != null ? String(row.txid) : "";
       const short = tx.length > 24 ? tx.slice(0, 20) + "…" : tx;
       tr.innerHTML = `<td class="mono" title="${escapeHtml(tx)}">${escapeHtml(short)}</td><td>${row.tracked_match ? "yes" : ""}</td><td>${row.amount_doge != null ? escapeHtml(String(row.amount_doge)) : ""}</td>`;
       mtrTb.appendChild(tr);
     });
+    if (mtrExpand && mtrCard) {
+      const extra = rows.length - MTR_VISIBLE;
+      if (extra > 0) {
+        mtrExpand.classList.remove("hidden");
+        mtrExpand.textContent = `Show all (${extra} more)`;
+        mtrExpand.setAttribute("aria-expanded", "false");
+        mtrCard.classList.remove("mtr-expanded");
+      } else {
+        mtrExpand.classList.add("hidden");
+        mtrCard.classList.remove("mtr-expanded");
+      }
+    }
   }
   const cp = spv.current_peer;
   const setPeer = (id, v) => {
@@ -378,15 +417,29 @@ async function refreshTxList(refresh) {
   $("tx-sync-hint").textContent = refresh ? "Synced" : "";
   const tb = $("tx-table").querySelector("tbody");
   tb.innerHTML = "";
+  let pendingNav = 0;
   txs.forEach((tx) => {
+    if (tx.pending) pendingNav += 1;
     const tr = document.createElement("tr");
     const short = (tx.txid || "").slice(0, 18) + (tx.txid && tx.txid.length > 18 ? "…" : "");
     const pqBadge = tx.pq_hint
       ? '<span class="badge-pq"><span class="material-symbols-outlined" style="font-size:15px">verified</span> PQ</span>'
       : '<span class="badge-pq off">—</span>';
-    tr.innerHTML = `<td class="mono">${escapeHtml(short)}</td><td>${escapeHtml(tx.direction || "")}</td><td>${tx.amount_doge != null ? escapeHtml(String(tx.amount_doge)) : ""}</td><td>${pqBadge}</td><td>${escapeHtml(tx.source || "")}</td>`;
+    const stCell = tx.pending
+      ? '<span class="badge badge-tx-pending">Pending</span>'
+      : '<span class="muted small">Confirmed</span>';
+    tr.innerHTML = `<td class="mono">${escapeHtml(short)}</td><td>${escapeHtml(tx.direction || "")}</td><td>${tx.amount_doge != null ? escapeHtml(String(tx.amount_doge)) : ""}</td><td>${stCell}</td><td>${pqBadge}</td><td>${escapeHtml(tx.source || "")}</td>`;
     tb.appendChild(tr);
   });
+  const navB = $("nav-tx-pending-badge");
+  if (navB) {
+    if (pendingNav > 0) {
+      navB.textContent = pendingNav > 99 ? "99+" : String(pendingNav);
+      navB.classList.remove("hidden");
+    } else {
+      navB.classList.add("hidden");
+    }
+  }
 }
 
 function renderAddresses(w) {
@@ -763,9 +816,18 @@ document.getElementById("btn-explorer").addEventListener("click", async () => {
   if (!txid) return;
   $("ex-out").textContent = JSON.stringify(await api("/api/explorer/tx/" + encodeURIComponent(txid)), null, 2);
 });
-document.getElementById("btn-spv-status").addEventListener("click", async () => {
-  $("spv-out").textContent = JSON.stringify(await api("/api/spv/status"), null, 2);
-});
+
+const btnMtrExpand = $("btn-mtr-mempool-expand");
+if (btnMtrExpand) {
+  btnMtrExpand.addEventListener("click", () => {
+    const card = $("mtr-mempool-card");
+    if (!card) return;
+    const on = card.classList.toggle("mtr-expanded");
+    btnMtrExpand.setAttribute("aria-expanded", on ? "true" : "false");
+    const extra = card.querySelectorAll("tr.mtr-extra-row").length;
+    btnMtrExpand.textContent = on ? "Show less" : `Show all (${extra} more)`;
+  });
+}
 
 document.getElementById("btn-send-pq-safe").addEventListener("click", async () => {
   const to_address = document.getElementById("send-to").value.trim();

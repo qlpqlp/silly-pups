@@ -2,10 +2,10 @@
   "manifestVersion": 1,
   "meta": {
     "name": "HTTPS Proxy",
-    "version": "0.1.4",
+    "version": "0.1.5",
     "logoPath": "logo.png",
-    "shortDescription": "HTTP/HTTPS reverse proxy for other pups (TLS optional; self-signed + web admin)",
-    "longDescription": "Runs **plain HTTP by default** (matches Dogebox). Use **`http://…`** to open the admin UI until you enable TLS there; then **`https://…`** applies. The expose is **HTTP** until you turn on **Enable HTTPS (TLS)** in `/__proxy/`. Self-signed cert (default SAN **dogebox**). Use **port listeners** so each listen port forwards to that pup’s upstream (e.g. `8080` → `http://127.0.0.1:8080`). If port listeners are empty, **PUBLIC_PORT** uses host-based routes. Download `cert.pem` from the admin API when HTTPS is on. This is **not** Let’s Encrypt.",
+    "shortDescription": "HTTPS reverse proxy for other pups (TLS self-signed by default + web admin)",
+    "longDescription": "**TLS is on by default** (self-signed cert, SAN **dogebox**). Open **`https://dogebox:<PUBLIC_PORT>/__proxy/`** and accept the browser warning (or trust `cert.pem`). Default admin token is **`DOGECOIN`** (override with **`HTTPS_PROXY_ADMIN_TOKEN`**). Turn off **Enable HTTPS** in the UI only if you need plain **HTTP**. If Firefox shows **SSL_ERROR_RX_RECORD_TOO_LONG**, you opened **https://** while the proxy was in HTTP-only mode — use **http://** for that mode, or re-enable HTTPS. **Port** in the URL must match **`PUBLIC_PORT`**. Use **port listeners** to map each listen port to an upstream pup. This is **not** Let’s Encrypt.",
     "upstreamVersions": {
       "Go": "1.24"
     }
@@ -14,7 +14,7 @@
     "sections": [
       {
         "name": "HTTP/TLS",
-        "description": "Listen port on 0.0.0.0 (HTTP until you enable HTTPS in the admin UI). With no port listeners in the UI, this single port is used. If you add port listeners, each row has its own port (PUBLIC_PORT is ignored).",
+        "description": "Listen port on 0.0.0.0 (HTTPS/TLS by default). With no port listeners in the UI, this single port is used. If you add port listeners, each row has its own port (PUBLIC_PORT is ignored).",
         "fields": [
           {
             "name": "PUBLIC_PORT",
@@ -36,9 +36,9 @@
           },
           {
             "name": "HTTPS_PROXY_ADMIN_TOKEN",
-            "label": "Admin API token (optional; empty = auto-generated file)",
+            "label": "Admin API token (optional; default DOGECOIN)",
             "type": "text",
-            "default": ""
+            "default": "DOGECOIN"
           }
         ]
       }
@@ -47,7 +47,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "ff46e250125dca7de2ec1a30edc7942f2dd0c07569706bb69523b3fee62e854f"
+      "nixFileSha256": "0913d23561b6d2e267330f5ad3c1de881626826a54967c80ca7ab0377c273dfa"
     },
     "services": [
       {
@@ -61,7 +61,7 @@
     ],
     "exposes": [
       {
-        "name": "http",
+        "name": "https",
         "type": "http",
         "port": 10000,
         "interfaces": [
@@ -76,7 +76,7 @@
   "interfaces": [
     {
       "name": "https-proxy-https",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "permissionGroups": [
         {
           "name": "HTTPS Proxy UI",

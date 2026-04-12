@@ -89,23 +89,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	if eng != nil && engErr == nil {
 		mempoolDisplay = mtrCount
 	}
-	if currentPeer == nil && eng != nil && engErr == nil {
-		for _, w := range mtrWorkers {
-			conn, _ := w["connected"].(bool)
-			addr, _ := w["address"].(string)
-			if !conn || strings.TrimSpace(addr) == "" {
-				continue
-			}
-			wid, _ := w["worker_id"].(int)
-			currentPeer = &PeerConnectionInfo{
-				NodeID:            wid,
-				Address:           addr,
-				SubVersion:        "Embedded mempool watcher (P2P)",
-				RemoteStartHeight: 0,
-			}
-			break
-		}
-	}
+	// Peer panel: SPV handshake lines from spv.log only (not MemeTracker workers).
 
 	mtrEngErr := ""
 	if engErr != nil {
@@ -145,7 +129,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 				"tx_count":              len(st.Transactions),
 				"last_explorer_sync":    st.LastExplorerSync,
 			},
-			"metrics_sample": tailMetrics(st.Metrics, 120),
+			"metrics_sample": metricsLast24Hours(st.Metrics),
 		},
 	})
 }
@@ -155,6 +139,24 @@ func tailMetrics(m []MetricPoint, n int) []MetricPoint {
 		return m
 	}
 	return m[len(m)-n:]
+}
+
+// metricsLast24Hours returns samples from the last 24 hours for dashboard charts (up to ~4000 points cap).
+func metricsLast24Hours(m []MetricPoint) []MetricPoint {
+	if len(m) == 0 {
+		return m
+	}
+	cutoff := time.Now().UTC().Add(-24 * time.Hour)
+	out := make([]MetricPoint, 0, len(m))
+	for _, p := range m {
+		if !p.T.Before(cutoff) {
+			out = append(out, p)
+		}
+	}
+	if len(out) > 0 {
+		return out
+	}
+	return tailMetrics(m, 120)
 }
 
 func round4(f float64) float64 {
@@ -217,7 +219,15 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 			_ = s.saveState(st)
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"transactions": st.Transactions})
+	type txRow struct {
+		TxRecord
+		Pending bool `json:"pending"`
+	}
+	out := make([]txRow, 0, len(st.Transactions))
+	for _, t := range st.Transactions {
+		out = append(out, txRow{TxRecord: t, Pending: t.Confirmations == 0})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"transactions": out})
 }
 
 func (s *Server) syncTransactionsFromNetwork(ctx context.Context, wf *WalletFile) ([]TxRecord, float64, error) {
@@ -411,13 +421,20 @@ func (s *Server) backgroundMetricsLoop() {
 			s.mu.Unlock()
 			continue
 		}
+		spvTxSeen := parseSPVTxSeenCount(logTail)
+		mempoolRelay := 0
+		if eng, eerr := s.ensureMempoolEngine(wf); eerr == nil && eng != nil {
+			mempoolRelay, _, _, _ = eng.DashboardSnapshot()
+		}
 		s.appendMetricPoint(st, MetricPoint{
-			T:             time.Now().UTC(),
-			HeaderHeight:  hdr.HeaderHeight,
-			BestBlockHash: hdr.BestBlockHash,
-			SPVRunning:    running,
-			PeerCount:     hdr.PeerCount,
-			MempoolTxCount: hdr.MempoolTxCount,
+			T:                 time.Now().UTC(),
+			HeaderHeight:      hdr.HeaderHeight,
+			BestBlockHash:     hdr.BestBlockHash,
+			SPVRunning:        running,
+			PeerCount:         hdr.PeerCount,
+			MempoolTxCount:    hdr.MempoolTxCount,
+			SPVTxSeenCount:    spvTxSeen,
+			MempoolRelayCount: mempoolRelay,
 		})
 		_ = s.saveState(st)
 		s.mu.Unlock()

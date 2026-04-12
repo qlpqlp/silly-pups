@@ -23,14 +23,17 @@ type TxRecord struct {
 	SeenAt        time.Time `json:"seen_at"`
 }
 
-// MetricPoint is one sample for charts (block height, SPV up, etc.).
+// MetricPoint is one sample for charts (SPV tx visibility, mempool relay, etc.).
 type MetricPoint struct {
-	T                  time.Time `json:"t"`
-	HeaderHeight       int64     `json:"header_height"`
-	BestBlockHash      string    `json:"best_block_hash,omitempty"`
-	SPVRunning         bool      `json:"spv_running"`
-	PeerCount          int       `json:"peer_count,omitempty"`
-	MempoolTxCount int  `json:"mempool_tx_count,omitempty"` // heuristic from spv.log
+	T             time.Time `json:"t"`
+	HeaderHeight  int64     `json:"header_height"`
+	BestBlockHash string    `json:"best_block_hash,omitempty"`
+	SPVRunning    bool      `json:"spv_running"`
+	PeerCount     int       `json:"peer_count,omitempty"`
+	// MempoolTxCount is a heuristic from spv.log (legacy; charts prefer MempoolRelayCount).
+	MempoolTxCount    int `json:"mempool_tx_count,omitempty"`
+	SPVTxSeenCount    int `json:"spv_tx_seen_count,omitempty"`    // distinct txids from spv.log (wallet/relay activity)
+	MempoolRelayCount int `json:"mempool_relay_count,omitempty"` // embedded MemeTracker relay visibility count
 }
 
 // WalletState is persisted as state.json (separate from keys).

@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Emit libdogecoin-with-net-link.patch (LIBS unset when BUILD_TESTING=OFF)."""
+"""Emit libdogecoin-with-net-link.patch (LIBS unset when BUILD_TESTING=OFF).
+
+Fixes WITH_NET link lines and `such` CLI link lines: both used ${LIBS}, which is
+only set inside USE_TESTS, so builds with BUILD_TESTING=OFF failed to link.
+"""
 import difflib
 import urllib.request
 from pathlib import Path
@@ -61,6 +65,12 @@ def main() -> None:
     ).replace(
         "TARGET_LINK_LIBRARIES(${LIBS} ${LIBEVENT} ${LIBEVENT_PTHREADS})",
         "TARGET_LINK_LIBRARIES(${LIBDOGECOIN_NAME} PUBLIC ${LIBEVENT} ${LIBEVENT_PTHREADS})",
+    ).replace(
+        "TARGET_LINK_LIBRARIES(such ${LIBS} tbs ncrypt crypt32)",
+        "TARGET_LINK_LIBRARIES(such ${LIBDOGECOIN_NAME} tbs ncrypt crypt32)",
+    ).replace(
+        "TARGET_LINK_LIBRARIES(such ${LIBS})",
+        "TARGET_LINK_LIBRARIES(such ${LIBDOGECOIN_NAME})",
     )
 
     if mid == fixed:

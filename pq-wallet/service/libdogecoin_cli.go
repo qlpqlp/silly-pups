@@ -325,10 +325,29 @@ func (s *Server) readSPVStatus() map[string]any {
 			out["running"] = true
 		}
 	}
-	if lb, err := readFileTail(logPath, 48*1024); err == nil {
+	if lb, err := readFileTail(logPath, 512*1024); err == nil {
 		out["log_tail"] = lb
 	}
 	return out
+}
+
+func (s *Server) broadcastLogPath() string {
+	return filepath.Join(s.storageDir, "broadcast.log")
+}
+
+func (s *Server) appendBroadcastLogLine(line string) {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return
+	}
+	p := s.broadcastLogPath()
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		log.Printf("[pq-wallet] broadcast log: %v", err)
+		return
+	}
+	defer f.Close()
+	_, _ = fmt.Fprintf(f, "%s %s\n", time.Now().UTC().Format(time.RFC3339), line)
 }
 
 func readFileTail(path string, max int) (string, error) {

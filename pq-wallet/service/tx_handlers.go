@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 )
@@ -78,7 +79,15 @@ func (s *Server) handleTxBroadcast(w http.ResponseWriter, r *http.Request) {
 	wf, _ := s.loadWallet()
 	s.mu.Unlock()
 	testnet := wf != nil && strings.EqualFold(wf.Network, "testnet")
-	out, err := s.runSendtx(strings.TrimSpace(body.RawHex), testnet, strings.TrimSpace(body.Peers))
+	raw := strings.TrimSpace(body.RawHex)
+	out, err := s.runSendtx(raw, testnet, strings.TrimSpace(body.Peers))
+	if s.storageDir != "" {
+		if err != nil {
+			s.appendBroadcastLogLine(fmt.Sprintf("broadcast FAIL err=%q", err.Error()))
+		} else {
+			s.appendBroadcastLogLine(fmt.Sprintf("broadcast OK sendtx_output=%q", truncateStr(out, 500)))
+		}
+	}
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return

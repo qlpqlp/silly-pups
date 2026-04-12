@@ -16,9 +16,10 @@ async function api(path, opts) {
 const state = {
   wallet: null,
   view: "dashboard",
-  charts: { height: null, spv: null },
+  charts: { height: null, spv: null, peers: null, smpv: null },
   pollFast: null,
   pollTx: null,
+  pollLogs: null,
 };
 
 function $(id) {
@@ -34,8 +35,8 @@ function showView(name) {
     dashboard: ["Dashboard", "SPV headers, balances, and post-quantum hints"],
     addresses: ["Addresses", "Generate keys and choose which address SPV watches"],
     transactions: ["Transactions", "PQ badges = explorer OP_RETURN hints (not a full audit)"],
-    tools: ["Send wizard", "ECDSA sign · libdogecoin sendtx P2P (not RPC broadcast)"],
-    network: ["Network & SPV", "Logs, MemeTracker, explorer"],
+    tools: ["Send Doge", "Destination & amount, or paste a signed raw hex for P2P broadcast"],
+    logs: ["Logs", "SPV and broadcast tails (~420 lines), DOS-style"],
     learn: ["How it works", "ECDSA vs PQ · send · verify · broadcast"],
     settings: ["Wallet file", "Backup or remove this pup’s wallet"],
   };
@@ -43,19 +44,44 @@ function showView(name) {
   $("page-title").textContent = t;
   $("page-sub").textContent = s;
 
+  if (state.pollLogs) {
+    clearInterval(state.pollLogs);
+    state.pollLogs = null;
+  }
+
   document.querySelectorAll(".content .view").forEach((v) => v.classList.add("hidden"));
   const el = $("view-" + name);
   if (el) el.classList.remove("hidden");
   if (name === "learn") loadEducation();
+  if (name === "logs") {
+    refreshLogs();
+    state.pollLogs = setInterval(refreshLogs, 4000);
+  }
 }
 
-function setWizPanel(n) {
-  document.querySelectorAll(".wiz-tab").forEach((t) => {
-    t.classList.toggle("active", parseInt(t.dataset.wiz, 10) === n);
-    t.setAttribute("aria-selected", parseInt(t.dataset.wiz, 10) === n ? "true" : "false");
+async function refreshLogs() {
+  try {
+    const [spv, bc] = await Promise.all([
+      fetch("/api/logs/spv?lines=420").then((r) => r.text()),
+      fetch("/api/logs/broadcast?lines=420").then((r) => r.text()),
+    ]);
+    const elS = $("log-spv");
+    const elB = $("log-bc");
+    if (elS) elS.textContent = spv;
+    if (elB) elB.textContent = bc;
+  } catch {
+    /* ignore */
+  }
+}
+
+function setSendTab(n) {
+  document.querySelectorAll("[data-send-tab]").forEach((t) => {
+    const on = parseInt(t.dataset.sendTab, 10) === n;
+    t.classList.toggle("active", on);
+    t.setAttribute("aria-selected", on ? "true" : "false");
   });
-  document.querySelectorAll("[data-wiz-panel]").forEach((p) => {
-    p.classList.toggle("hidden", parseInt(p.getAttribute("data-wiz-panel"), 10) !== n);
+  document.querySelectorAll("[data-send-panel]").forEach((p) => {
+    p.classList.toggle("hidden", parseInt(p.getAttribute("data-send-panel"), 10) !== n);
   });
 }
 
@@ -144,11 +170,13 @@ function setOnboarding(w) {
   if (!has) {
     if (state.pollFast) clearInterval(state.pollFast);
     if (state.pollTx) clearInterval(state.pollTx);
+    if (state.pollLogs) clearInterval(state.pollLogs);
     state.pollFast = null;
     state.pollTx = null;
+    state.pollLogs = null;
   }
   $("view-onboarding").classList.toggle("hidden", has);
-  ["view-dashboard", "view-addresses", "view-transactions", "view-tools", "view-network", "view-learn", "view-settings"].forEach((id) => {
+  ["view-dashboard", "view-addresses", "view-transactions", "view-tools", "view-logs", "view-learn", "view-settings"].forEach((id) => {
     $(id).classList.toggle("hidden", !has);
   });
   if (has) {
@@ -198,6 +226,22 @@ function initCharts() {
       options: common,
     });
   }
+  const ctxP = $("chart-peers");
+  const ctxM = $("chart-smpv");
+  if (ctxP && !state.charts.peers) {
+    state.charts.peers = new Chart(ctxP, {
+      type: "line",
+      data: { labels: [], datasets: [{ label: "peers", data: [], borderColor: "#7eb8da", tension: 0.2, fill: false }] },
+      options: common,
+    });
+  }
+  if (ctxM && !state.charts.smpv) {
+    state.charts.smpv = new Chart(ctxM, {
+      type: "line",
+      data: { labels: [], datasets: [{ label: "smpv", data: [], borderColor: "#c48cff", stepped: true, fill: false }] },
+      options: common,
+    });
+  }
 }
 
 function updateCharts(metrics) {
@@ -205,6 +249,8 @@ function updateCharts(metrics) {
   const labels = metrics.map((m) => fmtTime(m.t));
   const heights = metrics.map((m) => Number(m.header_height) || 0);
   const spv = metrics.map((m) => (m.spv_running ? 1 : 0));
+  const peers = metrics.map((m) => Number(m.peer_count) || 0);
+  const smpv = metrics.map((m) => (m.smpv_active ? 1 : 0));
   if (state.charts.height) {
     state.charts.height.data.labels = labels;
     state.charts.height.data.datasets[0].data = heights;
@@ -214,6 +260,16 @@ function updateCharts(metrics) {
     state.charts.spv.data.labels = labels;
     state.charts.spv.data.datasets[0].data = spv;
     state.charts.spv.update("none");
+  }
+  if (state.charts.peers) {
+    state.charts.peers.data.labels = labels;
+    state.charts.peers.data.datasets[0].data = peers;
+    state.charts.peers.update("none");
+  }
+  if (state.charts.smpv) {
+    state.charts.smpv.data.labels = labels;
+    state.charts.smpv.data.datasets[0].data = smpv;
+    state.charts.smpv.update("none");
   }
 }
 
@@ -238,6 +294,9 @@ async function refreshDashboard() {
   $("stat-out").textContent = t.sent_doge != null ? String(t.sent_doge) : "—";
   const spv = data.dashboard.spv || {};
   $("stat-spv").textContent = spv.running ? "running" : "stopped";
+  const pc = spv.peer_count;
+  $("stat-peers").textContent = pc != null && Number(pc) >= 0 ? String(pc) : "—";
+  $("stat-smpv").textContent = spv.smpv_active ? "active" : "—";
   const h = spv.header_height;
   $("pill-height").textContent = h != null && Number(h) > 0 ? `height ${h}` : "height —";
   $("hdr-hash").textContent = spv.best_block_hash || "—";
@@ -320,14 +379,8 @@ $("btn-sidebar-toggle").addEventListener("click", () => {
   if (icon) icon.textContent = collapsed ? "menu" : "menu_open";
 });
 
-document.querySelectorAll(".wiz-tab").forEach((tab) => {
-  tab.addEventListener("click", () => setWizPanel(parseInt(tab.dataset.wiz, 10)));
-});
-document.querySelectorAll(".wiz-next").forEach((b) => {
-  b.addEventListener("click", () => setWizPanel(parseInt(b.dataset.next, 10)));
-});
-document.querySelectorAll(".wiz-prev").forEach((b) => {
-  b.addEventListener("click", () => setWizPanel(parseInt(b.dataset.prev, 10)));
+document.querySelectorAll("[data-send-tab]").forEach((tab) => {
+  tab.addEventListener("click", () => setSendTab(parseInt(tab.dataset.sendTab, 10)));
 });
 
 document.getElementById("btn-create").addEventListener("click", async () => {
@@ -410,12 +463,6 @@ document.getElementById("btn-delete").addEventListener("click", async () => {
   await refreshWallet();
 });
 
-document.getElementById("btn-mem-status").addEventListener("click", async () => {
-  $("mem-out").textContent = JSON.stringify(await api("/api/mempool/status"), null, 2);
-});
-document.getElementById("btn-mem-track").addEventListener("click", async () => {
-  $("mem-out").textContent = JSON.stringify(await api("/api/mempool/track"), null, 2);
-});
 document.getElementById("btn-explorer").addEventListener("click", async () => {
   const txid = document.getElementById("txid-input").value.trim();
   if (!txid) return;
@@ -423,6 +470,16 @@ document.getElementById("btn-explorer").addEventListener("click", async () => {
 });
 document.getElementById("btn-spv-status").addEventListener("click", async () => {
   $("spv-out").textContent = JSON.stringify(await api("/api/spv/status"), null, 2);
+});
+
+document.getElementById("btn-send-pq-safe").addEventListener("click", async () => {
+  const to_address = document.getElementById("send-to").value.trim();
+  const amount_doge = document.getElementById("send-amt").value.trim();
+  const res = await api("/api/send/pq-safe", {
+    method: "POST",
+    body: JSON.stringify({ to_address, amount_doge }),
+  });
+  $("send-pq-out").textContent = JSON.stringify(res, null, 2);
 });
 
 document.getElementById("btn-sign").addEventListener("click", async () => {
@@ -434,37 +491,19 @@ document.getElementById("btn-sign").addEventListener("click", async () => {
   });
   $("sign-out").textContent = JSON.stringify(res, null, 2);
   if (res.signed_raw_hex) {
-    $("signed-hex").value = res.signed_raw_hex;
-    if ($("wiz-auto-broadcast").checked) {
-      const bc = await api("/api/tx/broadcast", {
-        method: "POST",
-        body: JSON.stringify({ raw_hex: res.signed_raw_hex, peers: $("peers-input").value.trim() }),
-      });
-      $("bc-out").textContent = JSON.stringify(bc, null, 2);
-      setWizPanel(3);
-    }
+    const manual = $("manual-signed-hex");
+    if (manual) manual.value = res.signed_raw_hex;
   }
 });
-document.getElementById("btn-broadcast").addEventListener("click", async () => {
-  const hex = document.getElementById("signed-hex").value.trim();
-  const peers = document.getElementById("peers-input").value.trim();
+
+document.getElementById("btn-manual-broadcast").addEventListener("click", async () => {
+  const hex = document.getElementById("manual-signed-hex").value.trim();
+  const peers = document.getElementById("manual-peers").value.trim();
   const bc = await api("/api/tx/broadcast", {
     method: "POST",
     body: JSON.stringify({ raw_hex: hex, peers }),
   });
-  $("bc-out").textContent = JSON.stringify(bc, null, 2);
-});
-document.getElementById("btn-rpc-send").addEventListener("click", async () => {
-  const to_address = document.getElementById("rpc-to").value.trim();
-  const amount = parseFloat(document.getElementById("rpc-amt").value);
-  $("rpc-out").textContent = JSON.stringify(
-    await api("/api/rpc/send", {
-      method: "POST",
-      body: JSON.stringify({ to_address, amount_doge: amount }),
-    }),
-    null,
-    2
-  );
+  $("manual-bc-out").textContent = JSON.stringify(bc, null, 2);
 });
 
 function startPollers() {

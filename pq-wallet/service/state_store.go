@@ -29,6 +29,8 @@ type MetricPoint struct {
 	HeaderHeight  int64     `json:"header_height"`
 	BestBlockHash string    `json:"best_block_hash,omitempty"`
 	SPVRunning    bool      `json:"spv_running"`
+	PeerCount     int       `json:"peer_count,omitempty"`
+	SMPVActive    bool      `json:"smpv_active"`
 }
 
 // WalletState is persisted as state.json (separate from keys).

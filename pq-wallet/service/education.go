@@ -49,8 +49,8 @@ func educationPayload() map[string]any {
 				"title": "What this pup actually runs",
 				"body": []string{
 					"Binaries on PATH: **`such`**, **`sendtx`**, **`spvnode`**, built with **USE_LIBOQS** for Falcon/Dilithium support in libdogecoin.",
-					"**Broadcast** in the Send wizard uses **`sendtx`** only (P2P). Optional **Dogecoin Core RPC** is only for convenience features like `sendtoaddress` from a full node — it is **not** used as the default broadcast path for the hex you sign here.",
-					"**SPV** (`spvnode`) follows headers and watches your primary address; log lines are parsed best-effort for height/hash display.",
+					"**Broadcast** uses **`sendtx`** only (P2P), not JSON-RPC `sendrawtransaction`.",
+					"**SPV** (`spvnode`) follows headers and watches your primary address; `spv.log` lines like `hash|height|…` drive chain tip; peers and SMPV are heuristics from the log tail.",
 				},
 			},
 		},

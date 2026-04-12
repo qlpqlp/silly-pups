@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "meta": {
     "name": "PQ Doge Wallet",
-    "version": "0.0.5",
+    "version": "0.0.6",
     "logoPath": "logo.png",
     "shortDescription": "The first Post Quantum Secure Dogecoin wallet",
     "longDescription": "Built in with libdogecoin liboqs that includes: `such` (P2PKH keys, Falcon-512 keygen, sign, commitments), `sendtx` (P2P broadcast), `spvnode` (headers + BIP37 + SMPV).",
@@ -27,7 +27,7 @@
       },
       {
         "name": "Chain & SPV",
-        "description": "libdogecoin spvnode syncs headers and watches your address; SMPV augments mempool visibility.",
+        "description": "libdogecoin spvnode syncs headers and watches your address; SMPV augments mempool visibility when present in the log.",
         "fields": [
           {
             "name": "SPVNODE_ENABLE",
@@ -38,39 +38,9 @@
         ]
       },
       {
-        "name": "Dogecoin Core RPC (optional)",
-        "description": "If the CORE pup or another node exposes JSON-RPC, set URL and credentials for send and confirmations.",
+        "name": "Explorer (optional)",
+        "description": "Block explorer helpers for balance and transaction lookups.",
         "fields": [
-          {
-            "name": "DOGE_RPC_URL",
-            "label": "RPC URL (e.g. http://127.0.0.1:22555)",
-            "type": "text",
-            "default": ""
-          },
-          {
-            "name": "DOGE_RPC_USER",
-            "label": "RPC user",
-            "type": "text",
-            "default": ""
-          },
-          {
-            "name": "DOGE_RPC_PASS",
-            "label": "RPC password",
-            "type": "text",
-            "default": ""
-          }
-        ]
-      },
-      {
-        "name": "Integration",
-        "description": "Optional MemeTracker and block explorer helpers.",
-        "fields": [
-          {
-            "name": "MEMETRACKER_BASE_URL",
-            "label": "MemeTracker base URL (empty = disabled)",
-            "type": "text",
-            "default": ""
-          },
           {
             "name": "EXPLORER_TX_API",
             "label": "Explorer tx API URL with {txid} placeholder (empty = disabled)",
@@ -90,7 +60,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "a344948ff61ee94490fb9f2f8d9de200b93d2d7960c66707bd4c01223a29e80c"
+      "nixFileSha256": "bc42153c6679e1754a6437d87ec663c3bc3b7e6751b647a61354588c05d33036"
     },
     "services": [
       {
@@ -119,7 +89,7 @@
   "interfaces": [
     {
       "name": "pq-wallet-http",
-      "version": "0.0.5",
+      "version": "0.0.6",
       "permissionGroups": [
         {
           "name": "PQ Wallet HTTP",

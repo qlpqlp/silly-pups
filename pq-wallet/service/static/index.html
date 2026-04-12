@@ -35,10 +35,10 @@
           <span class="material-symbols-outlined nav-ico" aria-hidden="true">swap_horiz</span><span class="nav-txt">Transactions</span>
         </button>
         <button type="button" class="nav-item" data-view="tools">
-          <span class="material-symbols-outlined nav-ico" aria-hidden="true">send</span><span class="nav-txt">Send wizard</span>
+          <span class="material-symbols-outlined nav-ico" aria-hidden="true">send</span><span class="nav-txt">Send Doge</span>
         </button>
-        <button type="button" class="nav-item" data-view="network">
-          <span class="material-symbols-outlined nav-ico" aria-hidden="true">public</span><span class="nav-txt">Network &amp; SPV</span>
+        <button type="button" class="nav-item" data-view="logs">
+          <span class="material-symbols-outlined nav-ico" aria-hidden="true">terminal</span><span class="nav-txt">Logs</span>
         </button>
         <button type="button" class="nav-item" data-view="learn">
           <span class="material-symbols-outlined nav-ico" aria-hidden="true">school</span><span class="nav-txt">How it works</span>
@@ -120,14 +120,22 @@
               <span class="stat-label">SPV process</span>
               <span class="stat-val" id="stat-spv">—</span>
             </div>
+            <div class="stat card">
+              <span class="stat-label">Peers (log)</span>
+              <span class="stat-val" id="stat-peers">—</span>
+            </div>
+            <div class="stat card">
+              <span class="stat-label">SMPV (log)</span>
+              <span class="stat-val" id="stat-smpv">—</span>
+            </div>
           </div>
           <div class="card block-live">
             <div class="block-live-head">
-              <h2><span class="material-symbols-outlined icon-inline">currency_bitcoin</span> Chain tip (SPV log + metrics)</h2>
+              <h2><span class="material-symbols-outlined icon-inline">savings</span> Chain tip (SPV)</h2>
               <span class="pill" id="pill-height">height —</span>
             </div>
             <p class="mono hash" id="hdr-hash">—</p>
-            <p class="small muted">Height is parsed from <code>spv.log</code> and falls back to the last sampled metric if the log format does not match. Hash is the last 64-hex token in the tail. Set <code>EXPLORER_ADDRESS_API</code> for balance sync.</p>
+            <p class="small muted">Tip height and hash are parsed from <code>spv.log</code> lines like <code>blockhash|height|…</code>. Peers and SMPV are heuristics from the same tail. Set <code>EXPLORER_ADDRESS_API</code> for balance sync.</p>
           </div>
           <div class="charts">
             <div class="card chart-card">
@@ -137,6 +145,14 @@
             <div class="card chart-card">
               <h3>SPV up (1 = running)</h3>
               <canvas id="chart-spv" height="120"></canvas>
+            </div>
+            <div class="card chart-card">
+              <h3>Peers (from metrics)</h3>
+              <canvas id="chart-peers" height="120"></canvas>
+            </div>
+            <div class="card chart-card">
+              <h3>SMPV seen in log (1 = yes)</h3>
+              <canvas id="chart-smpv" height="120"></canvas>
             </div>
           </div>
         </section>
@@ -163,7 +179,7 @@
 
         <section id="view-transactions" class="view hidden">
           <div class="toolbar">
-            <button type="button" class="btn primary" id="btn-sync-tx"><span class="material-symbols-outlined btn-ico">swap_horiz</span> Sync with explorer / RPC</button>
+            <button type="button" class="btn primary" id="btn-sync-tx"><span class="material-symbols-outlined btn-ico">swap_horiz</span> Sync with explorer</button>
             <span class="small muted" id="tx-sync-hint"></span>
           </div>
           <div class="card table-wrap">
@@ -184,105 +200,74 @@
 
         <section id="view-tools" class="view hidden">
           <div class="card wizard-intro">
-            <h2><span class="material-symbols-outlined icon-inline">auto_awesome</span> Send wizard</h2>
-            <p class="small muted">Signing uses <strong>ECDSA</strong> (<code>such -c sign</code>) for Dogecoin P2PKH. Broadcasting uses <strong>libdogecoin <code>sendtx</code></strong> (P2P peers) — not JSON-RPC <code>sendrawtransaction</code>. Full auto input selection needs a node or external builder; paste an <strong>unsigned</strong> raw hex you created elsewhere, then sign and broadcast here.</p>
+            <h2><span class="material-symbols-outlined icon-inline">send</span> Send Doge</h2>
+            <p class="small muted">Broadcasting uses <strong>libdogecoin <code>sendtx</code></strong> over Dogecoin P2P (same network as SPV). No Core JSON-RPC. The primary flow below records intent; full automatic PQ-safe tx construction from wallet UTXOs is not available in this build — use <strong>Manual</strong> with a fully signed raw hex when ready.</p>
           </div>
 
-          <div class="wizard-steps" role="tablist">
-            <button type="button" class="wiz-tab active" data-wiz="0" aria-selected="true">1 · Plan</button>
-            <button type="button" class="wiz-tab" data-wiz="1">2 · Paste unsigned hex</button>
-            <button type="button" class="wiz-tab" data-wiz="2">3 · Sign (ECDSA)</button>
-            <button type="button" class="wiz-tab" data-wiz="3">4 · Broadcast (P2P)</button>
+          <div class="send-tabs" role="tablist">
+            <button type="button" class="wiz-tab active" data-send-tab="0" aria-selected="true">Send Doge</button>
+            <button type="button" class="wiz-tab" data-send-tab="1">Manual PQ hex</button>
           </div>
 
-          <div class="wiz-panel" data-wiz-panel="0">
+          <div class="send-panel" data-send-panel="0">
             <div class="card">
-              <h3><span class="material-symbols-outlined icon-inline">help</span> What you need</h3>
-              <p class="small">Amount and destination below are <strong>notes only</strong> — they help you track intent. This wallet does not auto-pick UTXOs yet. Build the unsigned transaction with Dogecoin Core, another tool, or your own script, then paste the hex in step 2.</p>
-              <label class="field"><span>Planned amount (DOGE) — optional note</span>
-                <input type="text" class="input-modern" id="wiz-note-amount" placeholder="e.g. 42" inputmode="decimal" />
+              <h3>Destination &amp; amount</h3>
+              <label class="field"><span>Destination Dogecoin address</span>
+                <input type="text" class="input-modern" id="send-to" placeholder="D…" autocomplete="off" />
               </label>
-              <label class="field"><span>Destination — optional note</span>
-                <input type="text" class="input-modern" id="wiz-note-to" placeholder="D…" />
+              <label class="field"><span>Amount in Doge (numeric only, e.g. 0.001 or 10000000000000000.001)</span>
+                <input type="text" class="input-modern" id="send-amt" placeholder="0.0" inputmode="decimal" autocomplete="off" />
               </label>
-              <label class="field"><span>Change back to primary address</span></label>
-              <p class="small muted">When you build the raw tx externally, send change to your primary P2PKH address shown under Addresses.</p>
-              <button type="button" class="btn primary wiz-next" data-next="1">Next <span class="material-symbols-outlined btn-ico">expand_more</span></button>
+              <button type="button" class="btn primary" id="btn-send-pq-safe"><span class="material-symbols-outlined btn-ico">lock</span> Send post-quantum safe transaction</button>
+              <pre id="send-pq-out" class="mono small out"></pre>
             </div>
           </div>
 
-          <div class="wiz-panel hidden" data-wiz-panel="1">
+          <div class="send-panel hidden" data-send-panel="1">
             <div class="card">
-              <h3>Unsigned raw transaction (hex)</h3>
-              <textarea id="raw-hex" class="input-modern mono" rows="5" placeholder="01000000…"></textarea>
-              <label class="field"><span>Input index to sign</span>
+              <h3>Manually send post-quantum secure signed transaction</h3>
+              <p class="small muted">Paste a <strong>fully signed</strong> raw transaction hex (including any PQ-related outputs your tooling produced). This calls <code>sendtx</code> only.</p>
+              <label class="field"><span>Raw post-quantum secure signed transaction (hex)</span>
+                <textarea id="manual-signed-hex" class="input-modern mono" rows="6" placeholder="01000000…"></textarea>
+              </label>
+              <label class="field"><span>Peers (optional)</span>
+                <input type="text" class="input-modern" id="manual-peers" placeholder="empty = DNS seeds" />
+              </label>
+              <button type="button" class="btn primary" id="btn-manual-broadcast"><span class="material-symbols-outlined btn-ico">send</span> Broadcast via P2P</button>
+              <pre id="manual-bc-out" class="mono small out"></pre>
+            </div>
+            <div class="card">
+              <h3>Advanced: ECDSA sign (unsigned hex)</h3>
+              <p class="small muted">If you have an <strong>unsigned</strong> raw tx, sign the selected input with your primary P2PKH key via <code>such -c sign</code>.</p>
+              <textarea id="raw-hex" class="input-modern mono" rows="4" placeholder="unsigned hex"></textarea>
+              <label class="field"><span>Input index</span>
                 <input type="number" class="input-modern" id="vin-idx" value="0" min="0" />
               </label>
-              <div class="btn-row">
-                <button type="button" class="btn wiz-prev" data-prev="0">Back</button>
-                <button type="button" class="btn primary wiz-next" data-next="2">Next</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="wiz-panel hidden" data-wiz-panel="2">
-            <div class="card">
-              <h3>Sign with primary key</h3>
-              <p class="small muted" id="wiz-sign-blurb">Creates an ECDSA signature for the input. PQ keys are for commitments separately — see How it works.</p>
-              <button type="button" class="btn primary" id="btn-sign"><span class="material-symbols-outlined btn-ico">draw</span> Sign transaction</button>
-              <div class="field switch-row">
-                <span>After sign, broadcast immediately via <code>sendtx</code></span>
-                <label class="switch">
-                  <input type="checkbox" id="wiz-auto-broadcast" checked />
-                  <span class="slider"></span>
-                </label>
-              </div>
+              <button type="button" class="btn" id="btn-sign"><span class="material-symbols-outlined btn-ico">draw</span> Sign with primary key</button>
               <pre id="sign-out" class="mono small out"></pre>
-              <div class="btn-row">
-                <button type="button" class="btn wiz-prev" data-prev="1">Back</button>
-                <button type="button" class="btn primary wiz-next" data-next="3" id="btn-wiz-to-bc">Next</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="wiz-panel hidden" data-wiz-panel="3">
-            <div class="card">
-              <h3><span class="material-symbols-outlined icon-inline">rss_feed</span> Broadcast to Dogecoin peers</h3>
-              <p class="small muted">Uses <strong>libdogecoin sendtx</strong> — handshakes peers and relays. Not Core RPC.</p>
-              <textarea id="signed-hex" class="input-modern mono" rows="5" placeholder="signed raw hex (filled after sign)"></textarea>
-              <label class="field"><span>Peers (optional)</span>
-                <input type="text" class="input-modern" id="peers-input" placeholder="empty = DNS seeds" />
-              </label>
-              <button type="button" class="btn primary" id="btn-broadcast"><span class="material-symbols-outlined btn-ico">send</span> Broadcast now</button>
-              <pre id="bc-out" class="mono small out"></pre>
-            </div>
-            <div class="card">
-              <h3>Optional: Core wallet send</h3>
-              <p class="small muted">Uses your node’s <code>sendtoaddress</code> — different path from the wizard above.</p>
-              <label class="field"><span>To</span><input type="text" class="input-modern" id="rpc-to" placeholder="D…" /></label>
-              <label class="field"><span>Amount DOGE</span><input type="text" class="input-modern" id="rpc-amt" /></label>
-              <button type="button" class="btn" id="btn-rpc-send">RPC send</button>
-              <pre id="rpc-out" class="mono small out"></pre>
             </div>
           </div>
         </section>
 
-        <section id="view-network" class="view hidden">
+        <section id="view-logs" class="view hidden">
+          <p class="small muted toolbar">Latest ~420 lines each; refreshes while this view is open.</p>
+          <div class="dos-grid">
+            <div class="card dos-panel">
+              <h3>spv.log</h3>
+              <pre class="dos-screen" id="log-spv">…</pre>
+            </div>
+            <div class="card dos-panel">
+              <h3>broadcast.log</h3>
+              <pre class="dos-screen" id="log-bc">…</pre>
+            </div>
+          </div>
           <div class="card">
-            <h2>SPV status</h2>
+            <h2>SPV JSON status</h2>
             <button type="button" class="btn" id="btn-spv-status"><span class="material-symbols-outlined btn-ico">swap_horiz</span> Refresh</button>
             <pre id="spv-out" class="mono small out"></pre>
           </div>
           <div class="card">
-            <h2>MemeTracker</h2>
-            <div class="btn-row">
-              <button type="button" class="btn" id="btn-mem-status">Health</button>
-              <button type="button" class="btn" id="btn-mem-track">Track primary</button>
-            </div>
-            <pre id="mem-out" class="mono small out"></pre>
-          </div>
-          <div class="card">
-            <h2>Explorer tx</h2>
+            <h2>Explorer tx (optional)</h2>
             <label class="field"><span>Txid</span><input type="text" class="input-modern" id="txid-input" /></label>
             <button type="button" class="btn" id="btn-explorer">Fetch</button>
             <pre id="ex-out" class="mono small out"></pre>

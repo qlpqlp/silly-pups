@@ -7,7 +7,7 @@ let
 
   pq_bin = pkgs.buildGoModule {
     pname = "pq-wallet";
-    version = "0.0.5";
+    version = "0.0.6";
     src = ./service;
     vendorHash = null;
     go = pkgs.go_1_24;
@@ -35,12 +35,8 @@ let
     export LIBDOGECOIN_SUCH="''${LIBDOGECOIN_SUCH:-${libdogecoin}/bin/such}"
     export LIBDOGECOIN_SENDTX="''${LIBDOGECOIN_SENDTX:-${libdogecoin}/bin/sendtx}"
     export LIBDOGECOIN_SPVNODE="''${LIBDOGECOIN_SPVNODE:-${libdogecoin}/bin/spvnode}"
-    export MEMETRACKER_BASE_URL="''${MEMETRACKER_BASE_URL:-}"
     export EXPLORER_TX_API="''${EXPLORER_TX_API:-}"
     export EXPLORER_ADDRESS_API="''${EXPLORER_ADDRESS_API:-}"
-    export DOGE_RPC_URL="''${DOGE_RPC_URL:-}"
-    export DOGE_RPC_USER="''${DOGE_RPC_USER:-}"
-    export DOGE_RPC_PASS="''${DOGE_RPC_PASS:-}"
     export SPVNODE_ENABLE="''${SPVNODE_ENABLE:-1}"
 
     if [ "$SPVNODE_ENABLE" = "1" ] && [ -f "$STORAGE/wallet.json" ]; then

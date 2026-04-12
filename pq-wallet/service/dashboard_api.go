@@ -61,10 +61,13 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		"wallet": wf,
 		"dashboard": map[string]any{
 			"spv": map[string]any{
-				"running":         running,
-				"header_height":   hdr.HeaderHeight,
-				"best_block_hash": hdr.BestBlockHash,
-				"log_tail":        logTail,
+				"running":           running,
+				"header_height":     hdr.HeaderHeight,
+				"best_block_hash":   hdr.BestBlockHash,
+				"peer_count":        hdr.PeerCount,
+				"smpv_active":       hdr.SMPVActive,
+				"header_count_hint": hdr.HeaderCountHint,
+				"log_tail":          logTail,
 			},
 			"totals": map[string]any{
 				"received_doge":       round4(inSum),
@@ -158,12 +161,6 @@ func (s *Server) syncTransactionsFromNetwork(ctx context.Context, wf *WalletFile
 		if err == nil {
 			out = append(out, txs...)
 			balance = bal
-		}
-	}
-
-	if strings.TrimSpace(env("DOGE_RPC_URL", "")) != "" && balance <= 0 {
-		if recv, err := s.rpcGetReceivedByAddress(ctx, addr); err == nil && recv > 0 {
-			balance = recv
 		}
 	}
 
@@ -338,6 +335,8 @@ func (s *Server) backgroundMetricsLoop() {
 			HeaderHeight:  hdr.HeaderHeight,
 			BestBlockHash: hdr.BestBlockHash,
 			SPVRunning:    running,
+			PeerCount:     hdr.PeerCount,
+			SMPVActive:    hdr.SMPVActive,
 		})
 		_ = s.saveState(st)
 		s.mu.Unlock()

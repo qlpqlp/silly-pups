@@ -44,15 +44,15 @@ func env(k, def string) string {
 }
 
 func publicPortInt() int {
-	p, err := strconv.Atoi(strings.TrimSpace(env("PUBLIC_PORT", "10000")))
+	p, err := strconv.Atoi(strings.TrimSpace(env("PUBLIC_PORT", "80000")))
 	if err != nil || p < 1 || p > 65535 {
-		return 10000
+		return 80000
 	}
 	return p
 }
 
-// Port for HTTPS when using the default single-port layout: PUBLIC_PORT (HTTP) + this (TLS).
-// Override with HTTPS_PROXY_TLS_PORT; default is PUBLIC_PORT+1.
+// Port for HTTPS when using the default layout. Override with HTTPS_PROXY_TLS_PORT.
+// If unset, defaults to PUBLIC_PORT+1 (run.sh / manifest usually set 44443 with PUBLIC_PORT 80000).
 func primaryTLSPort() int {
 	if v := strings.TrimSpace(os.Getenv("HTTPS_PROXY_TLS_PORT")); v != "" {
 		p, err := strconv.Atoi(v)

@@ -18,7 +18,7 @@ type ProxyRoute struct {
 // PortListener binds one local HTTPS port to one HTTP upstream (same TLS cert for all listeners).
 // Browsers validate the hostname (e.g. dogebox) only; the port is not part of the certificate.
 type PortListener struct {
-	ListenPort int    `json:"listen_port"` // local TLS port, e.g. 8080, 10000, 4444
+	ListenPort int    `json:"listen_port"` // HTTP listen port for this row (TLS uses listen_port + HTTPS_PROXY_LISTENER_TLS_OFFSET)
 	Upstream   string `json:"upstream"`    // e.g. http://127.0.0.1:8080 — plain HTTP backend for that pup
 }
 

@@ -88,6 +88,21 @@ body {
   .sidebar.collapsed .sidebar-foot {
     display: none;
   }
+
+  /* Keep expand/collapse control visible: hide logo, center toggle in brand row */
+  .sidebar.collapsed .sidebar-logo {
+    display: none;
+  }
+
+  .sidebar.collapsed .sidebar-brand {
+    justify-content: center;
+    padding: 0.85rem 0.35rem;
+    gap: 0;
+  }
+
+  .sidebar.collapsed .sidebar-toggle {
+    margin-left: 0;
+  }
 }
 
 .sidebar-brand {
@@ -220,8 +235,8 @@ body {
 
 @media (max-width: 900px) {
   .sidebar-foot {
-    margin-top: 0;
-    padding: 0.5rem 0.45rem 0.55rem;
+    margin-top: auto;
+    padding: 0.5rem 0.45rem max(0.55rem, env(safe-area-inset-bottom, 0px));
   }
 
   .sidebar-foundation-logo {
@@ -327,6 +342,15 @@ body {
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
+}
+
+.onboarding-warn .onboarding-warn-text {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: var(--text);
 }
 
 .card.danger-zone {
@@ -537,6 +561,12 @@ body {
     height: 100vh;
     max-height: 100dvh;
     box-shadow: 8px 0 32px rgba(0, 0, 0, 0.35);
+  }
+
+  /* Nav scrolls; footer stays at bottom of the drawer (margin-top: auto on .sidebar-foot). */
+  .sidebar .sidebar-nav {
+    flex: 1 1 auto;
+    min-height: 0;
   }
 
   /* Drawer off-screen (do not require #app.has-wallet — avoids race with class toggles). */
@@ -1844,6 +1874,20 @@ a {
     padding: 0.55rem 0.7rem;
     margin-bottom: 0;
     overflow: hidden;
+  }
+
+  /* Manual PQ hex: two stacked cards — scroll the panel instead of clipping */
+  #view-tools .send-panel[data-send-panel="1"] {
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    gap: 0.65rem;
+    padding-bottom: 0.35rem;
+  }
+
+  #view-tools .send-panel[data-send-panel="1"] .card {
+    flex: 0 0 auto;
+    overflow: visible;
   }
 
   #view-tools .send-panel .card h3 {

@@ -231,6 +231,8 @@ function setOnboarding(w) {
     ensureMobileSidebarLayout();
     updateReceiveView();
     startPollers();
+  } else {
+    ensureOnboardingMobileSidebar();
   }
 }
 
@@ -253,6 +255,19 @@ function ensureMobileSidebarLayout() {
   const sb = $("sidebar");
   const app = $("app");
   if (!sb || !app || !app.classList.contains("has-wallet")) return;
+  if (isNarrowViewport()) {
+    sb.classList.remove("collapsed");
+    sb.classList.add("sidebar-drawer-closed");
+  } else {
+    sb.classList.remove("sidebar-drawer-closed");
+  }
+  syncSidebarDrawerToggleIcon();
+}
+
+/** On narrow viewports, keep the nav drawer closed on create/restore until the user opens it. */
+function ensureOnboardingMobileSidebar() {
+  const sb = $("sidebar");
+  if (!sb) return;
   if (isNarrowViewport()) {
     sb.classList.remove("collapsed");
     sb.classList.add("sidebar-drawer-closed");
@@ -1238,13 +1253,12 @@ window.addEventListener("resize", () => {
   qrResizeTimer = setTimeout(() => {
     const sb = $("sidebar");
     const app = $("app");
-    if (sb && app && app.classList.contains("has-wallet")) {
-      if (isNarrowViewport()) {
-        sb.classList.remove("collapsed");
+    if (sb && app) {
+      if (app.classList.contains("has-wallet")) {
+        ensureMobileSidebarLayout();
       } else {
-        sb.classList.remove("sidebar-drawer-closed");
+        ensureOnboardingMobileSidebar();
       }
-      syncSidebarDrawerToggleIcon();
     }
     if (state.view !== "receive") return;
     const bucket = window.matchMedia("(max-width: 900px)").matches ? "sm" : "lg";

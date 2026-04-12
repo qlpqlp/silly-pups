@@ -16,7 +16,7 @@ async function api(path, opts) {
 const state = {
   wallet: null,
   view: "dashboard",
-  charts: { height: null, spv: null, peers: null, smpv: null },
+  charts: { height: null, spv: null, peers: null, smpv: null, mempool: null },
   pollFast: null,
   pollTx: null,
   pollLogs: null,
@@ -36,7 +36,7 @@ function showView(name) {
     addresses: ["Addresses", "Generate keys and choose which address SPV watches"],
     transactions: ["Transactions", "PQ badges = explorer OP_RETURN hints (not a full audit)"],
     tools: ["Send Doge", "Destination & amount, or paste a signed raw hex for P2P broadcast"],
-    logs: ["Logs", "SPV and broadcast tails (~420 lines), DOS-style"],
+    logs: ["Logs", "SPV, SMPV/mempool filter, and broadcast tails (~420 lines)"],
     learn: ["How it works", "ECDSA vs PQ · send · verify · broadcast"],
     settings: ["Wallet file", "Backup or remove this pup’s wallet"],
   };
@@ -61,13 +61,16 @@ function showView(name) {
 
 async function refreshLogs() {
   try {
-    const [spv, bc] = await Promise.all([
+    const [spv, smpv, bc] = await Promise.all([
       fetch("/api/logs/spv?lines=420").then((r) => r.text()),
+      fetch("/api/logs/smpv?lines=420").then((r) => r.text()),
       fetch("/api/logs/broadcast?lines=420").then((r) => r.text()),
     ]);
     const elS = $("log-spv");
+    const elM = $("log-smpv");
     const elB = $("log-bc");
     if (elS) elS.textContent = spv;
+    if (elM) elM.textContent = smpv;
     if (elB) elB.textContent = bc;
   } catch {
     /* ignore */
@@ -242,6 +245,14 @@ function initCharts() {
       options: common,
     });
   }
+  const ctxMp = $("chart-mempool");
+  if (ctxMp && !state.charts.mempool) {
+    state.charts.mempool = new Chart(ctxMp, {
+      type: "line",
+      data: { labels: [], datasets: [{ label: "mempool lines", data: [], borderColor: "#e88c6a", tension: 0.2, fill: false }] },
+      options: common,
+    });
+  }
 }
 
 function updateCharts(metrics) {
@@ -251,6 +262,7 @@ function updateCharts(metrics) {
   const spv = metrics.map((m) => (m.spv_running ? 1 : 0));
   const peers = metrics.map((m) => Number(m.peer_count) || 0);
   const smpv = metrics.map((m) => (m.smpv_active ? 1 : 0));
+  const mp = metrics.map((m) => Number(m.mempool_addr_tx_count) || 0);
   if (state.charts.height) {
     state.charts.height.data.labels = labels;
     state.charts.height.data.datasets[0].data = heights;
@@ -270,6 +282,11 @@ function updateCharts(metrics) {
     state.charts.smpv.data.labels = labels;
     state.charts.smpv.data.datasets[0].data = smpv;
     state.charts.smpv.update("none");
+  }
+  if (state.charts.mempool) {
+    state.charts.mempool.data.labels = labels;
+    state.charts.mempool.data.datasets[0].data = mp;
+    state.charts.mempool.update("none");
   }
 }
 
@@ -297,6 +314,12 @@ async function refreshDashboard() {
   const pc = spv.peer_count;
   $("stat-peers").textContent = pc != null && Number(pc) >= 0 ? String(pc) : "—";
   $("stat-smpv").textContent = spv.smpv_active ? "active" : "—";
+  const mtl = spv.mempool_addr_tx_lines;
+  $("stat-mempool-addr").textContent = mtl != null && Number(mtl) >= 0 ? String(mtl) : "—";
+  const spvPeers = spv.spv_peer_hosts;
+  const smpvPeers = spv.smpv_peer_hosts;
+  $("peer-spv-list").textContent = Array.isArray(spvPeers) && spvPeers.length ? spvPeers.slice(0, 12).join(", ") : "—";
+  $("peer-smpv-list").textContent = Array.isArray(smpvPeers) && smpvPeers.length ? smpvPeers.slice(0, 12).join(", ") : "—";
   const h = spv.header_height;
   $("pill-height").textContent = h != null && Number(h) > 0 ? `height ${h}` : "height —";
   $("hdr-hash").textContent = spv.best_block_hash || "—";
@@ -371,6 +394,14 @@ document.querySelectorAll(".nav-item").forEach((btn) => {
   btn.addEventListener("click", () => showView(btn.dataset.view));
 });
 
+function openSidebarNav() {
+  const sb = $("sidebar");
+  sb.classList.remove("collapsed");
+  $("btn-sidebar-toggle").setAttribute("aria-expanded", "true");
+  const icon = $("btn-sidebar-toggle").querySelector(".material-symbols-outlined");
+  if (icon) icon.textContent = "menu_open";
+}
+
 $("btn-sidebar-toggle").addEventListener("click", () => {
   const sb = $("sidebar");
   const collapsed = sb.classList.toggle("collapsed");
@@ -378,6 +409,11 @@ $("btn-sidebar-toggle").addEventListener("click", () => {
   const icon = $("btn-sidebar-toggle").querySelector(".material-symbols-outlined");
   if (icon) icon.textContent = collapsed ? "menu" : "menu_open";
 });
+
+const btnMob = $("btn-mobile-menu");
+if (btnMob) {
+  btnMob.addEventListener("click", () => openSidebarNav());
+}
 
 document.querySelectorAll("[data-send-tab]").forEach((tab) => {
   tab.addEventListener("click", () => setSendTab(parseInt(tab.dataset.sendTab, 10)));
@@ -522,5 +558,47 @@ function startPollers() {
     await refreshTxList(false);
   }, 12000);
 }
+
+function wireImportFileUI() {
+  const input = document.getElementById("import-file");
+  const nameEl = document.getElementById("import-file-name");
+  const wrap = document.querySelector(".file-upload");
+  if (!input || !nameEl) return;
+  function showName() {
+    const f = input.files && input.files[0];
+    nameEl.textContent = f ? f.name : "No file selected";
+    nameEl.classList.toggle("has-file", !!f);
+  }
+  input.addEventListener("change", showName);
+  if (!wrap) return;
+  ["dragenter", "dragover", "dragleave", "drop"].forEach((ev) => {
+    wrap.addEventListener(ev, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+  });
+  ["dragenter", "dragover"].forEach((ev) => {
+    wrap.addEventListener(ev, () => wrap.classList.add("file-upload--drag"));
+  });
+  ["dragleave", "drop"].forEach((ev) => {
+    wrap.addEventListener(ev, () => wrap.classList.remove("file-upload--drag"));
+  });
+  wrap.addEventListener("drop", (e) => {
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if (!files || !files.length) return;
+    const file = files[0];
+    const ok =
+      !file.type ||
+      file.type === "application/json" ||
+      /\.json$/i.test(file.name);
+    if (!ok) return;
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    input.files = dt.files;
+    showName();
+  });
+}
+
+wireImportFileUI();
 
 refreshWallet();

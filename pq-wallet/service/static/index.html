@@ -54,7 +54,10 @@
 
     <div class="main-wrap">
       <header class="topbar">
-        <div>
+        <button type="button" class="mobile-menu-btn icon-btn" id="btn-mobile-menu" aria-label="Open navigation menu" title="Menu">
+          <span class="material-symbols-outlined">menu</span>
+        </button>
+        <div class="topbar-titles">
           <h1 id="page-title">Dashboard</h1>
           <p class="page-sub" id="page-sub">SPV headers, balances, and post-quantum hints</p>
         </div>
@@ -69,34 +72,53 @@
             <span class="material-symbols-outlined icon-inline warn-ico">warning</span>
             <strong>Experimental.</strong> Research software — back up keys offline. PQ proofs on mainnet are early-phase.
           </div>
-          <div class="card grid-2">
-            <div>
-              <h2>Create wallet</h2>
-              <p class="small muted">P2PKH + WIF via <code>such</code>; optional Falcon-512 PQ keys. State is stored under the pup volume.</p>
-              <label class="field"><span>Network</span></label>
-              <div class="select-wrap">
-                <select id="net-select" class="input-modern">
-                  <option value="mainnet">Mainnet</option>
-                  <option value="testnet">Testnet</option>
-                </select>
-                <span class="material-symbols-outlined select-caret" aria-hidden="true">expand_more</span>
-              </div>
-              <div class="field switch-row">
-                <span>Generate Falcon-512 PQ keys</span>
-                <label class="switch">
-                  <input type="checkbox" id="pq-keys" />
-                  <span class="slider" aria-hidden="true"></span>
-                </label>
-              </div>
-              <button type="button" class="btn primary" id="btn-create"><span class="material-symbols-outlined btn-ico">add_link</span> Generate wallet</button>
-            </div>
-            <div>
-              <h2>Restore</h2>
-              <p class="small muted">Import a <code>wallet.json</code> backup (only when no wallet exists — delete first in Wallet file).</p>
-              <label class="field"><span>Backup JSON</span>
-                <input type="file" id="import-file" class="input-modern" accept="application/json,.json" />
-              </label>
-              <button type="button" class="btn" id="btn-import"><span class="material-symbols-outlined btn-ico">draw</span> Import backup</button>
+          <div class="card onboarding-card">
+            <div class="onboarding-grid">
+              <section class="onboarding-panel" aria-labelledby="onb-create-title">
+                <h2 id="onb-create-title">Create wallet</h2>
+                <p class="small muted onboarding-lead">P2PKH + WIF via <code>such</code>; optional Falcon-512 PQ keys. State is stored under the pup volume.</p>
+                <div class="onboarding-body">
+                  <div class="field field-tight">
+                    <span class="field-label" id="net-label">Network</span>
+                    <div class="select-wrap">
+                      <select id="net-select" class="input-modern" aria-labelledby="net-label">
+                        <option value="mainnet">Mainnet</option>
+                        <option value="testnet">Testnet</option>
+                      </select>
+                      <span class="material-symbols-outlined select-caret" aria-hidden="true">expand_more</span>
+                    </div>
+                  </div>
+                  <div class="field switch-row">
+                    <span>Generate Falcon-512 PQ keys</span>
+                    <label class="switch">
+                      <input type="checkbox" id="pq-keys" />
+                      <span class="slider" aria-hidden="true"></span>
+                    </label>
+                  </div>
+                </div>
+                <div class="onboarding-actions">
+                  <button type="button" class="btn primary" id="btn-create"><span class="material-symbols-outlined btn-ico">add_link</span> Generate wallet</button>
+                </div>
+              </section>
+              <section class="onboarding-panel" aria-labelledby="onb-restore-title">
+                <h2 id="onb-restore-title">Restore</h2>
+                <p class="small muted onboarding-lead">Import a <code>wallet.json</code> backup (only when no wallet exists — delete first in Wallet file).</p>
+                <div class="onboarding-body">
+                  <span class="field-label" id="backup-label">Backup file</span>
+                  <div class="file-upload" role="presentation">
+                    <input type="file" id="import-file" class="file-input-native" accept="application/json,.json" />
+                    <label for="import-file" class="file-input-ui">
+                      <span class="material-symbols-outlined file-input-icon" aria-hidden="true">upload_file</span>
+                      <span class="file-input-prompt">Choose JSON file</span>
+                      <span class="file-input-hint">or drag and drop here</span>
+                      <span class="file-input-name" id="import-file-name">No file selected</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="onboarding-actions">
+                  <button type="button" class="btn" id="btn-import"><span class="material-symbols-outlined btn-ico">draw</span> Import backup</button>
+                </div>
+              </section>
             </div>
           </div>
         </section>
@@ -128,6 +150,11 @@
               <span class="stat-label">SMPV (log)</span>
               <span class="stat-val" id="stat-smpv">—</span>
             </div>
+            <div class="stat card">
+              <span class="stat-label">Mempool (your addr)</span>
+              <span class="stat-val" id="stat-mempool-addr">—</span>
+              <span class="stat-hint">Log lines w/ address</span>
+            </div>
           </div>
           <div class="card block-live">
             <div class="block-live-head">
@@ -135,7 +162,17 @@
               <span class="pill" id="pill-height">height —</span>
             </div>
             <p class="mono hash" id="hdr-hash">—</p>
-            <p class="small muted">Tip height and hash are parsed from <code>spv.log</code> lines like <code>blockhash|height|…</code>. Peers and SMPV are heuristics from the same tail. Set <code>EXPLORER_ADDRESS_API</code> for balance sync.</p>
+            <p class="small muted">Tip height and hash are parsed from <code>spv.log</code> lines like <code>blockhash|height|…</code>. Peers are IPv4:port tokens from log lines (SPV vs SMPV/mempool split). Set <code>EXPLORER_ADDRESS_API</code> for balance sync and automatic send.</p>
+            <div class="peer-strip">
+              <div class="peer-strip-col">
+                <span class="peer-strip-label">SPV peer endpoints</span>
+                <p class="mono small peer-strip-val" id="peer-spv-list">—</p>
+              </div>
+              <div class="peer-strip-col">
+                <span class="peer-strip-label">SMPV / mempool peer endpoints</span>
+                <p class="mono small peer-strip-val" id="peer-smpv-list">—</p>
+              </div>
+            </div>
           </div>
           <div class="charts">
             <div class="card chart-card">
@@ -153,6 +190,10 @@
             <div class="card chart-card">
               <h3>SMPV seen in log (1 = yes)</h3>
               <canvas id="chart-smpv" height="120"></canvas>
+            </div>
+            <div class="card chart-card">
+              <h3>Mempool lines (your address)</h3>
+              <canvas id="chart-mempool" height="120"></canvas>
             </div>
           </div>
         </section>
@@ -201,7 +242,7 @@
         <section id="view-tools" class="view hidden">
           <div class="card wizard-intro">
             <h2><span class="material-symbols-outlined icon-inline">send</span> Send Doge</h2>
-            <p class="small muted">Broadcasting uses <strong>libdogecoin <code>sendtx</code></strong> over Dogecoin P2P (same network as SPV). No Core JSON-RPC. The primary flow below records intent; full automatic PQ-safe tx construction from wallet UTXOs is not available in this build — use <strong>Manual</strong> with a fully signed raw hex when ready.</p>
+            <p class="small muted">Broadcasting uses libdogecoin sendtx over Dogecoin P2P.</p>
           </div>
 
           <div class="send-tabs" role="tablist">
@@ -251,10 +292,14 @@
 
         <section id="view-logs" class="view hidden">
           <p class="small muted toolbar">Latest ~420 lines each; refreshes while this view is open.</p>
-          <div class="dos-grid">
+          <div class="dos-grid dos-grid-3">
             <div class="card dos-panel">
-              <h3>spv.log</h3>
+              <h3>spv.log (full tail)</h3>
               <pre class="dos-screen" id="log-spv">…</pre>
+            </div>
+            <div class="card dos-panel">
+              <h3>SMPV / mempool (filtered)</h3>
+              <pre class="dos-screen" id="log-smpv">…</pre>
             </div>
             <div class="card dos-panel">
               <h3>broadcast.log</h3>
@@ -287,9 +332,12 @@
           </div>
           <div class="card danger-zone">
             <h2>Remove wallet</h2>
-            <p class="small">Deletes wallet, SPV DBs, and cached state.</p>
-            <input type="text" class="input-modern" id="delete-confirm" placeholder="Type DELETE" autocomplete="off" />
-            <button type="button" class="btn danger" id="btn-delete" disabled>Remove wallet</button>
+            <p class="small danger-zone-desc">Deletes wallet, SPV DBs, and cached state.</p>
+            <div class="danger-confirm-block">
+              <label class="danger-label" for="delete-confirm">Type <strong>DELETE</strong> to confirm</label>
+              <input type="text" class="input-modern danger-input" id="delete-confirm" placeholder="DELETE" autocomplete="off" spellcheck="false" />
+              <button type="button" class="btn danger danger-remove-btn" id="btn-delete" disabled>Remove wallet</button>
+            </div>
           </div>
         </section>
       </main>

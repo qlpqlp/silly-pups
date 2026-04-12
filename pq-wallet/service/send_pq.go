@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 )
 
 var reAmountDoge = regexp.MustCompile(`^\d+(\.\d+)?$`)
@@ -12,6 +15,13 @@ var reAmountDoge = regexp.MustCompile(`^\d+(\.\d+)?$`)
 type sendPQSafeBody struct {
 	ToAddress  string `json:"to_address"`
 	AmountDOGE string `json:"amount_doge"`
+}
+
+func (s *Server) scriptPubHexForUTXO(wf *WalletFile, u *ExplorerUTXO) (string, error) {
+	if hx := strings.TrimSpace(u.ScriptPubHex); hx != "" {
+		return hx, nil
+	}
+	return s.p2pkhScriptPubKeyHexForSign(wf)
 }
 
 func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
@@ -43,13 +53,113 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no wallet"})
 		return
 	}
+	pa := wf.PrimaryAddress()
+	if pa == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no primary address"})
+		return
+	}
+	testnet := strings.EqualFold(wf.Network, "testnet")
 
-	line := "send_pq_safe requested to=" + to + " amount_doge=" + amt + " (automatic PQ tx build not in this build)"
-	s.appendBroadcastLogLine(line)
+	sendKoinu, err := dogeAmountStringToKoinu(amt)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
+	defer cancel()
+
+	utxos, err := s.fetchUTXOsFromExplorer(ctx, strings.TrimSpace(pa.P2PKH))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	var selected []ExplorerUTXO
+	var sumIn int64
+	for attempt := 0; attempt < 12; attempt++ {
+		n := len(selected)
+		if n == 0 {
+			n = 1
+		}
+		fee := int64(200000) + int64(max(0, n-1))*50000
+		need := sendKoinu + fee
+		selected, sumIn, err = selectUTXOs(utxos, need)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		fee = int64(200000) + int64(max(0, len(selected)-1))*50000
+		if sumIn >= sendKoinu+fee {
+			break
+		}
+		if attempt == 11 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "could not cover amount plus fee"})
+			return
+		}
+	}
+	fee := int64(200000) + int64(max(0, len(selected)-1))*50000
+	change := sumIn - sendKoinu - fee
+	if change < 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "insufficient balance after fee"})
+		return
+	}
+
+	toScript, err := dogeP2PKHScriptFromAddress(to, testnet)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("destination: %v", err)})
+		return
+	}
+	changeScript, err := dogeP2PKHScriptFromAddress(strings.TrimSpace(pa.P2PKH), testnet)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("change script: %v", err)})
+		return
+	}
+
+	changeOut := change
+	if change <= dustLimitKoinu {
+		changeOut = 0
+	}
+	pqHex := strings.TrimSpace(wf.PQPublicHex)
+	unsigned, err := buildUnsignedDogeP2PKH(selected, toScript, sendKoinu, changeScript, changeOut, pqHex)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	rawHex := hexMsgTx(unsigned)
+	for i := range selected {
+		scr, err := s.scriptPubHexForUTXO(wf, &selected[i])
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		signed, err := s.runSuchSign(rawHex, scr, pa.WIF, i, 1, testnet)
+		if err != nil {
+			s.appendBroadcastLogLine(fmt.Sprintf("sign input %d failed: %v", i, err))
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("sign input %d: %v", i, err)})
+			return
+		}
+		rawHex = signed
+	}
+
+	sendOut, err := s.runSendtx(rawHex, testnet, "")
+	if err != nil {
+		s.appendBroadcastLogLine("send_pq_safe broadcast FAIL: " + err.Error())
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	s.appendBroadcastLogLine("send_pq_safe broadcast OK: " + truncateStr(sendOut, 400))
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":    false,
-		"code":  "pq_tx_build_pending",
-		"message": "Automatic construction of a post-quantum-safe signed transaction from this wallet's UTXOs is not implemented in this build. Build and sign your transaction with libdogecoin tooling (or another workflow), then use the Manual tab: paste the raw signed hex and broadcast via libdogecoin sendtx (P2P).",
+		"ok":               true,
+		"code":             "sent",
+		"sendtx_output":    sendOut,
+		"fee_koinu":        fee,
+		"change_koinu":     change,
+		"inputs_used":      len(selected),
+		"pq_commitment":    pqHex != "",
+		"signing_note":     "ECDSA P2PKH via such -c sign; optional OP_RETURN commits SHA256(PQ public key) when Falcon/PQ keys exist.",
+		"transport":        "libdogecoin_sendtx_p2p",
 	})
 }

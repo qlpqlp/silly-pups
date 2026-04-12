@@ -25,12 +25,13 @@ type TxRecord struct {
 
 // MetricPoint is one sample for charts (block height, SPV up, etc.).
 type MetricPoint struct {
-	T             time.Time `json:"t"`
-	HeaderHeight  int64     `json:"header_height"`
-	BestBlockHash string    `json:"best_block_hash,omitempty"`
-	SPVRunning    bool      `json:"spv_running"`
-	PeerCount     int       `json:"peer_count,omitempty"`
-	SMPVActive    bool      `json:"smpv_active"`
+	T                  time.Time `json:"t"`
+	HeaderHeight       int64     `json:"header_height"`
+	BestBlockHash      string    `json:"best_block_hash,omitempty"`
+	SPVRunning         bool      `json:"spv_running"`
+	PeerCount          int       `json:"peer_count,omitempty"`
+	SMPVActive         bool      `json:"smpv_active"`
+	MempoolAddrTxCount int       `json:"mempool_addr_tx_count,omitempty"`
 }
 
 // WalletState is persisted as state.json (separate from keys).

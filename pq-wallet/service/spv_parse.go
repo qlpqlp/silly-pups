@@ -2,6 +2,7 @@ package main
 
 import (
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -15,19 +16,23 @@ var (
 	rePeerEq       = regexp.MustCompile(`(?i)peers?\s*[:=]\s*(\d+)`)
 	rePeerWord     = regexp.MustCompile(`(?i)(?:^|[^\w])(\d{1,6})\s+(?:peer|peers)\b`)
 	reConnEq       = regexp.MustCompile(`(?i)(?:connections?|connected)\s*[:=]\s*(\d+)`)
+	reNetAddr      = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}:\d{2,5}\b`)
 )
 
 // SPVHeaderInfo is parsed from spvnode log tail (best-effort).
 // Real spvnode output often uses lines: 64hex|height|timestamp|work…
 type SPVHeaderInfo struct {
-	HeaderHeight    int64
-	BestBlockHash   string
-	PeerCount       int
-	SMPVActive      bool
-	HeaderCountHint int64 // e.g. lone first line "25139" (header index count)
+	HeaderHeight       int64
+	BestBlockHash      string
+	PeerCount          int
+	SMPVActive         bool
+	HeaderCountHint    int64 // e.g. lone first line "25139" (header index count)
+	SPVPeerHosts       []string
+	SMPVPeerHosts      []string
+	MempoolAddrTxCount int // lines mentioning mempool/SMPV activity for watch address
 }
 
-func parseSPVLogHeaderInfo(log string) SPVHeaderInfo {
+func parseSPVLogHeaderInfo(log string, watchAddr string) SPVHeaderInfo {
 	var out SPVHeaderInfo
 	if log == "" {
 		return out
@@ -45,6 +50,12 @@ func parseSPVLogHeaderInfo(log string) SPVHeaderInfo {
 	}
 	out.PeerCount = parsePeerCountFromLog(tail)
 	out.SMPVActive = parseSMPVActive(tail)
+	out.SPVPeerHosts = parsePeerHostsNonSMPV(tail)
+	out.SMPVPeerHosts = parsePeerHostsSMPVLines(tail)
+	if len(out.SMPVPeerHosts) == 0 && out.SMPVActive {
+		out.SMPVPeerHosts = append([]string(nil), out.SPVPeerHosts...)
+	}
+	out.MempoolAddrTxCount = parseMempoolLinesForAddress(tail, watchAddr)
 
 	if out.HeaderHeight == 0 {
 		if m := reHeaderHeight.FindStringSubmatch(tail); len(m) > 1 {
@@ -155,6 +166,66 @@ func parsePeerCountFromLog(log string) int {
 
 func parseSMPVActive(log string) bool {
 	return strings.Contains(strings.ToLower(log), "smpv")
+}
+
+func uniqueSorted(ss []string) []string {
+	seen := make(map[string]struct{})
+	for _, s := range ss {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		seen[s] = struct{}{}
+	}
+	out := make([]string, 0, len(seen))
+	for s := range seen {
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func parsePeerHostsNonSMPV(log string) []string {
+	var b strings.Builder
+	for _, line := range strings.Split(log, "\n") {
+		if strings.Contains(strings.ToLower(line), "smpv") {
+			continue
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return uniqueSorted(reNetAddr.FindAllString(b.String(), -1))
+}
+
+func parsePeerHostsSMPVLines(log string) []string {
+	var b strings.Builder
+	for _, line := range strings.Split(log, "\n") {
+		low := strings.ToLower(line)
+		if strings.Contains(low, "smpv") || strings.Contains(low, "mempool") {
+			b.WriteString(line)
+			b.WriteByte('\n')
+		}
+	}
+	return uniqueSorted(reNetAddr.FindAllString(b.String(), -1))
+}
+
+// parseMempoolLinesForAddress counts log lines that reference the wallet address together with mempool / unconfirmed / SMPV context.
+func parseMempoolLinesForAddress(log, addr string) int {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return 0
+	}
+	n := 0
+	for _, line := range strings.Split(log, "\n") {
+		if !strings.Contains(line, addr) {
+			continue
+		}
+		low := strings.ToLower(line)
+		if strings.Contains(low, "mempool") || strings.Contains(low, "unconfirmed") || strings.Contains(low, "smpv") || strings.Contains(low, "inv") {
+			n++
+		}
+	}
+	return n
 }
 
 func bestHeightScan(s string) int64 {

@@ -241,6 +241,7 @@ func main() {
 	mux.HandleFunc("/api/explorer/tx/", srv.handleExplorerTx)
 	mux.HandleFunc("/api/spv/status", srv.handleSPVStatus)
 	mux.HandleFunc("/api/logs/spv", srv.handleLogsSPV)
+	mux.HandleFunc("/api/logs/smpv", srv.handleLogsSMPV)
 	mux.HandleFunc("/api/logs/broadcast", srv.handleLogsBroadcast)
 	mux.HandleFunc("/api/tx/sign", srv.handleTxSign)
 	mux.HandleFunc("/api/tx/broadcast", srv.handleTxBroadcast)

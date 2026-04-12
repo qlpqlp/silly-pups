@@ -28,7 +28,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	s.startSPVNode(wf)
 	spv := s.readSPVStatus()
 	logTail, _ := spv["log_tail"].(string)
-	hdr := parseSPVLogHeaderInfo(logTail)
+	watchAddr := ""
+	if p := wf.PrimaryAddress(); p != nil {
+		watchAddr = strings.TrimSpace(p.P2PKH)
+	}
+	hdr := parseSPVLogHeaderInfo(logTail, watchAddr)
 	if hdr.HeaderHeight == 0 && len(st.Metrics) > 0 {
 		for i := len(st.Metrics) - 1; i >= 0; i-- {
 			if st.Metrics[i].HeaderHeight > 0 {
@@ -61,13 +65,16 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		"wallet": wf,
 		"dashboard": map[string]any{
 			"spv": map[string]any{
-				"running":           running,
-				"header_height":     hdr.HeaderHeight,
-				"best_block_hash":   hdr.BestBlockHash,
-				"peer_count":        hdr.PeerCount,
-				"smpv_active":       hdr.SMPVActive,
-				"header_count_hint": hdr.HeaderCountHint,
-				"log_tail":          logTail,
+				"running":               running,
+				"header_height":         hdr.HeaderHeight,
+				"best_block_hash":       hdr.BestBlockHash,
+				"peer_count":            hdr.PeerCount,
+				"smpv_active":           hdr.SMPVActive,
+				"header_count_hint":     hdr.HeaderCountHint,
+				"spv_peer_hosts":        hdr.SPVPeerHosts,
+				"smpv_peer_hosts":       hdr.SMPVPeerHosts,
+				"mempool_addr_tx_lines": hdr.MempoolAddrTxCount,
+				"log_tail":              logTail,
 			},
 			"totals": map[string]any{
 				"received_doge":       round4(inSum),
@@ -323,7 +330,11 @@ func (s *Server) backgroundMetricsLoop() {
 		s.startSPVNode(wf)
 		spv := s.readSPVStatus()
 		logTail, _ := spv["log_tail"].(string)
-		hdr := parseSPVLogHeaderInfo(logTail)
+		watchAddr := ""
+		if p := wf.PrimaryAddress(); p != nil {
+			watchAddr = strings.TrimSpace(p.P2PKH)
+		}
+		hdr := parseSPVLogHeaderInfo(logTail, watchAddr)
 		running, _ := spv["running"].(bool)
 		st, err := s.loadState()
 		if err != nil {
@@ -331,12 +342,13 @@ func (s *Server) backgroundMetricsLoop() {
 			continue
 		}
 		s.appendMetricPoint(st, MetricPoint{
-			T:             time.Now().UTC(),
-			HeaderHeight:  hdr.HeaderHeight,
-			BestBlockHash: hdr.BestBlockHash,
-			SPVRunning:    running,
-			PeerCount:     hdr.PeerCount,
-			SMPVActive:    hdr.SMPVActive,
+			T:                  time.Now().UTC(),
+			HeaderHeight:       hdr.HeaderHeight,
+			BestBlockHash:      hdr.BestBlockHash,
+			SPVRunning:         running,
+			PeerCount:          hdr.PeerCount,
+			SMPVActive:         hdr.SMPVActive,
+			MempoolAddrTxCount: hdr.MempoolAddrTxCount,
 		})
 		_ = s.saveState(st)
 		s.mu.Unlock()

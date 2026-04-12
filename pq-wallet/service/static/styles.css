@@ -630,6 +630,47 @@ body {
   word-break: break-all;
 }
 
+.peer-detail {
+  margin-top: 0.85rem;
+  padding: 0.75rem 0.85rem;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.peer-detail-title {
+  margin: 0 0 0.6rem;
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.peer-dl {
+  display: grid;
+  grid-template-columns: 9.5rem 1fr;
+  gap: 0.4rem 0.85rem;
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+.peer-dl dt {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.peer-dl dd {
+  margin: 0;
+  word-break: break-word;
+}
+
+@media (max-width: 600px) {
+  .peer-dl {
+    grid-template-columns: 1fr;
+  }
+}
+
 .dos-panel h3 {
   margin: 0 0 0.35rem;
   font-size: 0.9rem;
@@ -966,5 +1007,223 @@ a {
 .learn-section p {
   margin: 0.4rem 0;
   color: var(--text);
+}
+
+/* Wallet hero (large balance on dashboard) */
+.wallet-hero {
+  text-align: center;
+  padding: 1.5rem 1.25rem 1.75rem;
+  margin-bottom: 1rem;
+  background: linear-gradient(160deg, #1e2a3d 0%, #161f2c 55%);
+  border: 1px solid var(--border);
+}
+
+.wallet-hero-label {
+  margin: 0;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+.wallet-hero-balance {
+  margin: 0.35rem 0 0;
+  font-size: clamp(2.25rem, 8vw, 3.35rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: var(--doge);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+
+.wallet-hero-unit {
+  margin: 0.15rem 0 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.08em;
+}
+
+.wallet-hero-hint {
+  margin: 0.75rem 0 0;
+}
+
+/* Send: address + scan */
+.send-to-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: stretch;
+  margin-bottom: 0.75rem;
+}
+
+.send-to-row .send-to-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.send-to-row .btn {
+  flex-shrink: 0;
+  align-self: center;
+}
+
+/* Receive view */
+.receive-card h2 {
+  margin-top: 0;
+}
+
+.receive-qr-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 1rem 0;
+}
+
+.receive-qr {
+  display: inline-block;
+  padding: 0.75rem;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+}
+
+.receive-qr img,
+.receive-qr canvas {
+  display: block;
+  border-radius: 8px;
+}
+
+.receive-addr-block {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.receive-addr-text {
+  display: block;
+  padding: 0.65rem 0.85rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  word-break: break-all;
+}
+
+/* QR scan modal */
+.qr-scan-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.qr-scan-modal.hidden {
+  display: none !important;
+}
+
+.qr-scan-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 8, 12, 0.82);
+  backdrop-filter: blur(4px);
+}
+
+.qr-scan-modal-panel {
+  position: relative;
+  z-index: 1;
+  max-width: 420px;
+  width: 100%;
+  margin: 0;
+}
+
+.qr-reader-host {
+  min-height: 260px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #000;
+  margin: 0.75rem 0;
+}
+
+.qr-scan-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+/* Mobile bottom tab bar */
+.mobile-tabbar {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  justify-content: space-around;
+  align-items: stretch;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(180deg, rgba(18, 25, 36, 0.92) 0%, #0d1218 100%);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(12px);
+}
+
+.mobile-tabbar-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  min-height: 3.25rem;
+  padding: 0.35rem 0.5rem;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.mobile-tabbar-btn .mobile-tabbar-ico {
+  font-size: 1.5rem !important;
+  color: var(--muted);
+}
+
+.mobile-tabbar-btn:hover,
+.mobile-tabbar-btn:focus-visible {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  outline: none;
+}
+
+.mobile-tabbar-btn.active {
+  color: var(--doge);
+  background: rgba(242, 203, 44, 0.12);
+}
+
+.mobile-tabbar-btn.active .mobile-tabbar-ico {
+  color: var(--doge);
+}
+
+@media (max-width: 900px) {
+  #app.has-wallet .mobile-tabbar:not(.hidden) {
+    display: flex !important;
+  }
+
+  #app.has-wallet .main-wrap {
+    padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+  }
 }
 

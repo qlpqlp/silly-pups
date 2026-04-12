@@ -17,7 +17,20 @@ var (
 	rePeerWord     = regexp.MustCompile(`(?i)(?:^|[^\w])(\d{1,6})\s+(?:peer|peers)\b`)
 	reConnEq       = regexp.MustCompile(`(?i)(?:connections?|connected)\s*[:=]\s*(\d+)`)
 	reNetAddr      = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}:\d{2,5}\b`)
+	reConnectedPeer = regexp.MustCompile(`(?i)Successfully connected to peer\s+(\d+)\s+\(([^)]+)\)`)
+	reConnectedNode = regexp.MustCompile(`(?i)Connected to node\s+(\d+):\s*(.+)\s+\((\d+)\)\s*$`)
+	reMempoolExplicit1 = regexp.MustCompile(`(?i)mempool[^\n]{0,64}(?:size|count|transactions?|txs?)\s*[:=]\s*(\d{1,9})`)
+	reMempoolExplicit2 = regexp.MustCompile(`(?i)(?:^|\s)(\d{1,9})\s+transactions?\s+in\s+mempool`)
+	reMempoolExplicit3 = regexp.MustCompile(`(?i)\[smpv\][^\n]{0,120}(\d{1,9})\s*(?:tx|txn|transaction)`)
 )
+
+// PeerConnectionInfo is parsed from libdogecoin net.c log lines (current / last handshake in the tail).
+type PeerConnectionInfo struct {
+	NodeID            int    `json:"node_id,omitempty"`
+	Address           string `json:"address,omitempty"` // ip:port
+	SubVersion        string `json:"sub_version,omitempty"`
+	RemoteStartHeight int64  `json:"remote_start_height,omitempty"`
+}
 
 // SPVHeaderInfo is parsed from spvnode log tail (best-effort).
 // Real spvnode output often uses lines: 64hex|height|timestamp|work…
@@ -29,10 +42,12 @@ type SPVHeaderInfo struct {
 	HeaderCountHint    int64 // e.g. lone first line "25139" (header index count)
 	SPVPeerHosts       []string
 	SMPVPeerHosts      []string
-	MempoolAddrTxCount int // lines mentioning mempool/SMPV activity for watch address
+	// MempoolTxCount is derived only from libdogecoin spvnode spv.log (SMPV = mempool over P2P), never third-party APIs.
+	MempoolTxCount int
+	CurrentPeer    *PeerConnectionInfo
 }
 
-func parseSPVLogHeaderInfo(log string, watchAddr string) SPVHeaderInfo {
+func parseSPVLogHeaderInfo(log string) SPVHeaderInfo {
 	var out SPVHeaderInfo
 	if log == "" {
 		return out
@@ -49,13 +64,14 @@ func parseSPVLogHeaderInfo(log string, watchAddr string) SPVHeaderInfo {
 		out.BestBlockHash = hash
 	}
 	out.PeerCount = parsePeerCountFromLog(tail)
-	out.SMPVActive = parseSMPVActive(tail)
+	out.SMPVActive = true // spvnode is always started with -x (SMPV); do not depend on log wording
 	out.SPVPeerHosts = parsePeerHostsNonSMPV(tail)
 	out.SMPVPeerHosts = parsePeerHostsSMPVLines(tail)
 	if len(out.SMPVPeerHosts) == 0 && out.SMPVActive {
 		out.SMPVPeerHosts = append([]string(nil), out.SPVPeerHosts...)
 	}
-	out.MempoolAddrTxCount = parseMempoolLinesForAddress(tail, watchAddr)
+	out.MempoolTxCount = parseLibdogecoinMempoolTxCount(tail)
+	out.CurrentPeer = parseCurrentPeerInfo(tail)
 
 	if out.HeaderHeight == 0 {
 		if m := reHeaderHeight.FindStringSubmatch(tail); len(m) > 1 {
@@ -164,8 +180,48 @@ func parsePeerCountFromLog(log string) int {
 	return best
 }
 
-func parseSMPVActive(log string) bool {
-	return strings.Contains(strings.ToLower(log), "smpv")
+// parseCurrentPeerInfo returns the latest "Connected to node …" handshake in the log, merged with
+// "Successfully connected to peer … (addr)" for the same node id (libdogecoin net.c).
+func parseCurrentPeerInfo(log string) *PeerConnectionInfo {
+	if strings.TrimSpace(log) == "" {
+		return nil
+	}
+	addrs := make(map[int]string)
+	var nodes []PeerConnectionInfo
+	for _, line := range strings.Split(log, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if m := reConnectedPeer.FindStringSubmatch(line); len(m) == 3 {
+			id, err := strconv.Atoi(m[1])
+			if err != nil {
+				continue
+			}
+			addrs[id] = strings.TrimSpace(m[2])
+		}
+		if m := reConnectedNode.FindStringSubmatch(line); len(m) == 4 {
+			id, err := strconv.Atoi(m[1])
+			if err != nil {
+				continue
+			}
+			h, err := strconv.ParseInt(m[3], 10, 64)
+			if err != nil {
+				h = 0
+			}
+			nodes = append(nodes, PeerConnectionInfo{
+				NodeID:            id,
+				SubVersion:        strings.TrimSpace(m[2]),
+				RemoteStartHeight: h,
+			})
+		}
+	}
+	if len(nodes) == 0 {
+		return nil
+	}
+	last := nodes[len(nodes)-1]
+	last.Address = addrs[last.NodeID]
+	return &last
 }
 
 func uniqueSorted(ss []string) []string {
@@ -209,23 +265,47 @@ func parsePeerHostsSMPVLines(log string) []string {
 	return uniqueSorted(reNetAddr.FindAllString(b.String(), -1))
 }
 
-// parseMempoolLinesForAddress counts log lines that reference the wallet address together with mempool / unconfirmed / SMPV context.
-func parseMempoolLinesForAddress(log, addr string) int {
-	addr = strings.TrimSpace(addr)
-	if addr == "" {
+// parseLibdogecoinMempoolTxCount estimates mempool-related transaction activity from spv.log only.
+// It first looks for explicit mempool size/count lines; otherwise it counts distinct 64-hex txids on
+// mempool / SMPV / inv lines (what your P2P peer has relayed into the log).
+func parseLibdogecoinMempoolTxCount(log string) int {
+	if strings.TrimSpace(log) == "" {
 		return 0
 	}
-	n := 0
+	best := 0
 	for _, line := range strings.Split(log, "\n") {
-		if !strings.Contains(line, addr) {
+		for _, re := range []*regexp.Regexp{reMempoolExplicit1, reMempoolExplicit2, reMempoolExplicit3} {
+			if m := re.FindStringSubmatch(line); len(m) > 1 {
+				if n, err := strconv.Atoi(m[1]); err == nil && n > best && n < 100_000_000 {
+					best = n
+				}
+			}
+		}
+	}
+	if best > 0 {
+		return best
+	}
+	return countDistinctMempoolTxHints(log)
+}
+
+func countDistinctMempoolTxHints(log string) int {
+	seen := make(map[string]struct{})
+	for _, line := range strings.Split(log, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.Contains(line, "|") {
 			continue
 		}
 		low := strings.ToLower(line)
-		if strings.Contains(low, "mempool") || strings.Contains(low, "unconfirmed") || strings.Contains(low, "smpv") || strings.Contains(low, "inv") {
-			n++
+		if !strings.Contains(low, "mempool") && !strings.Contains(low, "smpv") && !strings.Contains(low, "inv") {
+			continue
+		}
+		for _, hx := range reBlockHash.FindAllString(line, -1) {
+			if len(hx) == 64 && isHex64(hx) {
+				seen[strings.ToLower(hx)] = struct{}{}
+			}
 		}
 	}
-	return n
+	return len(seen)
 }
 
 func bestHeightScan(s string) int64 {

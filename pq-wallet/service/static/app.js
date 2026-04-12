@@ -1,4 +1,4 @@
-/* global Chart */
+/* global Chart, QRCode, Html5Qrcode */
 
 async function api(path, opts) {
   const r = await fetch(path, {
@@ -16,10 +16,12 @@ async function api(path, opts) {
 const state = {
   wallet: null,
   view: "dashboard",
-  charts: { height: null, spv: null, peers: null, smpv: null, mempool: null },
+  charts: { height: null, smpv: null },
   pollFast: null,
   pollTx: null,
   pollLogs: null,
+  qrScanner: null,
+  receiveQrAddr: null,
 };
 
 function $(id) {
@@ -33,6 +35,7 @@ function showView(name) {
   });
   const titles = {
     dashboard: ["Dashboard", "SPV headers, balances, and post-quantum hints"],
+    receive: ["Receive Dogecoin", "QR and address for your primary receiving address"],
     addresses: ["Addresses", "Generate keys and choose which address SPV watches"],
     transactions: ["Transactions", "PQ badges = explorer OP_RETURN hints (not a full audit)"],
     tools: ["Send Doge", "Destination & amount, or paste a signed raw hex for P2P broadcast"],
@@ -52,6 +55,8 @@ function showView(name) {
   document.querySelectorAll(".content .view").forEach((v) => v.classList.add("hidden"));
   const el = $("view-" + name);
   if (el) el.classList.remove("hidden");
+  syncMobileTabbar(name);
+  if (name === "receive") updateReceiveView();
   if (name === "learn") loadEducation();
   if (name === "logs") {
     refreshLogs();
@@ -179,12 +184,17 @@ function setOnboarding(w) {
     state.pollLogs = null;
   }
   $("view-onboarding").classList.toggle("hidden", has);
-  ["view-dashboard", "view-addresses", "view-transactions", "view-tools", "view-logs", "view-learn", "view-settings"].forEach((id) => {
+  const appEl = $("app");
+  if (appEl) appEl.classList.toggle("has-wallet", has);
+  const mt = $("mobile-tabbar");
+  if (mt) mt.classList.toggle("hidden", !has);
+  ["view-dashboard", "view-receive", "view-addresses", "view-transactions", "view-tools", "view-logs", "view-learn", "view-settings"].forEach((id) => {
     $(id).classList.toggle("hidden", !has);
   });
   if (has) {
     $("net-badge").textContent = (w.network || "mainnet").toUpperCase();
     showView(state.view || "dashboard");
+    updateReceiveView();
     startPollers();
   }
 }
@@ -214,7 +224,7 @@ function initCharts() {
     },
   };
   const ctxH = $("chart-height");
-  const ctxS = $("chart-spv");
+  const ctxSm = $("chart-smpv");
   if (ctxH && !state.charts.height) {
     state.charts.height = new Chart(ctxH, {
       type: "line",
@@ -222,34 +232,10 @@ function initCharts() {
       options: common,
     });
   }
-  if (ctxS && !state.charts.spv) {
-    state.charts.spv = new Chart(ctxS, {
+  if (ctxSm && !state.charts.smpv) {
+    state.charts.smpv = new Chart(ctxSm, {
       type: "line",
-      data: { labels: [], datasets: [{ label: "spv", data: [], borderColor: "#3ecf8e", stepped: true, fill: false }] },
-      options: common,
-    });
-  }
-  const ctxP = $("chart-peers");
-  const ctxM = $("chart-smpv");
-  if (ctxP && !state.charts.peers) {
-    state.charts.peers = new Chart(ctxP, {
-      type: "line",
-      data: { labels: [], datasets: [{ label: "peers", data: [], borderColor: "#7eb8da", tension: 0.2, fill: false }] },
-      options: common,
-    });
-  }
-  if (ctxM && !state.charts.smpv) {
-    state.charts.smpv = new Chart(ctxM, {
-      type: "line",
-      data: { labels: [], datasets: [{ label: "smpv", data: [], borderColor: "#c48cff", stepped: true, fill: false }] },
-      options: common,
-    });
-  }
-  const ctxMp = $("chart-mempool");
-  if (ctxMp && !state.charts.mempool) {
-    state.charts.mempool = new Chart(ctxMp, {
-      type: "line",
-      data: { labels: [], datasets: [{ label: "mempool lines", data: [], borderColor: "#e88c6a", tension: 0.2, fill: false }] },
+      data: { labels: [], datasets: [{ label: "mempool txs", data: [], borderColor: "#c48cff", tension: 0.2, fill: false }] },
       options: common,
     });
   }
@@ -259,34 +245,16 @@ function updateCharts(metrics) {
   if (!metrics || !metrics.length) return;
   const labels = metrics.map((m) => fmtTime(m.t));
   const heights = metrics.map((m) => Number(m.header_height) || 0);
-  const spv = metrics.map((m) => (m.spv_running ? 1 : 0));
-  const peers = metrics.map((m) => Number(m.peer_count) || 0);
-  const smpv = metrics.map((m) => (m.smpv_active ? 1 : 0));
-  const mp = metrics.map((m) => Number(m.mempool_addr_tx_count) || 0);
+  const mp = metrics.map((m) => Number(m.mempool_tx_count) || 0);
   if (state.charts.height) {
     state.charts.height.data.labels = labels;
     state.charts.height.data.datasets[0].data = heights;
     state.charts.height.update("none");
   }
-  if (state.charts.spv) {
-    state.charts.spv.data.labels = labels;
-    state.charts.spv.data.datasets[0].data = spv;
-    state.charts.spv.update("none");
-  }
-  if (state.charts.peers) {
-    state.charts.peers.data.labels = labels;
-    state.charts.peers.data.datasets[0].data = peers;
-    state.charts.peers.update("none");
-  }
   if (state.charts.smpv) {
     state.charts.smpv.data.labels = labels;
-    state.charts.smpv.data.datasets[0].data = smpv;
+    state.charts.smpv.data.datasets[0].data = mp;
     state.charts.smpv.update("none");
-  }
-  if (state.charts.mempool) {
-    state.charts.mempool.data.labels = labels;
-    state.charts.mempool.data.datasets[0].data = mp;
-    state.charts.mempool.update("none");
   }
 }
 
@@ -296,6 +264,7 @@ async function refreshWallet() {
   setOnboarding(data.wallet);
   if (data.wallet) {
     renderAddresses(data.wallet);
+    updateReceiveView();
     await refreshDashboard();
     await refreshTxList(false);
   }
@@ -306,20 +275,33 @@ async function refreshDashboard() {
   $("conn-pill").innerHTML = '<span class="material-symbols-outlined icon-inline">verified</span> live';
   if (!data.dashboard) return;
   const t = data.dashboard.totals || {};
-  $("stat-spend").textContent = t.spendable_hint_doge != null ? String(t.spendable_hint_doge) : "—";
+  const spendStr = t.spendable_hint_doge != null ? String(t.spendable_hint_doge) : "—";
+  $("stat-spend").textContent = spendStr;
+  const balBig = $("wallet-balance-big");
+  if (balBig) balBig.textContent = spendStr;
   $("stat-in").textContent = t.received_doge != null ? String(t.received_doge) : "—";
   $("stat-out").textContent = t.sent_doge != null ? String(t.sent_doge) : "—";
   const spv = data.dashboard.spv || {};
   $("stat-spv").textContent = spv.running ? "running" : "stopped";
-  const pc = spv.peer_count;
-  $("stat-peers").textContent = pc != null && Number(pc) >= 0 ? String(pc) : "—";
-  $("stat-smpv").textContent = spv.smpv_active ? "active" : "—";
-  const mtl = spv.mempool_addr_tx_lines;
-  $("stat-mempool-addr").textContent = mtl != null && Number(mtl) >= 0 ? String(mtl) : "—";
-  const spvPeers = spv.spv_peer_hosts;
-  const smpvPeers = spv.smpv_peer_hosts;
-  $("peer-spv-list").textContent = Array.isArray(spvPeers) && spvPeers.length ? spvPeers.slice(0, 12).join(", ") : "—";
-  $("peer-smpv-list").textContent = Array.isArray(smpvPeers) && smpvPeers.length ? smpvPeers.slice(0, 12).join(", ") : "—";
+  const mtc = spv.mempool_tx_count;
+  const elMp = $("stat-mempool");
+  if (elMp) elMp.textContent = mtc != null && Number(mtc) >= 0 ? String(mtc) : "—";
+  const cp = spv.current_peer;
+  const setPeer = (id, v) => {
+    const el = $(id);
+    if (el) el.textContent = v != null && String(v) !== "" ? String(v) : "—";
+  };
+  if (cp && typeof cp === "object") {
+    setPeer("peer-c-addr", cp.address);
+    setPeer("peer-c-node", cp.node_id != null ? String(cp.node_id) : "");
+    setPeer("peer-c-ua", cp.sub_version);
+    setPeer("peer-c-h", cp.remote_start_height != null ? String(cp.remote_start_height) : "");
+  } else {
+    setPeer("peer-c-addr", "");
+    setPeer("peer-c-node", "");
+    setPeer("peer-c-ua", "");
+    setPeer("peer-c-h", "");
+  }
   const h = spv.header_height;
   $("pill-height").textContent = h != null && Number(h) > 0 ? `height ${h}` : "height —";
   $("hdr-hash").textContent = spv.best_block_hash || "—";
@@ -390,9 +372,158 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+function getPrimaryAddress(w) {
+  if (!w || !w.addresses || !w.addresses.length) return "";
+  const p = w.addresses.find((a) => a.primary);
+  return (p && p.p2pkh_address) || "";
+}
+
+function updateReceiveView() {
+  const addr = getPrimaryAddress(state.wallet);
+  const textEl = $("receive-addr-text");
+  const qrEl = $("receive-qr");
+  if (textEl) textEl.textContent = addr || "—";
+  if (!qrEl) return;
+  if (!addr) {
+    qrEl.innerHTML = "";
+    state.receiveQrAddr = null;
+    return;
+  }
+  if (state.receiveQrAddr === addr && qrEl.querySelector("img, canvas")) return;
+  state.receiveQrAddr = addr;
+  qrEl.innerHTML = "";
+  if (typeof QRCode === "undefined") {
+    const p = document.createElement("p");
+    p.className = "small muted";
+    p.textContent = "QR library loading…";
+    qrEl.appendChild(p);
+    return;
+  }
+  try {
+    new QRCode(qrEl, {
+      text: addr,
+      width: 220,
+      height: 220,
+      colorDark: "#0b0f14",
+      colorLight: "#ffffff",
+      correctLevel: QRCode.CorrectLevel.H,
+    });
+  } catch {
+    qrEl.textContent = "Could not build QR code.";
+  }
+}
+
+function syncMobileTabbar(name) {
+  document.querySelectorAll(".mobile-tabbar-btn").forEach((b) => {
+    const v = b.dataset.tabbar;
+    b.classList.toggle("active", v === name);
+  });
+}
+
+function parseQrAddress(raw) {
+  let t = String(raw || "").trim();
+  const uri = /^dogecoin:([^?]+)/i.exec(t);
+  if (uri) t = uri[1];
+  return t.trim();
+}
+
+async function closeQrScanner() {
+  const modal = $("qr-scan-modal");
+  if (modal) modal.classList.add("hidden");
+  const h5 = state.qrScanner;
+  state.qrScanner = null;
+  if (h5) {
+    try {
+      await h5.stop();
+    } catch {
+      /* ignore */
+    }
+    try {
+      h5.clear();
+    } catch {
+      /* ignore */
+    }
+  }
+  const el = $("qr-reader");
+  if (el) el.innerHTML = "";
+}
+
+async function openQrScanner() {
+  const modal = $("qr-scan-modal");
+  if (!modal) return;
+  if (typeof Html5Qrcode === "undefined") {
+    alert("QR scanner is not available. Check your network or use HTTPS.");
+    return;
+  }
+  modal.classList.remove("hidden");
+  const readerId = "qr-reader";
+  const host = $(readerId);
+  if (host) host.innerHTML = "";
+  const h5 = new Html5Qrcode(readerId);
+  state.qrScanner = h5;
+  const cfg = { fps: 10, qrbox: { width: 240, height: 240 } };
+  const onOk = (decodedText) => {
+    const t = parseQrAddress(decodedText);
+    const send = $("send-to");
+    if (send) send.value = t;
+    closeQrScanner();
+  };
+  try {
+    await h5.start({ facingMode: "environment" }, cfg, onOk, () => {});
+  } catch {
+    try {
+      const cams = await Html5Qrcode.getCameras();
+      if (!cams || !cams.length) throw new Error("no cameras");
+      await h5.start(cams[0].id, cfg, onOk, () => {});
+    } catch {
+      alert("Could not start camera. Use HTTPS, allow camera access, or paste the address.");
+      await closeQrScanner();
+    }
+  }
+}
+
 document.querySelectorAll(".nav-item").forEach((btn) => {
   btn.addEventListener("click", () => showView(btn.dataset.view));
 });
+
+document.querySelectorAll(".mobile-tabbar-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const v = btn.dataset.tabbar;
+    if (v) showView(v);
+  });
+});
+
+const btnScan = $("btn-scan-qr");
+if (btnScan) btnScan.addEventListener("click", () => openQrScanner());
+const btnQrCancel = $("btn-qr-scan-cancel");
+if (btnQrCancel) btnQrCancel.addEventListener("click", () => closeQrScanner());
+const qrBackdrop = $("qr-scan-backdrop");
+if (qrBackdrop) qrBackdrop.addEventListener("click", () => closeQrScanner());
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  const modal = $("qr-scan-modal");
+  if (modal && !modal.classList.contains("hidden")) closeQrScanner();
+});
+
+const btnCopyRecv = $("btn-copy-receive");
+if (btnCopyRecv) {
+  btnCopyRecv.addEventListener("click", async () => {
+    const addr = getPrimaryAddress(state.wallet);
+    if (!addr) return;
+    try {
+      await navigator.clipboard.writeText(addr);
+      const lbl = $("copy-receive-label");
+      const prev = lbl ? lbl.textContent : "";
+      if (lbl) lbl.textContent = "Copied";
+      setTimeout(() => {
+        if (lbl) lbl.textContent = prev;
+      }, 1600);
+    } catch {
+      alert("Could not copy. Copy the address manually.");
+    }
+  });
+}
 
 function openSidebarNav() {
   const sb = $("sidebar");
@@ -418,6 +549,35 @@ if (btnMob) {
 document.querySelectorAll("[data-send-tab]").forEach((tab) => {
   tab.addEventListener("click", () => setSendTab(parseInt(tab.dataset.sendTab, 10)));
 });
+
+/** Keep only digits and at most one '.' for DOGE amount fields. */
+function sanitizeDecimalDogeString(raw) {
+  let t = String(raw).replace(/[^\d.]/g, "");
+  const d = t.indexOf(".");
+  if (d !== -1) {
+    t = t.slice(0, d + 1) + t.slice(d + 1).replace(/\./g, "");
+  }
+  return t;
+}
+
+function wireDecimalDogeInput(el) {
+  if (!el) return;
+  const apply = () => {
+    const next = sanitizeDecimalDogeString(el.value);
+    if (el.value !== next) el.value = next;
+  };
+  el.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const k = e.key;
+    if (k.length !== 1) return;
+    if ((k >= "0" && k <= "9") || k === ".") return;
+    e.preventDefault();
+  });
+  el.addEventListener("input", apply);
+  el.addEventListener("blur", apply);
+}
+
+wireDecimalDogeInput(document.getElementById("send-amt"));
 
 document.getElementById("btn-create").addEventListener("click", async () => {
   const network = document.getElementById("net-select").value;

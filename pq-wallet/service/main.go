@@ -2,7 +2,7 @@
 //
 // Standard Dogecoin P2PKH + WIF come from libdogecoin (`such -c generate_private_key` / `generate_public_key`). Post-quantum signing material
 // (Falcon-512 / Dilithium2 via liboqs) using the bundled `such` CLI. `sendtx` broadcasts signed txs;
-// `spvnode` runs SPV+SMPV in the background. Broadcasting uses libdogecoin `sendtx` (P2P), not Core RPC.
+// `spvnode` runs SPV headers + libdogecoin SMPV (mempool over P2P, `-x`). Broadcasting uses `sendtx` (P2P), not Core RPC.
 package main
 
 import (
@@ -62,7 +62,7 @@ func (s *Server) generateDogecoinWallet(testnet bool) (*WalletFile, error) {
 			"commitment; an optional 1-DOGE carrier output can be spent in TX_R to reveal the full PQ " +
 			"public key and signature on-chain. Standard P2PKH keys above fund and control DOGE; PQ " +
 			"material is additional attestation per Dogecoin Foundation experiments.",
-		LibdogecoinSPV: "Bundled spvnode (headers + BIP37 + SMPV) starts after wallet creation when SPVNODE_ENABLE=1. " +
+		LibdogecoinSPV: "Bundled spvnode: headers + BIP37 + SMPV (libdogecoin mempool over P2P, `-x`). Starts after wallet creation when SPVNODE_ENABLE=1; SMPV always on for this pup. " +
 			"Check GET /api/spv/status and GET /api/logs/spv.",
 		ExperimentalDiscl: "Experimental research software. You may lose funds. Back up your WIF. " +
 			"PQ proofs on mainnet are early-phase; verify any third-party tooling.",
@@ -156,7 +156,7 @@ func (s *Server) handleExplorerTx(w http.ResponseWriter, r *http.Request) {
 	}
 	base := strings.TrimRight(strings.TrimSpace(s.explorer), "/")
 	if base == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "EXPLORER_TX_API not set (e.g. https://api.blockchair.com/dogecoin/dashboards/transaction/)"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "EXPLORER_TX_API not set (HTTP GET template with {txid} placeholder for optional tx lookup)"})
 		return
 	}
 	url := strings.ReplaceAll(base, "{txid}", txid)

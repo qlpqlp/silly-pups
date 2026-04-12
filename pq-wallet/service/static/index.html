@@ -10,6 +10,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet" />
   <link rel="stylesheet" href="/static/styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" crossorigin="anonymous" defer></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" crossorigin="anonymous" defer></script>
 </head>
 <body>
   <div class="app" id="app">
@@ -27,6 +29,9 @@
       <nav class="sidebar-nav">
         <button type="button" class="nav-item active" data-view="dashboard">
           <span class="material-symbols-outlined nav-ico" aria-hidden="true">space_dashboard</span><span class="nav-txt">Dashboard</span>
+        </button>
+        <button type="button" class="nav-item" data-view="receive">
+          <span class="material-symbols-outlined nav-ico" aria-hidden="true">qr_code_2</span><span class="nav-txt">Receive</span>
         </button>
         <button type="button" class="nav-item" data-view="addresses">
           <span class="material-symbols-outlined nav-ico" aria-hidden="true">account_balance_wallet</span><span class="nav-txt">Addresses</span>
@@ -124,6 +129,12 @@
         </section>
 
         <section id="view-dashboard" class="view hidden">
+          <div class="wallet-hero card">
+            <p class="wallet-hero-label">Total balance</p>
+            <p class="wallet-hero-balance" id="wallet-balance-big">—</p>
+            <p class="wallet-hero-unit">DOGE</p>
+            <p class="wallet-hero-hint small muted">Spendable hint (explorer + cached txs)</p>
+          </div>
           <div class="stat-grid">
             <div class="stat card">
               <span class="stat-label">Spendable (hint)</span>
@@ -143,17 +154,9 @@
               <span class="stat-val" id="stat-spv">—</span>
             </div>
             <div class="stat card">
-              <span class="stat-label">Peers (log)</span>
-              <span class="stat-val" id="stat-peers">—</span>
-            </div>
-            <div class="stat card">
-              <span class="stat-label">SMPV (log)</span>
-              <span class="stat-val" id="stat-smpv">—</span>
-            </div>
-            <div class="stat card">
-              <span class="stat-label">Mempool (your addr)</span>
-              <span class="stat-val" id="stat-mempool-addr">—</span>
-              <span class="stat-hint">Log lines w/ address</span>
+              <span class="stat-label">Mempool</span>
+              <span class="stat-val" id="stat-mempool">—</span>
+              <span class="stat-hint">SMPV mempool (libdogecoin P2P, spv.log)</span>
             </div>
           </div>
           <div class="card block-live">
@@ -162,16 +165,19 @@
               <span class="pill" id="pill-height">height —</span>
             </div>
             <p class="mono hash" id="hdr-hash">—</p>
-            <p class="small muted">Tip height and hash are parsed from <code>spv.log</code> lines like <code>blockhash|height|…</code>. Peers are IPv4:port tokens from log lines (SPV vs SMPV/mempool split). Set <code>EXPLORER_ADDRESS_API</code> for balance sync and automatic send.</p>
-            <div class="peer-strip">
-              <div class="peer-strip-col">
-                <span class="peer-strip-label">SPV peer endpoints</span>
-                <p class="mono small peer-strip-val" id="peer-spv-list">—</p>
-              </div>
-              <div class="peer-strip-col">
-                <span class="peer-strip-label">SMPV / mempool peer endpoints</span>
-                <p class="mono small peer-strip-val" id="peer-smpv-list">—</p>
-              </div>
+            <p class="small muted">Tip height and hash are parsed from <code>spv.log</code> lines like <code>blockhash|height|…</code>. <strong>SMPV</strong> (libdogecoin’s mempool over P2P) is always on (<code>spvnode -x</code>). The peer panel shows the latest handshake (address, user agent, remote height). Set <code>EXPLORER_ADDRESS_API</code> for optional balance sync.</p>
+            <div class="peer-detail">
+              <h3 class="peer-detail-title"><span class="material-symbols-outlined icon-inline">lan</span> Current P2P peer</h3>
+              <dl class="peer-dl">
+                <dt>Address</dt>
+                <dd class="mono" id="peer-c-addr">—</dd>
+                <dt>Node id</dt>
+                <dd class="mono" id="peer-c-node">—</dd>
+                <dt>User agent</dt>
+                <dd class="mono small" id="peer-c-ua">—</dd>
+                <dt>Remote start height</dt>
+                <dd class="mono" id="peer-c-h">—</dd>
+              </dl>
             </div>
           </div>
           <div class="charts">
@@ -180,20 +186,25 @@
               <canvas id="chart-height" height="120"></canvas>
             </div>
             <div class="card chart-card">
-              <h3>SPV up (1 = running)</h3>
-              <canvas id="chart-spv" height="120"></canvas>
-            </div>
-            <div class="card chart-card">
-              <h3>Peers (from metrics)</h3>
-              <canvas id="chart-peers" height="120"></canvas>
-            </div>
-            <div class="card chart-card">
-              <h3>SMPV seen in log (1 = yes)</h3>
+              <h3>SMPV (mempool txs from libdogecoin log)</h3>
               <canvas id="chart-smpv" height="120"></canvas>
             </div>
-            <div class="card chart-card">
-              <h3>Mempool lines (your address)</h3>
-              <canvas id="chart-mempool" height="120"></canvas>
+          </div>
+        </section>
+
+        <section id="view-receive" class="view hidden">
+          <div class="card receive-card">
+            <h2><span class="material-symbols-outlined icon-inline">qr_code_2</span> Receive Dogecoin</h2>
+            <p class="small muted">Your primary receiving address. Share the QR or copy the text.</p>
+            <div class="receive-qr-wrap">
+              <div id="receive-qr" class="receive-qr" aria-label="QR code for Dogecoin address"></div>
+            </div>
+            <div class="receive-addr-block">
+              <span class="mono receive-addr-text" id="receive-addr-text">—</span>
+              <button type="button" class="btn primary" id="btn-copy-receive">
+                <span class="material-symbols-outlined btn-ico">content_copy</span>
+                <span id="copy-receive-label">Copy address</span>
+              </button>
             </div>
           </div>
         </section>
@@ -253,11 +264,15 @@
           <div class="send-panel" data-send-panel="0">
             <div class="card">
               <h3>Destination &amp; amount</h3>
-              <label class="field"><span>Destination Dogecoin address</span>
-                <input type="text" class="input-modern" id="send-to" placeholder="D…" autocomplete="off" />
-              </label>
-              <label class="field"><span>Amount in Doge (numeric only, e.g. 0.001 or 10000000000000000.001)</span>
-                <input type="text" class="input-modern" id="send-amt" placeholder="0.0" inputmode="decimal" autocomplete="off" />
+              <label class="field"><span>Destination Dogecoin address</span></label>
+              <div class="send-to-row">
+                <input type="text" class="input-modern send-to-input" id="send-to" placeholder="D…" autocomplete="off" />
+                <button type="button" class="btn" id="btn-scan-qr" title="Scan QR code">
+                  <span class="material-symbols-outlined btn-ico">qr_code_scanner</span> Scan
+                </button>
+              </div>
+              <label class="field"><span>Amount in Doge</span>
+                <input type="text" class="input-modern" id="send-amt" placeholder="0.001" inputmode="decimal" autocomplete="off" spellcheck="false" />
               </label>
               <button type="button" class="btn primary" id="btn-send-pq-safe"><span class="material-symbols-outlined btn-ico">lock</span> Send post-quantum safe transaction</button>
               <pre id="send-pq-out" class="mono small out"></pre>
@@ -298,7 +313,7 @@
               <pre class="dos-screen" id="log-spv">…</pre>
             </div>
             <div class="card dos-panel">
-              <h3>SMPV / mempool (filtered)</h3>
+              <h3>SMPV mempool (filtered log)</h3>
               <pre class="dos-screen" id="log-smpv">…</pre>
             </div>
             <div class="card dos-panel">
@@ -342,11 +357,35 @@
         </section>
       </main>
 
+      <nav class="mobile-tabbar hidden" id="mobile-tabbar" aria-label="Quick actions">
+        <button type="button" class="mobile-tabbar-btn" id="tabbar-receive" data-tabbar="receive">
+          <span class="material-symbols-outlined mobile-tabbar-ico">south_west</span>
+          <span class="mobile-tabbar-label">Receive</span>
+        </button>
+        <button type="button" class="mobile-tabbar-btn" id="tabbar-send" data-tabbar="tools">
+          <span class="material-symbols-outlined mobile-tabbar-ico">north_east</span>
+          <span class="mobile-tabbar-label">Send</span>
+        </button>
+      </nav>
+
       <footer class="footer">
         <span>PQ Doge Wallet · silly-pups · MIT</span>
       </footer>
     </div>
   </div>
+
+  <div id="qr-scan-modal" class="qr-scan-modal hidden" role="dialog" aria-modal="true" aria-labelledby="qr-scan-title">
+    <div class="qr-scan-modal-backdrop" id="qr-scan-backdrop"></div>
+    <div class="qr-scan-modal-panel card">
+      <h3 id="qr-scan-title">Scan Dogecoin address</h3>
+      <p class="small muted">Point the camera at a QR code containing a Dogecoin address.</p>
+      <div id="qr-reader" class="qr-reader-host"></div>
+      <div class="qr-scan-actions">
+        <button type="button" class="btn" id="btn-qr-scan-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/static/app.js" defer></script>
 </body>
 </html>

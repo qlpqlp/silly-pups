@@ -30,8 +30,8 @@ type MetricPoint struct {
 	BestBlockHash      string    `json:"best_block_hash,omitempty"`
 	SPVRunning         bool      `json:"spv_running"`
 	PeerCount          int       `json:"peer_count,omitempty"`
-	SMPVActive         bool      `json:"smpv_active"`
-	MempoolAddrTxCount int       `json:"mempool_addr_tx_count,omitempty"`
+	SMPVActive     bool `json:"smpv_active"`
+	MempoolTxCount int  `json:"mempool_tx_count,omitempty"` // from libdogecoin spv.log only
 }
 
 // WalletState is persisted as state.json (separate from keys).

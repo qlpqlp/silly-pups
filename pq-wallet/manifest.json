@@ -5,7 +5,7 @@
     "version": "0.0.6",
     "logoPath": "logo.png",
     "shortDescription": "The first Post Quantum Secure Dogecoin wallet",
-    "longDescription": "Built in with libdogecoin liboqs that includes: `such` (P2PKH keys, Falcon-512 keygen, sign, commitments), `sendtx` (P2P broadcast), `spvnode` (headers + BIP37 + SMPV).",
+    "longDescription": "Built with libdogecoin (+ liboqs): `such` (P2PKH keys, Falcon-512 keygen, sign, commitments), `sendtx` (P2P broadcast), and `spvnode` (headers + BIP37). **SMPV** (Simple Mempool Verification) is libdogecoin’s mempool path over P2P — enabled with `spvnode -x`.",
     "upstreamVersions": {
       "Go": "1.24",
       "libdogecoin": "a120e03 + liboqs"
@@ -27,7 +27,7 @@
       },
       {
         "name": "Chain & SPV",
-        "description": "libdogecoin spvnode syncs headers and watches your address; SMPV augments mempool visibility when present in the log.",
+        "description": "libdogecoin `spvnode` syncs headers and watches your address. SMPV is the mempool layer (P2P); this pup runs it with `-x` so unconfirmed traffic can surface in `spv.log`.",
         "fields": [
           {
             "name": "SPVNODE_ENABLE",

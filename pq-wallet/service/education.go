@@ -50,7 +50,7 @@ func educationPayload() map[string]any {
 				"body": []string{
 					"Binaries on PATH: **`such`**, **`sendtx`**, **`spvnode`**, built with **USE_LIBOQS** for Falcon/Dilithium support in libdogecoin.",
 					"**Broadcast** uses **`sendtx`** only (P2P), not JSON-RPC `sendrawtransaction`.",
-					"**SPV** (`spvnode`) follows headers and watches your primary address; `spv.log` lines like `hash|height|…` drive chain tip; peers and SMPV are heuristics from the log tail.",
+					"**SPV** (`spvnode`) follows headers and watches your primary address; `spv.log` lines like `hash|height|…` drive chain tip. **SMPV** is libdogecoin’s mempool path (P2P unconfirmed txs); this pup always passes `-x` to `spvnode`. The dashboard shows the latest peer handshake from libdogecoin logs (`Connected to node …`).",
 				},
 			},
 		},

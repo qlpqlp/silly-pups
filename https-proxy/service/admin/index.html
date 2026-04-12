@@ -6,120 +6,218 @@
   <title>Dogebox HTTPS Proxy</title>
   <style>
     :root {
-      --bg: #0f1419;
-      --card: #1a2332;
+      --bg: #0c1018;
+      --card: #141c28;
       --text: #e8eef5;
       --muted: #8a9bb3;
       --accent: #f2cb2c;
-      --border: rgba(255, 255, 255, 0.08);
+      --border: rgba(255, 255, 255, 0.09);
       --err: #f87171;
       --ok: #4ade80;
+      --step: #1e2a3d;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0; font-family: system-ui, Segoe UI, Roboto, sans-serif;
       background: var(--bg); color: var(--text); line-height: 1.5;
-      min-height: 100vh; padding: 1.5rem;
+      min-height: 100vh; padding: 1rem;
     }
-    h1 { font-size: 1.35rem; margin: 0 0 0.5rem; }
-    p.lead { color: var(--muted); margin: 0 0 1.25rem; font-size: 0.95rem; }
+    h1 { font-size: 1.35rem; margin: 0 0 0.35rem; }
+    .lead { color: var(--muted); margin: 0 0 1rem; font-size: 0.92rem; max-width: 52rem; }
     .card {
       background: var(--card); border: 1px solid var(--border);
-      border-radius: 12px; padding: 1.25rem; max-width: 920px;
+      border-radius: 14px; padding: 1.15rem 1.25rem; margin-bottom: 0.85rem;
+      max-width: 920px;
     }
-    label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
+    .stepper {
+      display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; max-width: 920px;
+    }
+    .step-tab {
+      flex: 1; min-width: 140px; padding: 0.6rem 0.85rem; border-radius: 10px;
+      border: 1px solid var(--border); background: var(--step); color: var(--muted);
+      cursor: pointer; font-weight: 600; font-size: 0.88rem; text-align: center;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .step-tab:hover { border-color: rgba(242, 203, 44, 0.35); color: var(--text); }
+    .step-tab.active {
+      background: rgba(242, 203, 44, 0.12); border-color: rgba(242, 203, 44, 0.45);
+      color: var(--accent);
+    }
+    .step-panel { display: none; max-width: 920px; }
+    .step-panel.visible { display: block; }
+    label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 0.35rem; text-transform: uppercase; letter-spacing: 0.05em; }
     input, textarea {
       width: 100%; padding: 0.5rem 0.65rem; border-radius: 8px;
-      border: 1px solid var(--border); background: #0c1016; color: var(--text);
-      font-family: ui-monospace, Consolas, monospace; font-size: 0.9rem;
+      border: 1px solid var(--border); background: #0a0e14; color: var(--text);
+      font-family: ui-monospace, Consolas, monospace; font-size: 0.88rem;
     }
-    textarea { min-height: 4.5rem; resize: vertical; }
-    .row { margin-bottom: 1rem; }
+    textarea { min-height: 4rem; resize: vertical; }
+    .row { margin-bottom: 0.9rem; }
     .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
     @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
+    .switch-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+      padding: 0.65rem 0.85rem; border-radius: 10px; background: rgba(0,0,0,0.2);
+      border: 1px solid var(--border);
+    }
+    .switch-row span { font-size: 0.92rem; font-weight: 500; }
+    .switch {
+      position: relative; width: 48px; height: 26px; flex-shrink: 0;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; cursor: pointer; inset: 0;
+      background: #2a3444; border-radius: 999px; transition: 0.2s;
+      border: 1px solid var(--border);
+    }
+    .slider::before {
+      position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 2px;
+      background: #fff; border-radius: 50%; transition: 0.2s;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+    }
+    .switch input:checked + .slider { background: rgba(74, 222, 128, 0.35); border-color: rgba(74, 222, 128, 0.5); }
+    .switch input:checked + .slider::before { transform: translateX(22px); }
     button {
-      cursor: pointer; border: none; border-radius: 8px; padding: 0.55rem 1rem;
-      font-weight: 600; font-size: 0.95rem;
+      cursor: pointer; border: none; border-radius: 10px; padding: 0.55rem 1rem;
+      font-weight: 600; font-size: 0.9rem;
     }
     .btn-primary { background: var(--accent); color: #111; }
     .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
-    .toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 1rem; }
-    .msg { font-size: 0.9rem; margin-top: 0.75rem; }
-    .msg.ok { color: var(--ok); }
-    .msg.err { color: var(--err); }
-    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-    th, td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); }
-    th { color: var(--muted); font-weight: 500; }
-    .hint { font-size: 0.8rem; color: var(--muted); margin-top: 0.35rem; }
+    .btn-sm { padding: 0.35rem 0.65rem; font-size: 0.8rem; border-radius: 8px; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.75rem; }
+    .msg { font-size: 0.88rem; margin-top: 0.65rem; padding: 0.5rem 0.65rem; border-radius: 8px; }
+    .msg.ok { color: var(--ok); background: rgba(74, 222, 128, 0.08); border: 1px solid rgba(74, 222, 128, 0.25); }
+    .msg.err { color: var(--err); background: rgba(248, 113, 113, 0.08); border: 1px solid rgba(248, 113, 113, 0.25); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th, td { text-align: left; padding: 0.45rem 0.4rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    th { color: var(--muted); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .hint { font-size: 0.78rem; color: var(--muted); margin: 0.25rem 0 0.5rem; }
     a { color: var(--accent); }
-    h2 { font-size: 1rem; margin: 1.25rem 0 0.5rem; color: var(--muted); font-weight: 600; }
+    h2 { font-size: 0.95rem; margin: 0 0 0.65rem; color: var(--muted); font-weight: 600; }
+    #debug-log {
+      width: 100%; min-height: 7rem; max-height: 14rem; overflow: auto;
+      font-family: ui-monospace, monospace; font-size: 0.75rem;
+      background: #080b10; border: 1px solid var(--border); border-radius: 10px;
+      padding: 0.65rem; color: #b8c5d9; white-space: pre-wrap; word-break: break-all;
+    }
+    .probe-inline { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin-top: 0.35rem; }
+    .probe-inline input { max-width: 9rem; }
+    code { font-size: 0.85em; background: rgba(0,0,0,0.25); padding: 0.1rem 0.35rem; border-radius: 4px; }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>HTTPS reverse proxy</h1>
-    <p class="lead" id="lead-main">
-      <strong>Dogebox + HTTPS:</strong> With TLS on, this pup listens on <strong>two</strong> ports — <strong>HTTP</strong> on <code>PUBLIC_PORT</code> (what the Dogebox panel uses) and <strong>HTTPS</strong> on the companion port (default <code>PUBLIC_PORT+1</code>, or <code>HTTPS_PROXY_TLS_PORT</code>). Open <code>http://dogebox:&lt;HTTP-mapped-port&gt;/__proxy/</code> from the panel, or <code>https://dogebox:&lt;HTTPS-mapped-port&gt;/__proxy/</code> for encryption (same hostname <code>dogebox</code> on every port; cert SAN matches the name, not the port).
-      Default admin token is <strong>DOGECOIN</strong> unless you set <code>HTTPS_PROXY_ADMIN_TOKEN</code>.
-      If you see <strong>SSL_ERROR_RX_RECORD_TOO_LONG</strong>, you used <code>https://</code> on the HTTP-only port — use the HTTPS port, or <code>http://</code> on the HTTP port.
-      Admin stays at <code id="admin-path-label">/__proxy</code> on every listener.
-    </p>
+  <h1>HTTPS reverse proxy</h1>
+  <p class="lead">
+    Default admin token: <strong>DOGECOIN</strong> (or <code>HTTPS_PROXY_ADMIN_TOKEN</code>).
+    With TLS on: <strong>HTTP</strong> on <code>PUBLIC_PORT</code> (Dogebox panel) and <strong>HTTPS</strong> on the companion port (e.g. <code>PUBLIC_PORT+1</code>).
+    Configure hostnames, listener ports, and upstreams below — then run probes to verify TLS and backends.
+  </p>
 
-    <div class="row">
-      <label><input type="checkbox" id="https-enabled" checked /> Enable HTTPS (TLS) on this proxy</label>
-      <p class="hint">On = HTTP on <code>PUBLIC_PORT</code> + HTTPS on companion port (Dogebox-compatible). Off = plain HTTP only on <code>PUBLIC_PORT</code> (or each listener port).</p>
-    </div>
+  <div class="stepper" role="tablist">
+    <button type="button" class="step-tab active" data-step="1">1 · Access &amp; TLS</button>
+    <button type="button" class="step-tab" data-step="2">2 · Certificate SANs</button>
+    <button type="button" class="step-tab" data-step="3">3 · Routes &amp; listeners</button>
+  </div>
 
-    <div class="row">
-      <label for="token">Admin token</label>
-      <input id="token" type="password" autocomplete="off" placeholder="DOGECOIN (default)" />
-      <p class="hint">Saved in this browser only (localStorage).</p>
-    </div>
-
-    <div id="tls-section">
-    <h2>TLS names (certificate)</h2>
-    <div class="grid2">
-      <div class="row" style="margin:0">
-        <label for="tls-domains">DNS names (comma or newline)</label>
-        <textarea id="tls-domains" placeholder="dogebox"></textarea>
+  <div class="step-panel visible" data-step-panel="1">
+    <div class="card">
+      <h2>Admin token</h2>
+      <div class="row">
+        <label for="token">Bearer token (stored in this browser only)</label>
+        <input id="token" type="password" autocomplete="off" placeholder="DOGECOIN" />
       </div>
-      <div class="row" style="margin:0">
-        <label for="tls-ips">IP addresses (optional SANs)</label>
-        <textarea id="tls-ips" placeholder="192.168.x.x"></textarea>
+      <div class="switch-row">
+        <span>Enable HTTPS (TLS) — HTTP on PUBLIC_PORT + HTTPS on companion port</span>
+        <label class="switch" title="Toggle TLS">
+          <input type="checkbox" id="https-enabled" checked />
+          <span class="slider" aria-hidden="true"></span>
+        </label>
+      </div>
+      <p class="hint">Turn off only if you need plain HTTP on a single port (no TLS listener).</p>
+      <div class="toolbar">
+        <button type="button" class="btn-primary" id="btn-step1-test">Test: load config (auth)</button>
       </div>
     </div>
-    </div>
+  </div>
 
-    <h2>Port listeners (dogebox:8080, dogebox:33880, …)</h2>
-    <p class="hint" style="margin:0 0 0.5rem">Leave empty to use a single port from the pup env (<code>PUBLIC_PORT</code>) + host-based routes below.</p>
-    <table>
-      <thead><tr><th>Listen port</th><th>HTTP upstream (pup)</th><th></th></tr></thead>
-      <tbody id="listeners-body"></tbody>
-    </table>
-    <div class="toolbar">
-      <button type="button" class="btn-ghost" id="btn-add-listener">+ Add port listener</button>
+  <div class="step-panel" data-step-panel="2">
+    <div class="card">
+      <h2>TLS certificate (SANs)</h2>
+      <p class="hint">Names and IPs embedded in the self-signed cert (e.g. <code>dogebox</code>).</p>
+      <div id="tls-section">
+        <div class="grid2">
+          <div class="row" style="margin:0">
+            <label for="tls-domains">DNS names (comma or newline)</label>
+            <textarea id="tls-domains" placeholder="dogebox"></textarea>
+          </div>
+          <div class="row" style="margin:0">
+            <label for="tls-ips">IP addresses (optional)</label>
+            <textarea id="tls-ips" placeholder="192.168.x.x"></textarea>
+          </div>
+        </div>
+      </div>
+      <h2 style="margin-top:1rem">Probe TLS port</h2>
+      <p class="hint">Dial a host with TLS (e.g. HTTPS companion port after save). Uses <code>InsecureSkipVerify</code> for testing.</p>
+      <div class="grid2">
+        <div class="row" style="margin:0">
+          <label for="probe-tls-host">Host</label>
+          <input id="probe-tls-host" type="text" placeholder="127.0.0.1 or dogebox" value="127.0.0.1" />
+        </div>
+        <div class="row" style="margin:0">
+          <label for="probe-tls-port">TLS port</label>
+          <input id="probe-tls-port" type="number" min="1" max="65535" placeholder="10001" />
+        </div>
+      </div>
+      <div class="toolbar">
+        <button type="button" class="btn-ghost" id="btn-probe-tls">Run TLS handshake test</button>
+      </div>
     </div>
+  </div>
 
-    <h2>Host-based routes (single-port mode)</h2>
-    <p class="hint" style="margin:0 0 0.5rem">Used when port listeners are empty. Match <code>Host</code> (ignore port) → upstream.</p>
-    <div class="row">
-      <label for="default-up">Default upstream (optional)</label>
-      <input id="default-up" type="text" placeholder="http://127.0.0.1:8080" />
-    </div>
-    <table>
-      <thead><tr><th>Host</th><th>Upstream</th><th></th></tr></thead>
-      <tbody id="routes-body"></tbody>
-    </table>
-    <div class="toolbar">
-      <button type="button" class="btn-ghost" id="btn-add-route">+ Add host route</button>
-    </div>
+  <div class="step-panel" data-step-panel="3">
+    <div class="card">
+      <h2>Port listeners</h2>
+      <p class="hint">Each row: HTTP listen port (Dogebox) → HTTP upstream pup. When TLS is on, HTTPS is on <code>listen_port + offset</code> (env <code>HTTPS_PROXY_LISTENER_TLS_OFFSET</code>, default 10000). Leave empty to use single <code>PUBLIC_PORT</code> + host routes.</p>
+      <table>
+        <thead><tr><th>Listen port</th><th>Upstream (http://…)</th><th></th></tr></thead>
+        <tbody id="listeners-body"></tbody>
+      </table>
+      <div class="toolbar">
+        <button type="button" class="btn-ghost" id="btn-add-listener">+ Add listener</button>
+      </div>
 
-    <div class="toolbar">
-      <button type="button" class="btn-primary" id="btn-save">Save &amp; reload listeners</button>
-      <button type="button" class="btn-ghost" id="btn-reload">Reload from server</button>
-      <a id="cert-link" href="#" target="_blank" rel="noopener">Download cert.pem</a>
+      <h2 style="margin-top:1rem">Host routes (single-port mode)</h2>
+      <p class="hint">When listeners are empty: match <code>Host</code> → upstream.</p>
+      <div class="row">
+        <label for="default-up">Default upstream (optional)</label>
+        <input id="default-up" type="text" placeholder="http://127.0.0.1:8080" />
+      </div>
+      <table>
+        <thead><tr><th>Host</th><th>Upstream</th><th></th></tr></thead>
+        <tbody id="routes-body"></tbody>
+      </table>
+      <div class="toolbar">
+        <button type="button" class="btn-ghost" id="btn-add-route">+ Add route</button>
+      </div>
+
+      <div class="toolbar" style="margin-top:1rem">
+        <button type="button" class="btn-primary" id="btn-save">Save &amp; reload listeners</button>
+        <button type="button" class="btn-ghost" id="btn-reload">Reload from server</button>
+        <button type="button" class="btn-ghost" id="btn-probe-upstream-demo">Test sample upstream GET</button>
+        <a id="cert-link" href="#" rel="noopener">Download cert.pem</a>
+      </div>
     </div>
-    <div class="msg" id="msg"></div>
+  </div>
+
+  <div class="card" style="max-width:920px">
+    <h2>Diagnostics log</h2>
+    <p class="hint">Probe results and errors appear here for debugging.</p>
+    <pre id="debug-log"></pre>
+    <div class="toolbar">
+      <button type="button" class="btn-ghost btn-sm" id="btn-log-clear">Clear log</button>
+      <button type="button" class="btn-ghost btn-sm" id="btn-run-suite">Run quick checks (TCP HTTP port + TLS + config)</button>
+    </div>
+    <div class="msg" id="msg" style="display:none"></div>
   </div>
 
   <script>
@@ -130,7 +228,25 @@
     })();
     const api = (path) => BASE + path;
 
-    document.getElementById("admin-path-label").textContent = BASE;
+    function logLine(level, ...args) {
+      const el = document.getElementById("debug-log");
+      const t = new Date().toISOString().slice(11, 23);
+      const line = "[" + t + "] " + level + " " + args.map(String).join(" ");
+      el.textContent = (el.textContent ? el.textContent + "\n" : "") + line;
+      el.scrollTop = el.scrollHeight;
+    }
+
+    document.getElementById("btn-log-clear").onclick = () => {
+      document.getElementById("debug-log").textContent = "";
+    };
+
+    function setMsg(text, ok) {
+      const m = document.getElementById("msg");
+      if (!text) { m.style.display = "none"; return; }
+      m.style.display = "block";
+      m.textContent = text;
+      m.className = "msg " + (ok ? "ok" : "err");
+    }
 
     const tokenEl = document.getElementById("token");
     tokenEl.value = localStorage.getItem(LS) || "";
@@ -142,18 +258,35 @@
       return h;
     }
 
-    function setMsg(text, ok) {
-      const m = document.getElementById("msg");
-      m.textContent = text;
-      m.className = "msg " + (ok ? "ok" : "err");
+    document.querySelectorAll(".step-tab").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const n = btn.getAttribute("data-step");
+        document.querySelectorAll(".step-tab").forEach((b) => b.classList.toggle("active", b === btn));
+        document.querySelectorAll(".step-panel").forEach((p) => p.classList.toggle("visible", p.getAttribute("data-step-panel") === n));
+      });
+    });
+
+    document.getElementById("https-enabled").addEventListener("change", toggleTlsUI);
+
+    function toggleTlsUI() {
+      const on = document.getElementById("https-enabled").checked;
+      const sec = document.getElementById("tls-section");
+      if (sec) sec.style.display = on ? "" : "none";
+      const cl = document.getElementById("cert-link");
+      if (cl) cl.style.display = on ? "" : "none";
     }
 
     function rowRoute(host, up) {
       const tr = document.createElement("tr");
       tr.innerHTML = `<td><input data-k="host" value="${host || ""}" placeholder="dogebox" /></td>` +
         `<td><input data-k="up" value="${up || ""}" placeholder="http://127.0.0.1:33880" /></td>` +
-        `<td><button type="button" class="btn-ghost" data-remove>Remove</button></td>`;
+        `<td><button type="button" class="btn-ghost btn-sm" data-remove>Remove</button> <button type="button" class="btn-ghost btn-sm" data-probe-up>Probe GET</button></td>`;
       tr.querySelector("[data-remove]").onclick = () => tr.remove();
+      tr.querySelector("[data-probe-up]").onclick = () => {
+        const upv = tr.querySelector('[data-k="up"]').value.trim();
+        if (!upv) { logLine("ERR", "empty upstream"); return; }
+        probeUpstreamUrl(upv);
+      };
       return tr;
     }
 
@@ -161,18 +294,13 @@
       const tr = document.createElement("tr");
       tr.innerHTML = `<td><input type="number" data-k="port" min="1" max="65535" value="${port || ""}" placeholder="8080" /></td>` +
         `<td><input data-k="up" value="${up || ""}" placeholder="http://127.0.0.1:8080" /></td>` +
-        `<td><button type="button" class="btn-ghost" data-remove>Remove</button></td>`;
+        `<td><button type="button" class="btn-ghost btn-sm" data-remove>Remove</button></td>`;
       tr.querySelector("[data-remove]").onclick = () => tr.remove();
       return tr;
     }
 
-    document.getElementById("btn-add-route").onclick = () => {
-      document.getElementById("routes-body").appendChild(rowRoute());
-    };
-    document.getElementById("btn-add-listener").onclick = () => {
-      document.getElementById("listeners-body").appendChild(rowListener());
-    };
-    document.getElementById("https-enabled").addEventListener("change", toggleTlsUI);
+    document.getElementById("btn-add-route").onclick = () => document.getElementById("routes-body").appendChild(rowRoute());
+    document.getElementById("btn-add-listener").onclick = () => document.getElementById("listeners-body").appendChild(rowListener());
 
     function collectRoutes() {
       const out = [];
@@ -200,13 +328,85 @@
       return s.split(/[\n,]+/).map((x) => x.trim()).filter(Boolean);
     }
 
-    function toggleTlsUI() {
-      const on = document.getElementById("https-enabled").checked;
-      const sec = document.getElementById("tls-section");
-      if (sec) sec.style.display = on ? "" : "none";
-      const cl = document.getElementById("cert-link");
-      if (cl) cl.style.display = on ? "" : "none";
+    async function probeTls(host, port) {
+      logLine("INF", "TLS probe", host + ":" + port);
+      const r = await fetch(api("/api/probe-tls"), {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ host, port: parseInt(port, 10) }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (j.ok) logLine("OK", "TLS ok", j.tls_version || "", j.cert_subject || "");
+      else logLine("ERR", "TLS failed:", j.error || r.status);
+      return j;
     }
+
+    async function probeTcp(host, port) {
+      logLine("INF", "TCP probe", host + ":" + port);
+      const r = await fetch(api("/api/probe-tcp"), {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ host, port: parseInt(port, 10) }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (j.ok) logLine("OK", "TCP connect ok", j.addr || "");
+      else logLine("ERR", "TCP failed:", j.error || r.status);
+      return j;
+    }
+
+    async function probeUpstreamUrl(url) {
+      logLine("INF", "GET", url);
+      const r = await fetch(api("/api/probe-upstream"), {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ url }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (j.ok) logLine("OK", "HTTP", j.status, (j.body_snippet || "").slice(0, 120));
+      else logLine("ERR", "GET failed:", j.error || j.status_text || r.status);
+      return j;
+    }
+
+    document.getElementById("btn-probe-tls").onclick = async () => {
+      localStorage.setItem(LS, tokenEl.value.trim());
+      const host = document.getElementById("probe-tls-host").value.trim() || "127.0.0.1";
+      const port = parseInt(document.getElementById("probe-tls-port").value, 10);
+      if (!port || port < 1) { logLine("ERR", "set TLS port"); return; }
+      await probeTls(host, port);
+    };
+
+    document.getElementById("btn-probe-upstream-demo").onclick = () => {
+      const u = prompt("Upstream URL to GET (http/https)", "http://127.0.0.1:80/");
+      if (u) probeUpstreamUrl(u.trim());
+    };
+
+    document.getElementById("btn-step1-test").onclick = async () => {
+      localStorage.setItem(LS, tokenEl.value.trim());
+      setMsg("", true);
+      logLine("INF", "Loading /api/config …");
+      const r = await fetch(api("/api/config"), { headers: authHeaders() });
+      if (r.status === 401) {
+        setMsg("Unauthorized — set token to DOGECOIN (or your override).", false);
+        logLine("ERR", "401 unauthorized");
+        return;
+      }
+      if (!r.ok) {
+        setMsg("Load failed: " + r.status, false);
+        return;
+      }
+      setMsg("Authenticated — config loaded.", true);
+      logLine("OK", "config loaded");
+    };
+
+    document.getElementById("btn-run-suite").onclick = async () => {
+      localStorage.setItem(LS, tokenEl.value.trim());
+      logLine("INF", "--- quick suite ---");
+      await probeTcp("127.0.0.1", 10000).catch(() => {});
+      const tp = parseInt(document.getElementById("probe-tls-port").value, 10) || 10001;
+      await probeTls("127.0.0.1", tp).catch(() => {});
+      const r = await fetch(api("/api/config"), { headers: authHeaders() });
+      logLine(r.ok ? "OK" : "ERR", "config GET", r.status);
+    };
 
     function fill(cfg) {
       document.getElementById("https-enabled").checked = !!cfg.https_enabled;
@@ -222,9 +422,6 @@
       const tb = document.getElementById("routes-body");
       tb.innerHTML = "";
       (cfg.routes || []).forEach((r) => tb.appendChild(rowRoute(r.host, r.upstream)));
-      if (!tb.children.length && !(cfg.listeners && cfg.listeners.length)) {
-        tb.appendChild(rowRoute("dogebox", "http://127.0.0.1:33880"));
-      }
     }
 
     async function loadCfg() {
@@ -261,6 +458,7 @@
         cfg.default_upstream = "";
       }
       setMsg("Saving…", true);
+      logLine("INF", "POST /api/config …");
       const res = await fetch(api("/api/config"), {
         method: "POST",
         headers: authHeaders(),
@@ -268,20 +466,18 @@
       });
       if (res.status === 401) {
         setMsg("Unauthorized — check admin token.", false);
+        logLine("ERR", "save 401");
         return;
       }
       if (!res.ok) {
         const t = await res.text();
         setMsg("Save failed: " + res.status + " " + t, false);
+        logLine("ERR", "save", t);
         return;
       }
       const httpsOn = document.getElementById("https-enabled").checked;
-      setMsg(
-        httpsOn
-          ? "Saved. HTTPS enabled — use https:// URLs; trust cert if the browser warns."
-          : "Saved. HTTP only — use http:// URLs (no TLS).",
-        true
-      );
+      setMsg(httpsOn ? "Saved. Listeners reloaded." : "Saved. HTTP-only mode.", true);
+      logLine("OK", "saved");
     };
 
     document.getElementById("cert-link").onclick = (e) => {

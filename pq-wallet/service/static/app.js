@@ -69,9 +69,9 @@ function showView(name) {
 async function refreshLogs() {
   try {
     const [spv, mtr, bc] = await Promise.all([
-      fetch("/api/logs/spv?lines=420").then((r) => r.text()),
+      fetch("/api/logs/spv?lines=200").then((r) => r.text()),
       fetch("/api/logs/mempooltracker").then((r) => r.text()),
-      fetch("/api/logs/broadcast?lines=420").then((r) => r.text()),
+      fetch("/api/logs/broadcast?lines=200").then((r) => r.text()),
     ]);
     const elS = $("log-spv");
     const elM = $("log-mtr");
@@ -299,7 +299,12 @@ async function refreshDashboard() {
   const t = data.dashboard.totals || {};
   const spendStr = t.spendable_hint_doge != null ? String(t.spendable_hint_doge) : "—";
   const balBig = $("wallet-balance-big");
+  const balUnit = $("wallet-balance-unit");
   if (balBig) balBig.textContent = spendStr;
+  if (balUnit) {
+    const net = (state.wallet && state.wallet.network && String(state.wallet.network).toLowerCase()) || "mainnet";
+    balUnit.textContent = net === "testnet" ? "DOGE (testnet)" : "DOGE";
+  }
   const pend = t.pending_mempool_doge;
   const pendRow = $("wallet-pending-row");
   const pendEl = $("wallet-pending-line");
@@ -316,25 +321,36 @@ async function refreshDashboard() {
   const spv = data.dashboard.spv || {};
   const mtr = data.dashboard.memetracker || {};
   const mtrMeta = $("mtr-mempool-meta");
-  const mtrTb = $("mtr-mempool-tbody");
+  const mtrList = $("mtr-mempool-list");
   const mtrExpand = $("btn-mtr-mempool-expand");
   const mtrCard = $("mtr-mempool-card");
   const MTR_VISIBLE = 10;
-  if (mtrMeta && mtrTb) {
+  if (mtrMeta && mtrList) {
     if (mtr.engine_ok) {
       mtrMeta.textContent = `P2P workers connected: ${mtr.workers_connected ?? 0} · unique tx ids on relay: ${mtr.mempool_tx_count ?? 0}`;
     } else {
       mtrMeta.textContent = mtr.engine_error || "Mempool engine not available.";
     }
-    mtrTb.innerHTML = "";
+    mtrList.innerHTML = "";
     const rows = mtr.mempool_transactions || [];
     rows.forEach((row, i) => {
-      const tr = document.createElement("tr");
-      if (i >= MTR_VISIBLE) tr.classList.add("mtr-extra-row");
       const tx = row.txid != null ? String(row.txid) : "";
-      const short = tx.length > 24 ? tx.slice(0, 20) + "…" : tx;
-      tr.innerHTML = `<td class="mono" title="${escapeHtml(tx)}">${escapeHtml(short)}</td><td>${row.tracked_match ? "yes" : ""}</td><td>${row.amount_doge != null ? escapeHtml(String(row.amount_doge)) : ""}</td>`;
-      mtrTb.appendChild(tr);
+      if (!tx) return;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "mtr-tx-item";
+      if (i >= MTR_VISIBLE) btn.classList.add("mtr-extra-row");
+      btn.setAttribute("role", "listitem");
+      const tracked = !!row.tracked_match;
+      const amt = row.amount_doge != null ? String(row.amount_doge) : "";
+      btn.innerHTML =
+        `<div class="mtr-tx-main"><div class="mtr-tx-id" title="${escapeHtml(tx)}">${escapeHtml(tx.length > 36 ? tx.slice(0, 34) + "…" : tx)}</div></div>` +
+        `<div class="mtr-tx-badges">` +
+        `<span class="badge-mtr-track ${tracked ? "" : "off"}">${tracked ? "Tracked" : "Scanning"}</span>` +
+        (amt ? `<span class="badge-mtr-amt">${escapeHtml(amt)} DOGE</span>` : "") +
+        `</div>`;
+      btn.addEventListener("click", () => window.open(sochainTxUrl(tx), "_blank", "noopener,noreferrer"));
+      mtrList.appendChild(btn);
     });
     if (mtrExpand && mtrCard) {
       const extra = rows.length - MTR_VISIBLE;
@@ -380,6 +396,15 @@ async function refreshTxList(refresh) {
     const card = document.createElement("article");
     card.className = "tx-card";
     card.setAttribute("role", "listitem");
+    const txidFull = String(tx.txid || "").trim();
+    if (txidFull) {
+      card.style.cursor = "pointer";
+      card.title = "Open on SoChain";
+      card.addEventListener("click", (e) => {
+        if (e.target.closest("a, button")) return;
+        window.open(sochainTxUrl(txidFull), "_blank", "noopener,noreferrer");
+      });
+    }
     const short = (tx.txid || "").slice(0, 22) + (tx.txid && tx.txid.length > 22 ? "…" : "");
     const head = document.createElement("div");
     head.className = "tx-card-head";
@@ -446,31 +471,54 @@ async function refreshTxList(refresh) {
 
 function renderAddresses(w) {
   const addrs = w.addresses && w.addresses.length ? w.addresses : [];
-  const tb = $("addr-table").querySelector("tbody");
-  tb.innerHTML = "";
+  const list = $("addr-list");
+  if (!list) return;
+  list.innerHTML = "";
   if (!addrs.length) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="4" class="muted">No address rows — restore or recreate wallet.</td>`;
-    tb.appendChild(tr);
+    const p = document.createElement("p");
+    p.className = "muted small";
+    p.style.padding = "0.5rem 0";
+    p.textContent = "No address rows — restore or recreate wallet.";
+    list.appendChild(p);
     return;
   }
   addrs.forEach((a) => {
-    const tr = document.createElement("tr");
-    const pri = a.primary ? "★" : "";
-    tr.innerHTML = `<td>${escapeHtml(a.label || "")}</td><td class="mono">${escapeHtml(a.p2pkh_address || "")}</td><td>${pri}</td><td class="btn-row"></td>`;
-    const td = tr.querySelector("td:last-child");
+    const card = document.createElement("div");
+    card.className = "addr-card";
+    card.setAttribute("role", "listitem");
+    const head = document.createElement("div");
+    head.className = "addr-card-head";
+    const lab = document.createElement("span");
+    lab.className = "addr-card-label";
+    lab.textContent = a.label || "Address";
+    head.appendChild(lab);
+    if (a.primary) {
+      const b = document.createElement("span");
+      b.className = "badge-primary-addr";
+      b.textContent = "Primary";
+      head.appendChild(b);
+    }
+    const addrEl = document.createElement("div");
+    addrEl.className = "addr-card-addr";
+    addrEl.textContent = a.p2pkh_address || "";
+    const actions = document.createElement("div");
+    actions.className = "addr-card-actions";
     const bCopy = document.createElement("button");
     bCopy.type = "button";
     bCopy.className = "btn";
     bCopy.textContent = "Copy";
-    bCopy.addEventListener("click", () => navigator.clipboard.writeText(a.p2pkh_address || ""));
-    td.appendChild(bCopy);
+    bCopy.addEventListener("click", (e) => {
+      e.stopPropagation();
+      navigator.clipboard.writeText(a.p2pkh_address || "");
+    });
+    actions.appendChild(bCopy);
     if (!a.primary) {
       const bPrim = document.createElement("button");
       bPrim.type = "button";
       bPrim.className = "btn";
       bPrim.textContent = "Set primary";
-      bPrim.addEventListener("click", async () => {
+      bPrim.addEventListener("click", async (e) => {
+        e.stopPropagation();
         const r = await api("/api/wallet/primary", {
           method: "POST",
           body: JSON.stringify({ id: a.id }),
@@ -478,14 +526,26 @@ function renderAddresses(w) {
         if (r.error) alert(r.error);
         await refreshWallet();
       });
-      td.appendChild(bPrim);
+      actions.appendChild(bPrim);
     }
-    tb.appendChild(tr);
+    card.appendChild(head);
+    card.appendChild(addrEl);
+    card.appendChild(actions);
+    list.appendChild(card);
   });
 }
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+/** SoChain explorer URL for current wallet network */
+function sochainTxUrl(txid) {
+  const raw = String(txid || "").trim();
+  if (!raw) return "#";
+  const net = (state.wallet && state.wallet.network && String(state.wallet.network).toLowerCase()) || "mainnet";
+  const coin = net === "testnet" ? "DOGETEST" : "DOGE";
+  return "https://sochain.com/tx/" + coin + "/" + encodeURIComponent(raw);
 }
 
 function getPrimaryAddress(w) {
@@ -826,7 +886,7 @@ if (btnMtrExpand) {
     if (!card) return;
     const on = card.classList.toggle("mtr-expanded");
     btnMtrExpand.setAttribute("aria-expanded", on ? "true" : "false");
-    const extra = card.querySelectorAll("tr.mtr-extra-row").length;
+    const extra = card.querySelectorAll(".mtr-tx-item.mtr-extra-row").length;
     btnMtrExpand.textContent = on ? "Show less" : `Show all (${extra} more)`;
   });
 }

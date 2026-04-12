@@ -292,7 +292,7 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 	out = append(out, mtrOnly...)
 	for _, t := range st.Transactions {
 		tr := txListRow{TxRecord: t, Pending: t.Confirmations == 0}
-		if mtrOverlay[t.Txid] {
+		if mtrOverlay[t.Txid] && t.Confirmations == 0 {
 			tr.Pending = true
 			tr.Source = "memetracker"
 		}

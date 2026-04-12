@@ -9,7 +9,7 @@ import (
 
 func readLastNLinesFromFile(path string, maxBytes, n int) (string, error) {
 	if n <= 0 {
-		n = 420
+		n = 200
 	}
 	raw, err := readFileTail(path, maxBytes)
 	if err != nil {
@@ -28,13 +28,13 @@ func (s *Server) handleLogsSPV(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET only"})
 		return
 	}
-	n := 420
+	n := 200
 	if v := r.URL.Query().Get("lines"); v != "" {
-		if x, err := strconv.Atoi(v); err == nil && x > 0 && x <= 5000 {
+		if x, err := strconv.Atoi(v); err == nil && x > 0 && x <= 2000 {
 			n = x
 		}
 	}
-	text, err := readLastNLinesFromFile(s.spvLogPath(), 8<<20, n)
+	text, err := readLastNLinesFromFile(s.spvLogPath(), 2<<20, n)
 	if err != nil {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
@@ -92,9 +92,9 @@ func (s *Server) handleLogsBroadcast(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET only"})
 		return
 	}
-	n := 420
+	n := 200
 	if v := r.URL.Query().Get("lines"); v != "" {
-		if x, err := strconv.Atoi(v); err == nil && x > 0 && x <= 5000 {
+		if x, err := strconv.Atoi(v); err == nil && x > 0 && x <= 2000 {
 			n = x
 		}
 	}

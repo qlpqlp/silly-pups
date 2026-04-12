@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "meta": {
     "name": "HTTPS Proxy",
-    "version": "0.1.6",
+    "version": "0.1.7",
     "logoPath": "logo.png",
     "shortDescription": "HTTPS reverse proxy for other pups (TLS self-signed by default + web admin)",
     "longDescription": "**TLS is on by default** (self-signed cert, SAN **dogebox** — same hostname works on **any port**). **Dogebox’s panel** reverse-proxies with **HTTP** to **`PUBLIC_PORT`**, so this pup serves **plain HTTP on `PUBLIC_PORT`** and **HTTPS on the companion port** (default **`PUBLIC_PORT+1`**, override **`HTTPS_PROXY_TLS_PORT`**). Use **`http://dogebox:<mapped PUBLIC_PORT>/__proxy/`** from the panel, or **`https://dogebox:<mapped TLS port>/__proxy/`** for HTTPS in the browser. Default admin token **`DOGECOIN`** (override **`HTTPS_PROXY_ADMIN_TOKEN`**). Turn off **Enable HTTPS** for HTTP-only on a single port. **Port listeners:** HTTP on each **`listen_port`** (Dogebox); HTTPS on **`listen_port + HTTPS_PROXY_LISTENER_TLS_OFFSET`** (default 10000). Not Let’s Encrypt.",
@@ -53,7 +53,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "63c4ba2c11bb09832cccb7e8a3904f04f8739014d661795d445ddf3aec9f6c60"
+      "nixFileSha256": "516e6c4aa0add632f0ca985c81ccc724ef069f07bb0e35537c6ab19e2646c936"
     },
     "services": [
       {
@@ -92,7 +92,7 @@
   "interfaces": [
     {
       "name": "https-proxy-http",
-      "version": "0.1.6",
+      "version": "0.1.7",
       "permissionGroups": [
         {
           "name": "HTTPS Proxy (HTTP / Dogebox)",
@@ -107,7 +107,7 @@
     },
     {
       "name": "https-proxy-tls",
-      "version": "0.1.6",
+      "version": "0.1.7",
       "permissionGroups": [
         {
           "name": "HTTPS Proxy (TLS direct)",

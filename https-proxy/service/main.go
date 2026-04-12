@@ -364,6 +364,12 @@ func (s *server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		s.mu.RUnlock()
 		w.Header().Set("Content-Type", "application/x-pem-file")
 		_, _ = w.Write([]byte(pem))
+	case r.Method == http.MethodPost && p == "/api/probe-tls":
+		s.handleProbeTLS(w, r)
+	case r.Method == http.MethodPost && p == "/api/probe-upstream":
+		s.handleProbeUpstream(w, r)
+	case r.Method == http.MethodPost && p == "/api/probe-tcp":
+		s.handleProbeTCP(w, r)
 	default:
 		http.NotFound(w, r)
 	}

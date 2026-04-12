@@ -145,8 +145,10 @@
         <section id="view-dashboard" class="view hidden">
           <div class="wallet-hero card">
             <p class="wallet-hero-label">Available balance</p>
-            <p class="wallet-hero-balance" id="wallet-balance-big">—</p>
-            <p class="wallet-hero-unit">DOGE</p>
+            <div class="wallet-hero-balance-row">
+              <span class="wallet-hero-balance" id="wallet-balance-big">—</span>
+              <span class="wallet-hero-unit" id="wallet-balance-unit">DOGE</span>
+            </div>
             <div class="wallet-pending-row" id="wallet-pending-row" hidden>
               <span class="badge badge-pending-label">Pending</span>
               <span class="badge badge-pending-amt mono" id="wallet-pending-line">—</span>
@@ -159,27 +161,18 @@
             </div>
             <p class="mono hash" id="hdr-hash">—</p>
           </div>
-          <div class="charts charts-single">
-            <div class="card chart-card">
+          <div class="charts charts-fullwidth">
+            <div class="card chart-card chart-card-wide">
               <h3>Mempool <span class="chart-sub">(last 24h, MemeTracker relay)</span></h3>
-              <canvas id="chart-mempool" height="120"></canvas>
+              <div class="chart-canvas-wrap">
+                <canvas id="chart-mempool" height="140"></canvas>
+              </div>
             </div>
           </div>
-          <div class="card" id="mtr-mempool-card">
+          <div class="card mtr-card-modern" id="mtr-mempool-card">
             <h3><span class="material-symbols-outlined icon-inline">hub</span> Memepool Tracker</h3>
             <p class="small muted" id="mtr-mempool-meta">—</p>
-            <div class="table-wrap">
-              <table class="data-table" id="mtr-mempool-table">
-                <thead>
-                  <tr>
-                    <th>Txid</th>
-                    <th>Tracked</th>
-                    <th>DOGE</th>
-                  </tr>
-                </thead>
-                <tbody id="mtr-mempool-tbody"></tbody>
-              </table>
-            </div>
+            <div class="mtr-tx-list" id="mtr-mempool-list" role="list"></div>
             <button type="button" class="btn mtr-expand-btn hidden" id="btn-mtr-mempool-expand" aria-expanded="false">Show all</button>
           </div>
         </section>
@@ -206,18 +199,8 @@
             <button type="button" class="btn primary" id="btn-new-addr"><span class="material-symbols-outlined btn-ico">add_link</span> Generate new address</button>
             <p class="small muted">SPV watches the <strong>primary</strong> address.</p>
           </div>
-          <div class="card table-wrap">
-            <table class="data-table" id="addr-table">
-              <thead>
-                <tr>
-                  <th>Label</th>
-                  <th>Address</th>
-                  <th>Primary</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
+          <div class="card addr-list-card">
+            <div class="addr-list" id="addr-list" role="list" aria-label="Addresses"></div>
           </div>
         </section>
 

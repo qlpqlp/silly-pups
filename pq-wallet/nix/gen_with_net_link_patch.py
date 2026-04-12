@@ -54,12 +54,13 @@ def main() -> None:
     u = urllib.request.urlopen(URL).read().decode("utf-8").replace("\r\n", "\n")
     mid = after_oqs_libevent(u)
 
+    # Must use keyword form (PUBLIC) to match target_link_libraries(... PUBLIC ...) for liboqs
     fixed = mid.replace(
         "TARGET_LINK_LIBRARIES(${LIBS} ${LIBEVENT} ${LIBEVENT_PTHREADS} tbs ncrypt crypt32)",
-        "TARGET_LINK_LIBRARIES(${LIBDOGECOIN_NAME} ${LIBEVENT} ${LIBEVENT_PTHREADS} tbs ncrypt crypt32)",
+        "TARGET_LINK_LIBRARIES(${LIBDOGECOIN_NAME} PUBLIC ${LIBEVENT} ${LIBEVENT_PTHREADS} tbs ncrypt crypt32)",
     ).replace(
         "TARGET_LINK_LIBRARIES(${LIBS} ${LIBEVENT} ${LIBEVENT_PTHREADS})",
-        "TARGET_LINK_LIBRARIES(${LIBDOGECOIN_NAME} ${LIBEVENT} ${LIBEVENT_PTHREADS})",
+        "TARGET_LINK_LIBRARIES(${LIBDOGECOIN_NAME} PUBLIC ${LIBEVENT} ${LIBEVENT_PTHREADS})",
     )
 
     if mid == fixed:

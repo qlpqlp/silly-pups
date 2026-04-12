@@ -4,7 +4,7 @@
 let
   proxy_bin = pkgs.buildGoModule {
     pname = "https-proxy";
-    version = "0.1.7";
+    version = "0.1.8";
     src = ./service;
     vendorHash = null;
     go = pkgs.go_1_24;

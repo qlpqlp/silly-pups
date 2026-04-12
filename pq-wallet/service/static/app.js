@@ -24,6 +24,7 @@ const state = {
   pollLogs: null,
   qrScanner: null,
   receiveQrAddr: null,
+  receiveQrBucket: "",
   txDetailTxid: "",
   txDetailHex: "",
 };
@@ -212,6 +213,8 @@ function setOnboarding(w) {
   $("view-onboarding").classList.toggle("hidden", has);
   const appEl = $("app");
   if (appEl) appEl.classList.toggle("has-wallet", has);
+  const mfs = $("mobile-foundation-strip");
+  if (mfs) mfs.classList.toggle("hidden", !has);
   const mt = $("mobile-tabbar");
   if (mt) mt.classList.toggle("hidden", !has);
   ["view-dashboard", "view-receive", "view-addresses", "view-transactions", "view-tools", "view-logs", "view-learn", "view-settings"].forEach((id) => {
@@ -219,9 +222,24 @@ function setOnboarding(w) {
   });
   if (has) {
     if (w && w.network) $("net-badge").textContent = (w.network || "mainnet").toUpperCase();
+    applyMobileSidebarClosedDefault();
     showView(state.view || "dashboard");
     updateReceiveView();
     startPollers();
+  }
+}
+
+/** On narrow viewports, start with the drawer closed so content is visible (Dogebox phones). */
+function applyMobileSidebarClosedDefault() {
+  const sb = $("sidebar");
+  if (!sb) return;
+  if (!window.matchMedia("(max-width: 900px)").matches) return;
+  sb.classList.add("collapsed");
+  const btn = $("btn-sidebar-toggle");
+  if (btn) {
+    btn.setAttribute("aria-expanded", "false");
+    const icon = btn.querySelector(".material-symbols-outlined");
+    if (icon) icon.textContent = "menu";
   }
 }
 
@@ -350,7 +368,7 @@ async function refreshDashboard() {
   const mtrList = $("mtr-mempool-list");
   const mtrExpand = $("btn-mtr-mempool-expand");
   const mtrCard = $("mtr-mempool-card");
-  const MTR_VISIBLE = 10;
+  const MTR_VISIBLE = 3;
   if (mtrMeta && mtrList) {
     if (mtr.engine_ok) {
       mtrMeta.textContent = `P2P workers connected: ${mtr.workers_connected ?? 0} · unique tx ids on relay: ${mtr.mempool_tx_count ?? 0}`;
@@ -681,10 +699,14 @@ function updateReceiveView() {
   if (!addr) {
     qrEl.innerHTML = "";
     state.receiveQrAddr = null;
+    state.receiveQrBucket = "";
     return;
   }
-  if (state.receiveQrAddr === addr && qrEl.querySelector("img, canvas")) return;
+  const bucket = window.matchMedia("(max-width: 900px)").matches ? "sm" : "lg";
+  const qrSize = bucket === "sm" ? 168 : 220;
+  if (state.receiveQrAddr === addr && qrEl.querySelector("img, canvas") && state.receiveQrBucket === bucket) return;
   state.receiveQrAddr = addr;
+  state.receiveQrBucket = bucket;
   qrEl.innerHTML = "";
   if (typeof QRCode === "undefined") {
     const p = document.createElement("p");
@@ -696,8 +718,8 @@ function updateReceiveView() {
   try {
     new QRCode(qrEl, {
       text: addr,
-      width: 220,
-      height: 220,
+      width: qrSize,
+      height: qrSize,
       colorDark: "#0b0f14",
       colorLight: "#ffffff",
       correctLevel: QRCode.CorrectLevel.H,
@@ -1170,6 +1192,18 @@ function wireImportFileUI() {
 }
 
 wireImportFileUI();
+
+let qrResizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(qrResizeTimer);
+  qrResizeTimer = setTimeout(() => {
+    if (state.view !== "receive") return;
+    const bucket = window.matchMedia("(max-width: 900px)").matches ? "sm" : "lg";
+    if (bucket === state.receiveQrBucket) return;
+    state.receiveQrAddr = null;
+    updateReceiveView();
+  }, 200);
+});
 
 const txDetailBack = $("tx-detail-backdrop");
 const txDetailClose = $("btn-tx-detail-close");

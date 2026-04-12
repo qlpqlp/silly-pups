@@ -166,7 +166,7 @@
       <div class="grid2">
         <div class="row" style="margin:0">
           <label for="probe-tls-host">Host</label>
-          <input id="probe-tls-host" type="text" placeholder="127.0.0.1 or dogebox" value="127.0.0.1" />
+          <input id="probe-tls-host" type="text" placeholder="dogebox" value="dogebox" />
         </div>
         <div class="row" style="margin:0">
           <label for="probe-tls-port">TLS port</label>
@@ -195,7 +195,7 @@
       <p class="hint">When listeners are empty: match <code>Host</code> → upstream.</p>
       <div class="row">
         <label for="default-up">Default upstream (optional)</label>
-        <input id="default-up" type="text" placeholder="http://127.0.0.1:8080" />
+        <input id="default-up" type="text" placeholder="http://dogebox:8080" />
       </div>
       <table>
         <thead><tr><th>Host</th><th>Upstream</th><th></th></tr></thead>
@@ -284,7 +284,7 @@
     function rowRoute(host, up) {
       const tr = document.createElement("tr");
       tr.innerHTML = `<td><input data-k="host" value="${host || ""}" placeholder="dogebox" /></td>` +
-        `<td><input data-k="up" value="${up || ""}" placeholder="http://127.0.0.1:33880" /></td>` +
+        `<td><input data-k="up" value="${up || ""}" placeholder="http://dogebox:33880" /></td>` +
         `<td><button type="button" class="btn-ghost btn-sm" data-remove>Remove</button> <button type="button" class="btn-ghost btn-sm" data-probe-up>Probe GET</button></td>`;
       tr.querySelector("[data-remove]").onclick = () => tr.remove();
       tr.querySelector("[data-probe-up]").onclick = () => {
@@ -298,7 +298,7 @@
     function rowListener(port, up) {
       const tr = document.createElement("tr");
       tr.innerHTML = `<td><input type="number" data-k="port" min="1" max="65535" value="${port || ""}" placeholder="8080" /></td>` +
-        `<td><input data-k="up" value="${up || ""}" placeholder="http://127.0.0.1:8080" /></td>` +
+        `<td><input data-k="up" value="${up || ""}" placeholder="http://dogebox:8080" /></td>` +
         `<td><button type="button" class="btn-ghost btn-sm" data-remove>Remove</button></td>`;
       tr.querySelector("[data-remove]").onclick = () => tr.remove();
       return tr;
@@ -374,14 +374,14 @@
 
     document.getElementById("btn-probe-tls").onclick = async () => {
       localStorage.setItem(LS, tokenEl.value.trim());
-      const host = document.getElementById("probe-tls-host").value.trim() || "127.0.0.1";
+      const host = document.getElementById("probe-tls-host").value.trim() || "dogebox";
       const port = parseInt(document.getElementById("probe-tls-port").value, 10);
       if (!port || port < 1) { logLine("ERR", "set TLS port"); return; }
       await probeTls(host, port);
     };
 
     document.getElementById("btn-probe-upstream-demo").onclick = () => {
-      const u = prompt("Upstream URL to GET (http/https)", "http://127.0.0.1:80/");
+      const u = prompt("Upstream URL to GET (http/https)", "http://dogebox:80/");
       if (u) probeUpstreamUrl(u.trim());
     };
 
@@ -406,9 +406,9 @@
     document.getElementById("btn-run-suite").onclick = async () => {
       localStorage.setItem(LS, tokenEl.value.trim());
       logLine("INF", "--- quick suite ---");
-      await probeTcp("127.0.0.1", 10000).catch(() => {});
+      await probeTcp("dogebox", 10000).catch(() => {});
       const tp = parseInt(document.getElementById("probe-tls-port").value, 10) || 10001;
-      await probeTls("127.0.0.1", tp).catch(() => {});
+      await probeTls("dogebox", tp).catch(() => {});
       const r = await fetch(api("/api/config"), { headers: authHeaders() });
       logLine(r.ok ? "OK" : "ERR", "config GET", r.status);
     };

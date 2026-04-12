@@ -2,10 +2,10 @@
   "manifestVersion": 1,
   "meta": {
     "name": "HTTPS Proxy",
-    "version": "0.1.7",
+    "version": "0.1.8",
     "logoPath": "logo.png",
     "shortDescription": "HTTPS reverse proxy for other pups (TLS self-signed by default + web admin)",
-    "longDescription": "**How Dogebox maps ports:** each pup declares **one or more exposes** (see [Dogebox docs — ports](https://dogebox.org/docs/usage/ports) and [overview](https://dogebox.org/docs/)). The panel forwards traffic to the **mapped host port** for each expose. **This pup uses two exposes on purpose:** **`https-http`** (plain HTTP, manifest port **10000**) and **`https-tls`** (HTTPS, **10001**). Dogebox may remap those to different host ports — use **whatever mapped port** the UI shows for each. **HTTP:** open **`http://<host>:<mapped HTTP port>/__proxy/`** (what the panel links for Web UI). **HTTPS:** open **`https://<host>:<mapped TLS port>/__proxy/`** in the browser (self-signed cert; accept the warning or trust the cert). **Inside the container:** HTTP listens on **`PUBLIC_PORT`** (default **10000**); TLS listens on **`HTTPS_PROXY_TLS_PORT`** or **`PUBLIC_PORT+1`** — keep **`HTTPS_PROXY_TLS_PORT`** aligned with the **TLS expose** mapping if you override ports. **TLS** uses a self-signed cert with SAN **dogebox** (same hostname on any port). Default admin token **`DOGECOIN`** (**`HTTPS_PROXY_ADMIN_TOKEN`**). Turn **Enable HTTPS** off in admin only if you want **HTTP on a single port** with no TLS listener. **Advanced:** HTTP on each **`listen_port`** row; HTTPS on **`listen_port + HTTPS_PROXY_LISTENER_TLS_OFFSET`** (default **10000**). Not Let’s Encrypt.",
+    "longDescription": "**How Dogebox maps ports:** each pup declares **one or more exposes** (see [Dogebox docs — ports](https://dogebox.org/docs/usage/ports) and [overview](https://dogebox.org/docs/)). The panel shows **separate buttons** for **HTTP** and **HTTPS** when both are declared. **This manifest declares two exposes:** **`http`** (plain HTTP, default container port **10000**, `webUI: true`) and **`https`** (TLS, default **10001**, `webUI: false`). Use hostname **`dogebox`** (the default on Dogebox), not raw LAN IPs, unless your network requires it. **HTTP:** `http://dogebox:<mapped HTTP port>/__proxy/`. **HTTPS:** `https://dogebox:<mapped TLS port>/__proxy/` (self-signed cert; SAN includes **dogebox** and **localhost**). **Inside the container:** HTTP on **`PUBLIC_PORT`**; TLS on **`HTTPS_PROXY_TLS_PORT`** or **`PUBLIC_PORT+1`**. Default admin token **`DOGECOIN`** (**`HTTPS_PROXY_ADMIN_TOKEN`**). Turn **Enable HTTPS** off in admin for HTTP-only on one port. **Advanced:** per-row listeners: HTTP on each **`listen_port`**, HTTPS on **`listen_port + HTTPS_PROXY_LISTENER_TLS_OFFSET`**. Not Let’s Encrypt.",
     "upstreamVersions": {
       "Go": "1.24"
     }
@@ -53,7 +53,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "516e6c4aa0add632f0ca985c81ccc724ef069f07bb0e35537c6ab19e2646c936"
+      "nixFileSha256": "1aa559d06de2edb47329bd8507a007abd942d73b118083d2342d0d4320613292"
     },
     "services": [
       {
@@ -67,7 +67,7 @@
     ],
     "exposes": [
       {
-        "name": "https-http",
+        "name": "http",
         "type": "http",
         "port": 10000,
         "interfaces": [
@@ -77,8 +77,8 @@
         "webUI": true
       },
       {
-        "name": "https-tls",
-        "type": "http",
+        "name": "https",
+        "type": "https",
         "port": 10001,
         "interfaces": [
           "https-proxy-tls"
@@ -92,7 +92,7 @@
   "interfaces": [
     {
       "name": "https-proxy-http",
-      "version": "0.1.7",
+      "version": "0.1.8",
       "permissionGroups": [
         {
           "name": "HTTPS Proxy (HTTP / Dogebox)",
@@ -107,7 +107,7 @@
     },
     {
       "name": "https-proxy-tls",
-      "version": "0.1.7",
+      "version": "0.1.8",
       "permissionGroups": [
         {
           "name": "HTTPS Proxy (TLS direct)",

@@ -67,7 +67,7 @@ func tlsCertForSANs(domains []string, ips []string) (tls.Certificate, error) {
 	}
 
 	if len(tpl.DNSNames) == 0 && len(tpl.IPAddresses) == 0 {
-		tpl.DNSNames = []string{"localhost"}
+		tpl.DNSNames = []string{"dogebox", "localhost"}
 	}
 
 	der, err := x509.CreateCertificate(rand.Reader, &tpl, &tpl, key.Public(), key)

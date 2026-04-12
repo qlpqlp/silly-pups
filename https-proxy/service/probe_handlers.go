@@ -37,7 +37,7 @@ func (s *server) handleProbeTLS(w http.ResponseWriter, r *http.Request) {
 	}
 	host := strings.TrimSpace(body.Host)
 	if host == "" {
-		host = "127.0.0.1"
+		host = "dogebox"
 	}
 	addr := net.JoinHostPort(host, strconv.Itoa(body.Port))
 	d := net.Dialer{Timeout: 6 * time.Second}
@@ -146,7 +146,7 @@ func (s *server) handleProbeTCP(w http.ResponseWriter, r *http.Request) {
 	}
 	host := strings.TrimSpace(body.Host)
 	if host == "" {
-		host = "127.0.0.1"
+		host = "dogebox"
 	}
 	addr := net.JoinHostPort(host, strconv.Itoa(body.Port))
 	var d net.Dialer

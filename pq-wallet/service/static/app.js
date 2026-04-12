@@ -425,19 +425,21 @@ async function refreshDashboard() {
     const net = (state.wallet && state.wallet.network && String(state.wallet.network).toLowerCase()) || "mainnet";
     balUnit.textContent = net === "testnet" ? "DOGE (testnet)" : "DOGE";
   }
-  const pend = t.pending_mempool_doge;
+  const pendRaw = t.pending_mempool_doge;
+  const pendNum = Number(pendRaw);
+  const hasPending = pendRaw != null && Number.isFinite(pendNum) && pendNum > 0;
   const pendRow = $("wallet-pending-row");
   const pendEl = $("wallet-pending-line");
   if (pendRow && pendEl) {
-    if (pend != null && Number(pend) > 0) {
-      pendEl.textContent = `${Number(pend).toFixed(2)} DOGE`;
+    if (hasPending) {
+      pendEl.textContent = `${pendNum.toFixed(2)} DOGE`;
       pendRow.hidden = false;
     } else {
       pendEl.textContent = "—";
       pendRow.hidden = true;
     }
   }
-  maybeNotifyPending(pend);
+  maybeNotifyPending(hasPending ? pendNum : 0);
   const spv = data.dashboard.spv || {};
   const mtr = data.dashboard.memetracker || {};
   const mtrMeta = $("mtr-mempool-meta");

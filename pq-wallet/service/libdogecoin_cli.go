@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -240,32 +241,62 @@ func (s *Server) spvPidPath() string {
 	return filepath.Join(s.storageDir, "spv.pid")
 }
 
-// startSPVNode launches spvnode in the background (one-shot; ignores error if already running).
+func (s *Server) spvWatchAddrPath() string {
+	return filepath.Join(s.storageDir, "spv_watch_addrs.txt")
+}
+
+func spvnodeArgs(testnet bool, addrs []string, storageDir string) []string {
+	args := []string{"-f", "0", "-c", "-l"}
+	for _, a := range addrs {
+		a = strings.TrimSpace(a)
+		if a == "" {
+			continue
+		}
+		args = append(args, "-a", a)
+	}
+	args = append(args,
+		"-w", filepath.Join(storageDir, "spv_wallet.db"),
+		"-h", filepath.Join(storageDir, "headers.db"),
+		"-b", "scan",
+	)
+	if testnet {
+		args = append([]string{"-t"}, args...)
+	}
+	return args
+}
+
+// startSPVNode launches spvnode in the background. Restarts when the watch address set changes.
 func (s *Server) startSPVNode(w *WalletFile) {
 	if strings.TrimSpace(os.Getenv("SPVNODE_ENABLE")) == "0" {
 		return
 	}
+	addrs := w.AllDistinctP2PKHAddresses()
+	if len(addrs) == 0 {
+		return
+	}
+	want := strings.Join(addrs, "\n")
+	prev, _ := os.ReadFile(s.spvWatchAddrPath())
+	pidRunning := false
 	if b, err := os.ReadFile(s.spvPidPath()); err == nil {
 		pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
 		if pid > 0 && exec.Command("kill", "-0", strconv.Itoa(pid)).Run() == nil {
-			return
+			pidRunning = true
+		} else {
+			_ = os.Remove(s.spvPidPath())
 		}
-		_ = os.Remove(s.spvPidPath())
 	}
-	addr := strings.TrimSpace(w.P2PKHAddress)
-	if addr == "" {
+	if pidRunning && strings.TrimSpace(string(prev)) == want {
 		return
 	}
+	s.stopSPVNode()
 	testnet := strings.EqualFold(w.Network, "testnet")
-	args := []string{
-		"-f", "0", "-c", "-l",
-		"-a", addr,
-		"-w", filepath.Join(s.storageDir, "spv_wallet.db"),
-		"-h", filepath.Join(s.storageDir, "headers.db"),
-		"-b", "scan",
-	}
-	if testnet {
-		args = append([]string{"-t"}, args...)
+	tryAddrs := [][]string{addrs}
+	if len(addrs) > 1 {
+		if p := w.PrimaryAddress(); p != nil {
+			if pa := strings.TrimSpace(p.P2PKH); pa != "" {
+				tryAddrs = append(tryAddrs, []string{pa})
+			}
+		}
 	}
 	logPath := s.spvLogPath()
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
@@ -273,20 +304,37 @@ func (s *Server) startSPVNode(w *WalletFile) {
 		log.Printf("[pq-wallet] spv log: %v", err)
 		return
 	}
-	cmd := exec.Command(s.spvnodePath(), args...)
-	cmd.Stdout = f
-	cmd.Stderr = f
-	if err := cmd.Start(); err != nil {
+	var started *os.Process
+	var used []string
+	for _, list := range tryAddrs {
+		if len(list) == 0 {
+			continue
+		}
+		sort.Strings(list)
+		args := spvnodeArgs(testnet, list, s.storageDir)
+		cmd := exec.Command(s.spvnodePath(), args...)
+		cmd.Stdout = f
+		cmd.Stderr = f
+		if err := cmd.Start(); err != nil {
+			log.Printf("[pq-wallet] spvnode start addrs=%d: %v", len(list), err)
+			continue
+		}
+		started = cmd.Process
+		used = list
+		break
+	}
+	if started == nil {
 		_ = f.Close()
-		log.Printf("[pq-wallet] spvnode start: %v", err)
+		log.Printf("[pq-wallet] spvnode: could not start (tried %d address set(s))", len(tryAddrs))
 		return
 	}
-	_ = os.WriteFile(s.spvPidPath(), []byte(strconv.Itoa(cmd.Process.Pid)), 0600)
-	go func() {
-		_ = cmd.Wait()
-		_ = f.Close()
-	}()
-	log.Printf("[pq-wallet] spvnode pid=%d", cmd.Process.Pid)
+	_ = os.WriteFile(s.spvPidPath(), []byte(strconv.Itoa(started.Pid)), 0600)
+	_ = os.WriteFile(s.spvWatchAddrPath(), []byte(strings.Join(used, "\n")), 0600)
+	go func(proc *os.Process, lf *os.File) {
+		_, _ = proc.Wait()
+		_ = lf.Close()
+	}(started, f)
+	log.Printf("[pq-wallet] spvnode pid=%d watch_addrs=%d", started.Pid, len(used))
 }
 
 func (s *Server) stopSPVNode() {

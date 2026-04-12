@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -141,4 +142,31 @@ func (w *WalletFile) setPrimary(id string) error {
 	}
 	w.syncLegacyFromPrimary()
 	return nil
+}
+
+// AllDistinctP2PKHAddresses returns sorted unique P2PKH addresses (every generated/imported row plus legacy top-level fields).
+func (w *WalletFile) AllDistinctP2PKHAddresses() []string {
+	if w == nil {
+		return nil
+	}
+	w.migrateAddresses()
+	seen := make(map[string]struct{})
+	for i := range w.Addresses {
+		a := strings.TrimSpace(w.Addresses[i].P2PKH)
+		if a != "" {
+			seen[a] = struct{}{}
+		}
+	}
+	if len(seen) == 0 {
+		a := strings.TrimSpace(w.P2PKHAddress)
+		if a != "" {
+			seen[a] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for a := range seen {
+		out = append(out, a)
+	}
+	sort.Strings(out)
+	return out
 }

@@ -2,10 +2,10 @@
   "manifestVersion": 1,
   "meta": {
     "name": "PQ Doge Wallet",
-    "version": "0.0.10",
+    "version": "0.0.11",
     "logoPath": "logo.png",
     "shortDescription": "The first Post Quantum Secure Dogecoin wallet",
-    "longDescription": "Built with libdogecoin (+ liboqs): `such` (P2PKH keys, Falcon-512 keygen, sign, commitments), `sendtx` (P2P broadcast), and `spvnode` (headers + BIP37 address watch). **Pending** incoming DOGE uses an embedded MemeTracker-compatible P2P mempool watcher (storage under `mempooltracker/`); no separate MemeTracker pup is required.",
+    "longDescription": "Built with libdogecoin (+ liboqs): `such` (P2PKH keys, Falcon-512 keygen, sign, commitments), `sendtx` (P2P broadcast), and `spvnode` (headers + BIP37 watch on **all** wallet addresses). **Pending** incoming DOGE uses an embedded MemeTracker-compatible P2P mempool watcher (storage under `mempooltracker/`); no separate MemeTracker pup is required.",
     "upstreamVersions": {
       "Go": "1.24",
       "libdogecoin": "a120e03 + liboqs"
@@ -27,7 +27,7 @@
       },
       {
         "name": "Chain & SPV",
-        "description": "libdogecoin `spvnode` syncs headers and watches your primary address. Log tail parsing drives chain tip and peer hints in the dashboard.",
+        "description": "libdogecoin `spvnode` syncs headers and watches every address in the wallet. Log tail parsing drives chain tip and peer hints in the dashboard.",
         "fields": [
           {
             "name": "SPVNODE_ENABLE",
@@ -113,7 +113,7 @@
   "interfaces": [
     {
       "name": "pq-wallet-http",
-      "version": "0.0.10",
+      "version": "0.0.11",
       "permissionGroups": [
         {
           "name": "PQ Wallet HTTP",

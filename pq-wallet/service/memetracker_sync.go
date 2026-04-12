@@ -58,12 +58,8 @@ func (s *Server) syncMemeTracker(ctx context.Context, wf *WalletFile, st *Wallet
 	if eng == nil {
 		return 0, nil
 	}
-	p := wf.PrimaryAddress()
-	if p == nil {
-		return 0, nil
-	}
-	addr := strings.TrimSpace(p.P2PKH)
-	if addr == "" {
+	addrs := wf.AllDistinctP2PKHAddresses()
+	if len(addrs) == 0 {
 		return 0, nil
 	}
 
@@ -76,5 +72,18 @@ func (s *Server) syncMemeTracker(ctx context.Context, wf *WalletFile, st *Wallet
 			confirmed[t.Txid] = struct{}{}
 		}
 	}
-	return eng.PendingMempoolDOGE(addr, confirmed)
+	var sum float64
+	var lastErr error
+	for _, addr := range addrs {
+		pend, e := eng.PendingMempoolDOGE(addr, confirmed)
+		if e != nil {
+			lastErr = e
+			continue
+		}
+		sum += pend
+	}
+	if lastErr != nil && sum == 0 {
+		return 0, lastErr
+	}
+	return sum, nil
 }

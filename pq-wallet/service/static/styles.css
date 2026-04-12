@@ -594,15 +594,33 @@ body {
     top: 0;
     z-index: 40;
     width: var(--sidebar-w) !important;
-    height: 100vh;
-    max-height: 100dvh;
+    /* Use dynamic/small viewport so the drawer matches visible browser chrome (foundation stays above fold). */
+    height: 100svh;
+    max-height: 100svh;
+    min-height: 0;
     box-shadow: 8px 0 32px rgba(0, 0, 0, 0.35);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-sizing: border-box;
   }
 
-  /* Nav scrolls; footer stays at bottom of the drawer (margin-top: auto on .sidebar-foot). */
+  @supports (height: 100dvh) {
+    .sidebar {
+      height: 100dvh;
+      max-height: 100dvh;
+    }
+  }
+
+  /* Nav scrolls; footer stays pinned to bottom of the drawer. */
   .sidebar .sidebar-nav {
-    flex: 1 1 auto;
+    flex: 1 1 0%;
     min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .sidebar .sidebar-foot {
+    flex-shrink: 0;
+    margin-top: auto;
   }
 
   /* Drawer off-screen (do not require #app.has-wallet — avoids race with class toggles). */
@@ -716,6 +734,11 @@ body {
   margin-top: 0.75rem;
   width: 100%;
   text-align: center;
+}
+
+/* [hidden] must win over display:flex above (otherwise the row stays visible with “—”) */
+.wallet-pending-row[hidden] {
+  display: none !important;
 }
 
 .badge {
@@ -936,6 +959,8 @@ body {
 .tx-list-empty {
   padding: 1rem 1.25rem;
   margin: 0;
+  text-align: center;
+  line-height: 1.5;
 }
 
 .tx-card {
@@ -1093,6 +1118,22 @@ body {
   gap: 1rem;
   flex-wrap: wrap;
   margin-bottom: 0.75rem;
+}
+
+/* Wallet file: touch-friendly full-width actions */
+#view-settings .card .btn {
+  width: 100%;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+#view-settings .danger-input {
+  max-width: none;
+}
+
+#view-settings .danger-remove-btn {
+  width: 100%;
+  align-self: stretch;
 }
 
 .table-wrap {
@@ -1403,6 +1444,7 @@ a {
   cursor: pointer;
   font-size: 0.85rem;
   font-family: inherit;
+  text-align: center;
 }
 
 .wiz-tab.active {
@@ -1572,8 +1614,8 @@ a {
 }
 
 /* Receive view */
-.receive-card h2 {
-  margin-top: 0;
+.receive-card-lead {
+  margin: 0 0 0.75rem;
 }
 
 .receive-qr-wrap {
@@ -1821,6 +1863,24 @@ a {
     flex-shrink: 0;
   }
 
+  #view-addresses .toolbar-actions,
+  #view-transactions .toolbar-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  #view-addresses .toolbar-actions .btn,
+  #view-transactions .toolbar-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  #view-transactions .tx-sync-hint {
+    display: block;
+    text-align: center;
+    width: 100%;
+  }
+
   #app.has-wallet .page-title-row {
     font-size: 1.2rem;
   }
@@ -1848,14 +1908,11 @@ a {
     gap: 0.35rem;
   }
 
-  #view-receive .receive-card h2 {
-    font-size: 1.05rem;
-    margin: 0;
+  #view-receive .receive-card-lead {
+    font-size: 0.8rem;
+    margin: 0 0 0.35rem;
     flex-shrink: 0;
-  }
-
-  #view-receive .receive-card > p.small.muted {
-    display: none;
+    line-height: 1.35;
   }
 
   .receive-qr-wrap {
@@ -1890,8 +1947,34 @@ a {
   }
 
   #view-tools .send-tabs {
-    margin-bottom: 0.3rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 0.45rem;
     flex-shrink: 0;
+  }
+
+  #view-tools .wiz-tab {
+    width: 100%;
+    border-radius: 12px;
+    padding: 0.65rem 0.85rem;
+    font-size: 0.9rem;
+    min-height: 2.75rem;
+  }
+
+  #view-tools .send-to-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  #view-tools .send-to-row .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  #view-tools .send-panel .card .btn {
+    width: 100%;
+    justify-content: center;
   }
 
   #view-tools .send-panel {
@@ -1935,10 +2018,6 @@ a {
   #view-tools .send-panel .field {
     margin-bottom: 0.3rem;
     flex-shrink: 0;
-  }
-
-  #view-tools .send-to-row {
-    gap: 0.35rem;
   }
 
   #view-tools .input-modern,

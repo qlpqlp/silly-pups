@@ -187,8 +187,7 @@
 
         <section id="view-receive" class="view hidden">
           <div class="card receive-card">
-            <h2><span class="material-symbols-outlined icon-inline">qr_code_2</span> Receive Dogecoin</h2>
-            <p class="small muted">Your primary receiving address. Share the QR or copy the text.</p>
+            <p class="small muted receive-card-lead">Your primary receiving address. Share the QR or copy the text.</p>
             <div class="receive-qr-wrap">
               <div id="receive-qr" class="receive-qr" aria-label="QR code for Dogecoin address"></div>
             </div>
@@ -203,9 +202,8 @@
         </section>
 
         <section id="view-addresses" class="view hidden">
-          <div class="toolbar">
+          <div class="toolbar toolbar-actions">
             <button type="button" class="btn primary" id="btn-new-addr"><span class="material-symbols-outlined btn-ico">add_link</span> Generate new address</button>
-            <p class="small muted">SPV watches the <strong>primary</strong> address.</p>
           </div>
           <div class="card addr-list-card">
             <div class="addr-list" id="addr-list" role="list" aria-label="Addresses"></div>
@@ -213,9 +211,9 @@
         </section>
 
         <section id="view-transactions" class="view hidden">
-          <div class="toolbar">
+          <div class="toolbar toolbar-actions">
             <button type="button" class="btn primary" id="btn-sync-tx"><span class="material-symbols-outlined btn-ico">swap_horiz</span> Sync with explorer</button>
-            <span class="small muted" id="tx-sync-hint"></span>
+            <span class="small muted tx-sync-hint" id="tx-sync-hint"></span>
           </div>
           <div class="card tx-list-card">
             <div class="tx-list" id="tx-list" role="list" aria-label="Transactions"></div>
@@ -226,7 +224,7 @@
         <section id="view-tools" class="view hidden">
           <div class="send-tabs" role="tablist">
             <button type="button" class="wiz-tab active" data-send-tab="0" aria-selected="true">Send Doge</button>
-            <button type="button" class="wiz-tab" data-send-tab="1">Manual PQ hex</button>
+            <button type="button" class="wiz-tab" data-send-tab="1">Manual PQ TX</button>
           </div>
 
           <div class="send-panel" data-send-panel="0">

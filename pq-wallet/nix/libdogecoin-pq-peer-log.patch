@@ -8,7 +8,7 @@
  static const int DOGECOIN_PERIODICAL_NODE_TIMER_S = 3;
  static const int DOGECOIN_PING_INTERVAL_S = 120;
  static const int DOGECOIN_CONNECT_TIMEOUT_S = 10;
-@@ -741,6 +742,21 @@ int dogecoin_node_parse_message(dogecoin_node* node, dogecoin_p2p_msg_hdr* hdr,
+@@ -741,6 +742,20 @@ int dogecoin_node_parse_message(dogecoin_node* node, dogecoin_p2p_msg_hdr* hdr,
              node->services = v_msg_check.services;
              node->bestknownheight = v_msg_check.start_height;
              node->nodegroup->log_write_cb("Connected to node %d: %s (%d)\n", node->nodeid, v_msg_check.useragent, v_msg_check.start_height);

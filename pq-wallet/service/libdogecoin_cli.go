@@ -310,6 +310,10 @@ func (s *Server) readSPVStatus() map[string]any {
 		"pid_file":            pidPath,
 		"log_file":            logPath,
 	}
+	// Expose spv.log tail whenever the file exists so peer / height parsing works even if pid is stale.
+	if lb, err := readFileTail(logPath, 512*1024); err == nil {
+		out["log_tail"] = lb
+	}
 	b, err := os.ReadFile(pidPath)
 	if err != nil {
 		out["running"] = false
@@ -324,9 +328,6 @@ func (s *Server) readSPVStatus() map[string]any {
 		} else {
 			out["running"] = true
 		}
-	}
-	if lb, err := readFileTail(logPath, 512*1024); err == nil {
-		out["log_tail"] = lb
 	}
 	return out
 }

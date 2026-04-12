@@ -2799,6 +2799,26 @@ func (e *Engine) Network() string {
 	return strings.ToLower(strings.TrimSpace(e.app.snapshotCfg().Network))
 }
 
+// DashboardSnapshot exposes mempool relay visibility and worker sessions for the pq-wallet UI (no standalone MemeTracker HTTP server).
+func (e *Engine) DashboardSnapshot() (mempoolCount int, live []map[string]any, workers []map[string]any, workersConnected int) {
+	if e == nil || e.app == nil || !e.app.isP2PRunning() {
+		return 0, nil, nil, 0
+	}
+	mempoolCount = e.app.mcol.snapshot()
+	live = e.app.mcol.snapshotLiveMempool(80)
+	rows, nConn := e.app.mcol.snapshotPeers()
+	sort.Slice(rows, func(i, j int) bool { return rows[i].WorkerID < rows[j].WorkerID })
+	for _, p := range rows {
+		workers = append(workers, map[string]any{
+			"worker_id": p.WorkerID,
+			"address":   p.Address,
+			"connected": p.Connected,
+			"updated":   p.Updated.UTC().Format(time.RFC3339),
+		})
+	}
+	return mempoolCount, live, workers, nConn
+}
+
 // Stop shuts down P2P mempool workers (e.g. before switching networks).
 func (e *Engine) Stop() {
 	if e == nil || e.app == nil {

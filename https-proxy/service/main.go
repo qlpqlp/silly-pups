@@ -526,6 +526,11 @@ func main() {
 	if err := srv.startListeners(); err != nil {
 		log.Fatal(err)
 	}
+	if srv.store.snapshot().HTTPSEnabled {
+		log.Printf("[https-proxy] TLS termination on — cleartext on the same port redirects to HTTPS (see mux.go)")
+	} else {
+		log.Printf("[https-proxy] Plain HTTP only (Dogebox default). Open http://<host>:PORT%s/ — enable HTTPS in admin when ready.", srv.adminPrefix())
+	}
 
 	select {}
 }

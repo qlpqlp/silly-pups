@@ -68,13 +68,16 @@ function showView(name) {
 
 async function refreshLogs() {
   try {
-    const [spv, bc] = await Promise.all([
+    const [spv, mtr, bc] = await Promise.all([
       fetch("/api/logs/spv?lines=420").then((r) => r.text()),
+      fetch("/api/logs/mempooltracker").then((r) => r.text()),
       fetch("/api/logs/broadcast?lines=420").then((r) => r.text()),
     ]);
     const elS = $("log-spv");
+    const elM = $("log-mtr");
     const elB = $("log-bc");
     if (elS) elS.textContent = spv;
+    if (elM) elM.textContent = mtr;
     if (elB) elB.textContent = bc;
   } catch {
     /* ignore */
@@ -300,7 +303,33 @@ async function refreshDashboard() {
   $("stat-spv").textContent = spv.running ? "running" : "stopped";
   const mtc = spv.mempool_tx_count;
   const elMp = $("stat-mempool");
+  const elMpHint = $("stat-mempool-hint");
   if (elMp) elMp.textContent = mtc != null && Number(mtc) >= 0 ? String(mtc) : "—";
+  if (elMpHint) {
+    const mtr = data.dashboard.memetracker || {};
+    const ok = mtr.engine_ok;
+    elMpHint.textContent = ok
+      ? "Unique tx ids visible on Dogecoin P2P relay (embedded MemeTracker)."
+      : "MemeTracker engine unavailable — showing spv.log mempool heuristic if any.";
+  }
+  const mtr = data.dashboard.memetracker || {};
+  const mtrMeta = $("mtr-mempool-meta");
+  const mtrTb = $("mtr-mempool-tbody");
+  if (mtrMeta && mtrTb) {
+    if (mtr.engine_ok) {
+      mtrMeta.textContent = `P2P workers connected: ${mtr.workers_connected ?? 0} · unique tx ids on relay: ${mtr.mempool_tx_count ?? 0}`;
+    } else {
+      mtrMeta.textContent = mtr.engine_error || "Mempool engine not available.";
+    }
+    mtrTb.innerHTML = "";
+    (mtr.mempool_transactions || []).slice(0, 50).forEach((row) => {
+      const tr = document.createElement("tr");
+      const tx = row.txid != null ? String(row.txid) : "";
+      const short = tx.length > 24 ? tx.slice(0, 20) + "…" : tx;
+      tr.innerHTML = `<td class="mono" title="${escapeHtml(tx)}">${escapeHtml(short)}</td><td>${row.tracked_match ? "yes" : ""}</td><td>${row.amount_doge != null ? escapeHtml(String(row.amount_doge)) : ""}</td>`;
+      mtrTb.appendChild(tr);
+    });
+  }
   const cp = spv.current_peer;
   const setPeer = (id, v) => {
     const el = $(id);
@@ -824,6 +853,11 @@ if (btnSeal) {
       return;
     }
     if (msg) msg.textContent = "Wallet sealed. Unlock with PIN when you return.";
+    const sealInp = $("seal-pin-input");
+    if (sealInp) sealInp.value = "";
+    window.alert(
+      "Wallet encrypted successfully.\n\nYour wallet is now sealed on disk (Argon2id + AES-GCM). Use your PIN on the lock screen to unlock."
+    );
     await refreshWallet();
   });
 }

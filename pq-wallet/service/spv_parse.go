@@ -18,8 +18,7 @@ var (
 	reConnEq       = regexp.MustCompile(`(?i)(?:connections?|connected)\s*[:=]\s*(\d+)`)
 	reNetAddr      = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}:\d{2,5}\b`)
 	reConnectedPeer = regexp.MustCompile(`(?i)Successfully connected to peer\s+(\d+)\s+\(([^)]+)\)`)
-	rePQPeer = regexp.MustCompile(`(?i)PQ_PEER node=(\d+) ip=(\S+) height=(\d+)`)
-	reConnectedNode = regexp.MustCompile(`(?i)Connected to node\s+(\d+):\s*(.+)\s+\((\d+)\)\s*$`)
+	rePQPeer = regexp.MustCompile(`(?i)PQ_PEER\s+node=(\d+)\s+ip=(\S+)\s+height=(\d+)`)
 	reMempoolExplicit1 = regexp.MustCompile(`(?i)mempool[^\n]{0,64}(?:size|count|transactions?|txs?)\s*[:=]\s*(\d{1,9})`)
 	reMempoolExplicit2 = regexp.MustCompile(`(?i)(?:^|\s)(\d{1,9})\s+transactions?\s+in\s+mempool`)
 	reMempoolExplicit3 = regexp.MustCompile(`(?i)\[(?:smpv|mempool)\][^\n]{0,120}(\d{1,9})\s*(?:tx|txn|transaction)`)
@@ -202,6 +201,69 @@ func mergePeerIPMaps(log string) map[int]string {
 	return addrs
 }
 
+// parseConnectedNodeLine parses libdogecoin net.c: "Connected to node %d: %s (%d)".
+// User agent may contain parentheses; we take the last " (height)" suffix on the line.
+func parseConnectedNodeLine(line string) (id int, userAgent string, height int64, ok bool) {
+	line = strings.TrimSpace(line)
+	const pfx = "Connected to node "
+	if len(line) < len(pfx) || !strings.EqualFold(line[:len(pfx)], pfx) {
+		return 0, "", 0, false
+	}
+	rest := line[len(pfx):]
+	i := 0
+	for i < len(rest) && rest[i] >= '0' && rest[i] <= '9' {
+		i++
+	}
+	if i == 0 {
+		return 0, "", 0, false
+	}
+	id64, err := strconv.ParseInt(rest[:i], 10, 64)
+	if err != nil || id64 < 0 || id64 > 1<<20 {
+		return 0, "", 0, false
+	}
+	id = int(id64)
+	if i >= len(rest) || rest[i] != ':' {
+		return 0, "", 0, false
+	}
+	rest = strings.TrimSpace(rest[i+1:])
+	lastOpen := strings.LastIndex(rest, " (")
+	if lastOpen < 0 {
+		return 0, "", 0, false
+	}
+	hPart := strings.TrimSpace(rest[lastOpen+2:])
+	if !strings.HasSuffix(hPart, ")") {
+		return 0, "", 0, false
+	}
+	hStr := strings.TrimSpace(hPart[:len(hPart)-1])
+	height, err = strconv.ParseInt(hStr, 10, 64)
+	if err != nil {
+		height = 0
+	}
+	userAgent = strings.TrimSpace(rest[:lastOpen])
+	return id, userAgent, height, true
+}
+
+func parsePQPeerInfoLine(line string) (PeerConnectionInfo, bool) {
+	m := rePQPeer.FindStringSubmatch(strings.TrimSpace(line))
+	if len(m) != 4 {
+		return PeerConnectionInfo{}, false
+	}
+	id, err := strconv.Atoi(m[1])
+	if err != nil {
+		return PeerConnectionInfo{}, false
+	}
+	h, err := strconv.ParseInt(m[3], 10, 64)
+	if err != nil {
+		h = 0
+	}
+	return PeerConnectionInfo{
+		NodeID:            id,
+		Address:           strings.TrimSpace(m[2]),
+		SubVersion:        "PQ_PEER",
+		RemoteStartHeight: h,
+	}, true
+}
+
 // parseCurrentPeerInfo returns the latest "Connected to node …" handshake in the log, merged with
 // "Successfully connected to peer … (addr)" and PQ_PEER lines (libdogecoin net.c + pq patch).
 func parseCurrentPeerInfo(log string) *PeerConnectionInfo {
@@ -210,33 +272,39 @@ func parseCurrentPeerInfo(log string) *PeerConnectionInfo {
 	}
 	addrs := mergePeerIPMaps(log)
 	var nodes []PeerConnectionInfo
+	var pqRows []PeerConnectionInfo
 	for _, line := range strings.Split(log, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		if m := reConnectedNode.FindStringSubmatch(line); len(m) == 4 {
-			id, err := strconv.Atoi(m[1])
-			if err != nil {
-				continue
-			}
-			h, err := strconv.ParseInt(m[3], 10, 64)
-			if err != nil {
-				h = 0
-			}
+		if id, ua, h, ok := parseConnectedNodeLine(line); ok {
 			nodes = append(nodes, PeerConnectionInfo{
 				NodeID:            id,
-				SubVersion:        strings.TrimSpace(m[2]),
+				SubVersion:        ua,
 				RemoteStartHeight: h,
 			})
+			continue
+		}
+		if p, ok := parsePQPeerInfoLine(line); ok {
+			pqRows = append(pqRows, p)
 		}
 	}
-	if len(nodes) == 0 {
-		return nil
+	if len(nodes) > 0 {
+		last := nodes[len(nodes)-1]
+		if last.Address == "" {
+			last.Address = addrs[last.NodeID]
+		}
+		return &last
 	}
-	last := nodes[len(nodes)-1]
-	last.Address = addrs[last.NodeID]
-	return &last
+	if len(pqRows) > 0 {
+		last := pqRows[len(pqRows)-1]
+		if last.Address == "" {
+			last.Address = addrs[last.NodeID]
+		}
+		return &last
+	}
+	return nil
 }
 
 // parsePeersRecent returns up to maxPeerLogEntries handshake rows with merged IPs.
@@ -246,31 +314,32 @@ func parsePeersRecent(log string) []PeerConnectionInfo {
 		return nil
 	}
 	addrs := mergePeerIPMaps(log)
-	var nodes []PeerConnectionInfo
+	var out []PeerConnectionInfo
 	for _, line := range strings.Split(log, "\n") {
 		line = strings.TrimSpace(line)
-		if m := reConnectedNode.FindStringSubmatch(line); len(m) == 4 {
-			id, err := strconv.Atoi(m[1])
-			if err != nil {
-				continue
-			}
-			h, err := strconv.ParseInt(m[3], 10, 64)
-			if err != nil {
-				h = 0
-			}
-			p := PeerConnectionInfo{
+		if line == "" {
+			continue
+		}
+		if id, ua, h, ok := parseConnectedNodeLine(line); ok {
+			out = append(out, PeerConnectionInfo{
 				NodeID:            id,
-				SubVersion:        strings.TrimSpace(m[2]),
+				SubVersion:        ua,
 				RemoteStartHeight: h,
 				Address:           addrs[id],
+			})
+			continue
+		}
+		if p, ok := parsePQPeerInfoLine(line); ok {
+			if p.Address == "" {
+				p.Address = addrs[p.NodeID]
 			}
-			nodes = append(nodes, p)
+			out = append(out, p)
 		}
 	}
-	if len(nodes) <= maxPeerLogEntries {
-		return nodes
+	if len(out) <= maxPeerLogEntries {
+		return out
 	}
-	return nodes[len(nodes)-maxPeerLogEntries:]
+	return out[len(out)-maxPeerLogEntries:]
 }
 
 func uniqueSorted(ss []string) []string {

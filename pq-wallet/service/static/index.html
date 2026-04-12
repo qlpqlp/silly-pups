@@ -168,9 +168,25 @@
               <span class="stat-val" id="stat-spv">—</span>
             </div>
             <div class="stat card">
-              <span class="stat-label">Mempool</span>
+              <span class="stat-label">Mempool (relay)</span>
               <span class="stat-val" id="stat-mempool">—</span>
-              <span class="stat-hint">Heuristic from spv.log (not wallet mempool)</span>
+              <span class="stat-hint" id="stat-mempool-hint">Unique tx ids from embedded MemeTracker P2P (falls back to spv.log heuristic)</span>
+            </div>
+          </div>
+          <div class="card" id="mtr-mempool-card">
+            <h3><span class="material-symbols-outlined icon-inline">hub</span> Mempool relay (embedded MemeTracker)</h3>
+            <p class="small muted" id="mtr-mempool-meta">—</p>
+            <div class="table-wrap">
+              <table class="data-table" id="mtr-mempool-table">
+                <thead>
+                  <tr>
+                    <th>Txid</th>
+                    <th>Tracked</th>
+                    <th>DOGE</th>
+                  </tr>
+                </thead>
+                <tbody id="mtr-mempool-tbody"></tbody>
+              </table>
             </div>
           </div>
           <div class="card block-live">
@@ -179,7 +195,7 @@
               <span class="pill" id="pill-height">height —</span>
             </div>
             <p class="mono hash" id="hdr-hash">—</p>
-            <p class="small muted">Tip height and hash are parsed from <code>spv.log</code> lines like <code>blockhash|height|…</code>. The peer panel shows the latest handshake (address, user agent, remote height). Set <code>EXPLORER_ADDRESS_API</code> for optional balance sync.</p>
+            <p class="small muted">Tip height and hash are parsed from <code>spv.log</code>. Peer info uses <code>Connected to node …</code> / <code>PQ_PEER …</code> lines when present; if the SPV log does not show a handshake yet, the panel can show the embedded mempool watcher’s current P2P peer instead.</p>
             <div class="peer-detail">
               <h3 class="peer-detail-title"><span class="material-symbols-outlined icon-inline">lan</span> Current P2P peer</h3>
               <dl class="peer-dl">
@@ -318,11 +334,15 @@
         </section>
 
         <section id="view-logs" class="view hidden">
-          <p class="small muted toolbar">Latest ~420 lines each; refreshes while this view is open.</p>
-          <div class="dos-grid">
+          <p class="small muted toolbar">SPV / broadcast: latest ~420 lines. MemeTracker: live P2P snapshot. Refreshes while this view is open.</p>
+          <div class="dos-grid dos-grid-3">
             <div class="card dos-panel">
               <h3>spv.log (full tail)</h3>
               <pre class="dos-screen" id="log-spv">…</pre>
+            </div>
+            <div class="card dos-panel">
+              <h3>MemeTracker (embedded P2P)</h3>
+              <pre class="dos-screen" id="log-mtr">…</pre>
             </div>
             <div class="card dos-panel">
               <h3>broadcast.log</h3>

@@ -2,10 +2,10 @@
   "manifestVersion": 1,
   "meta": {
     "name": "HTTPS Proxy",
-    "version": "0.1.3",
+    "version": "0.1.4",
     "logoPath": "logo.png",
     "shortDescription": "HTTP/HTTPS reverse proxy for other pups (TLS optional; self-signed + web admin)",
-    "longDescription": "Runs **plain HTTP by default** (matches Dogebox). Open the admin UI and enable **HTTPS** to terminate TLS with a **self-signed certificate** (default SAN **dogebox**; ports are not part of certs). Use **port listeners** so each listen port forwards to that pup’s upstream URL (e.g. `8080` → `http://127.0.0.1:8080`). If port listeners are empty, a single **PUBLIC_PORT** uses host-based routes. Admin is at `/__proxy/` on every listener. Download `cert.pem` from the admin API when HTTPS is on. This is **not** Let’s Encrypt.",
+    "longDescription": "Runs **plain HTTP by default** (matches Dogebox). Use **`http://…`** to open the admin UI until you enable TLS there; then **`https://…`** applies. The expose is **HTTP** until you turn on **Enable HTTPS (TLS)** in `/__proxy/`. Self-signed cert (default SAN **dogebox**). Use **port listeners** so each listen port forwards to that pup’s upstream (e.g. `8080` → `http://127.0.0.1:8080`). If port listeners are empty, **PUBLIC_PORT** uses host-based routes. Download `cert.pem` from the admin API when HTTPS is on. This is **not** Let’s Encrypt.",
     "upstreamVersions": {
       "Go": "1.24"
     }
@@ -47,7 +47,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "ee13e5933568112b6cd43f4953d1342e83e0822e55accb6241349ab53ae3a2ad"
+      "nixFileSha256": "ff46e250125dca7de2ec1a30edc7942f2dd0c07569706bb69523b3fee62e854f"
     },
     "services": [
       {
@@ -61,7 +61,7 @@
     ],
     "exposes": [
       {
-        "name": "https",
+        "name": "http",
         "type": "http",
         "port": 10000,
         "interfaces": [
@@ -76,7 +76,7 @@
   "interfaces": [
     {
       "name": "https-proxy-https",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "permissionGroups": [
         {
           "name": "HTTPS Proxy UI",

@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "meta": {
     "name": "PQ Doge Wallet",
-    "version": "0.0.8",
+    "version": "0.0.9",
     "logoPath": "logo.png",
     "shortDescription": "The first Post Quantum Secure Dogecoin wallet",
     "longDescription": "Built with libdogecoin (+ liboqs): `such` (P2PKH keys, Falcon-512 keygen, sign, commitments), `sendtx` (P2P broadcast), and `spvnode` (headers + BIP37 address watch). **Pending** incoming DOGE uses an embedded MemeTracker-compatible P2P mempool watcher (storage under `mempooltracker/`); no separate MemeTracker pup is required.",
@@ -84,7 +84,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "04b481fcd47e64633ed87a14ef6775984f7c31e0a1ab6fdec766f72b3d22b2a2"
+      "nixFileSha256": "c7c6f8f80a53e13de592da72808214b7d5a6a208cccd4e72b2f9479c17430f2c"
     },
     "services": [
       {
@@ -113,7 +113,7 @@
   "interfaces": [
     {
       "name": "pq-wallet-http",
-      "version": "0.0.8",
+      "version": "0.0.9",
       "permissionGroups": [
         {
           "name": "PQ Wallet HTTP",

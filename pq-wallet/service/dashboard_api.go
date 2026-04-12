@@ -79,6 +79,39 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		memeErrStr = memeErr.Error()
 	}
 
+	eng, engErr := s.ensureMempoolEngine(wf)
+	mtrCount, mtrConn := 0, 0
+	var mtrLive, mtrWorkers []map[string]any
+	if eng != nil && engErr == nil {
+		mtrCount, mtrLive, mtrWorkers, mtrConn = eng.DashboardSnapshot()
+	}
+	mempoolDisplay := hdr.MempoolTxCount
+	if eng != nil && engErr == nil {
+		mempoolDisplay = mtrCount
+	}
+	if currentPeer == nil && eng != nil && engErr == nil {
+		for _, w := range mtrWorkers {
+			conn, _ := w["connected"].(bool)
+			addr, _ := w["address"].(string)
+			if !conn || strings.TrimSpace(addr) == "" {
+				continue
+			}
+			wid, _ := w["worker_id"].(int)
+			currentPeer = &PeerConnectionInfo{
+				NodeID:            wid,
+				Address:           addr,
+				SubVersion:        "Embedded mempool watcher (P2P)",
+				RemoteStartHeight: 0,
+			}
+			break
+		}
+	}
+
+	mtrEngErr := ""
+	if engErr != nil {
+		mtrEngErr = engErr.Error()
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"wallet": wf,
 		"dashboard": map[string]any{
@@ -89,10 +122,19 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 				"peer_count":            hdr.PeerCount,
 				"header_count_hint":     hdr.HeaderCountHint,
 				"spv_peer_hosts":        hdr.SPVPeerHosts,
-				"mempool_tx_count":      hdr.MempoolTxCount,
+				"mempool_tx_count":      mempoolDisplay,
+				"mempool_tx_count_spv_log": hdr.MempoolTxCount,
 				"current_peer":          currentPeer,
 				"peers_recent":          hdr.PeersRecent,
 				"log_tail":              logTail,
+			},
+			"memetracker": map[string]any{
+				"mempool_tx_count":     mtrCount,
+				"mempool_transactions": mtrLive,
+				"worker_peers":         mtrWorkers,
+				"workers_connected":  mtrConn,
+				"engine_ok":            eng != nil && engErr == nil,
+				"engine_error":         mtrEngErr,
 			},
 			"totals": map[string]any{
 				"received_doge":         round4(inSum),

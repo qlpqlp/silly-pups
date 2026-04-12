@@ -4,7 +4,7 @@
 let
   proxy_bin = pkgs.buildGoModule {
     pname = "https-proxy";
-    version = "0.1.9";
+    version = "0.1.10";
     src = ./service;
     vendorHash = null;
     go = pkgs.go_1_24;
@@ -21,12 +21,12 @@ let
 
   https-proxy = pkgs.writeShellScriptBin "run.sh" ''
     set -e
-    PUBLIC_PORT="''${PUBLIC_PORT:-80000}"
+    PUBLIC_PORT="''${PUBLIC_PORT:-18000}"
     STORAGE="''${HTTPS_PROXY_STORAGE:-/storage/https-proxy}"
     mkdir -p "$STORAGE"
 
     export PUBLIC_PORT
-    # TLS port (defaults below avoid common Dogebox pup ports like 10000/10001). Match manifest https expose.
+    # TLS port (HTTP default 18000 — valid TCP 1–65535; avoids invalid 80000). Match manifest https expose.
     export HTTPS_PROXY_TLS_PORT="''${HTTPS_PROXY_TLS_PORT:-44443}"
     export HTTPS_PROXY_STORAGE="$STORAGE"
     export HTTPS_PROXY_ADMIN_TOKEN="''${HTTPS_PROXY_ADMIN_TOKEN:-DOGECOIN}"

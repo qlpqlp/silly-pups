@@ -112,7 +112,7 @@
     <strong>Dogebox</strong> maps each pup <strong>expose</strong> to a host port — see
     <a href="https://dogebox.org/docs/usage/ports" target="_blank" rel="noopener">Forwarding public ports</a> and
     <a href="https://dogebox.org/docs/" target="_blank" rel="noopener">Dogebox docs</a>.
-    This pup’s manifest declares <strong>two</strong> exposes: plain <strong>HTTP</strong> and <strong>HTTPS</strong> on different container ports (defaults <code>80000</code> / <code>44443</code>, away from common <code>10000</code> / <code>10001</code>).
+    This pup’s manifest declares <strong>two</strong> exposes: plain <strong>HTTP</strong> and <strong>HTTPS</strong> on different container ports (defaults <code>18000</code> / <code>44443</code>, away from common <code>10000</code> / <code>10001</code>).
     Use the <strong>panel’s mapped port</strong> for each: <code>http://dogebox:&lt;mapped HTTP&gt;/__proxy/</code> for what Dogebox reverse-proxies, and <code>https://dogebox:&lt;mapped TLS&gt;/__proxy/</code> for a direct TLS connection (self-signed; trust or accept the warning).
     Keep <code>PUBLIC_PORT</code> / <code>HTTPS_PROXY_TLS_PORT</code> consistent with those exposes if you change ports.
     Configure hostnames, listener ports, and upstreams below — then run probes to verify TLS and backends.
@@ -406,7 +406,7 @@
     document.getElementById("btn-run-suite").onclick = async () => {
       localStorage.setItem(LS, tokenEl.value.trim());
       logLine("INF", "--- quick suite ---");
-      await probeTcp("dogebox", 80000).catch(() => {});
+      await probeTcp("dogebox", 18000).catch(() => {});
       const tp = parseInt(document.getElementById("probe-tls-port").value, 10) || 44443;
       await probeTls("dogebox", tp).catch(() => {});
       const r = await fetch(api("/api/config"), { headers: authHeaders() });

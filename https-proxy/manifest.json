@@ -2,10 +2,10 @@
   "manifestVersion": 1,
   "meta": {
     "name": "HTTPS Proxy",
-    "version": "0.1.9",
+    "version": "0.1.10",
     "logoPath": "logo.png",
     "shortDescription": "HTTPS reverse proxy for other pups (TLS self-signed by default + web admin)",
-    "longDescription": "**How Dogebox maps ports:** each `exposes[].port` is the **container port** your process must bind to — it must match **`PUBLIC_PORT`** / **`HTTPS_PROXY_TLS_PORT`** and the **`interfaces`** ports (see [Exposing ports](https://dogebox.org/docs/pup/exposing)). If they differ, Dogebox will forward to the wrong socket and the Web UI link may fall back to a default (e.g. **10000**). Default **HTTP** and **HTTPS** container ports are **80000** and **44443** so this pup does not compete with the common **10000** / **10001** pattern used by many pups. The panel shows **separate buttons** for **HTTP** and **HTTPS** when both are declared. **Inside the container:** HTTP on **`PUBLIC_PORT`** (default **80000**); TLS on **`HTTPS_PROXY_TLS_PORT`** (default **44443**). Use hostname **`dogebox`**. **HTTP:** `http://dogebox:<mapped HTTP port>/__proxy/`. **HTTPS:** `https://dogebox:<mapped TLS port>/__proxy/` (self-signed cert; SAN includes **dogebox** and **localhost**). Default admin token **`DOGECOIN`** (**`HTTPS_PROXY_ADMIN_TOKEN`**). Turn **Enable HTTPS** off in admin for HTTP-only on one port. **Advanced:** per-row listeners: HTTP on each **`listen_port`**, HTTPS on **`listen_port + HTTPS_PROXY_LISTENER_TLS_OFFSET`**. Not Let’s Encrypt.",
+    "longDescription": "**How Dogebox maps ports:** each `exposes[].port` is the **container port** your process must bind to — it must be **1–65535** and match **`PUBLIC_PORT`** / **`HTTPS_PROXY_TLS_PORT`** and the **`interfaces`** ports (see [Exposing ports](https://dogebox.org/docs/pup/exposing)). If they differ, Dogebox will forward to the wrong socket and the Web UI link may fall back to a default (e.g. **10000**). Default **HTTP** and **HTTPS** container ports are **18000** and **44443** (high range, away from common **10000** / **10001**). The panel shows **separate buttons** for **HTTP** and **HTTPS** when both are declared. **Inside the container:** HTTP on **`PUBLIC_PORT`** (default **18000**); TLS on **`HTTPS_PROXY_TLS_PORT`** (default **44443**). Use hostname **`dogebox`**. **HTTP:** `http://dogebox:<mapped HTTP port>/__proxy/`. **HTTPS:** `https://dogebox:<mapped TLS port>/__proxy/` (self-signed cert; SAN includes **dogebox** and **localhost**). Default admin token **`DOGECOIN`** (**`HTTPS_PROXY_ADMIN_TOKEN`**). Turn **Enable HTTPS** off in admin for HTTP-only on one port. **Advanced:** per-row listeners: HTTP on each **`listen_port`**, HTTPS on **`listen_port + HTTPS_PROXY_LISTENER_TLS_OFFSET`**. Not Let’s Encrypt.",
     "upstreamVersions": {
       "Go": "1.24"
     }
@@ -14,13 +14,13 @@
     "sections": [
       {
         "name": "HTTP/TLS",
-        "description": "With HTTPS on: **HTTP** listens on `PUBLIC_PORT` (default **80000**); **TLS** on `HTTPS_PROXY_TLS_PORT` (default **44443**). With port-listener rows, HTTP on each `listen_port` and TLS on `listen_port + offset` (see long description).",
+        "description": "With HTTPS on: **HTTP** listens on `PUBLIC_PORT` (default **18000**); **TLS** on `HTTPS_PROXY_TLS_PORT` (default **44443**). With port-listener rows, HTTP on each `listen_port` and TLS on `listen_port + offset` (see long description).",
         "fields": [
           {
             "name": "PUBLIC_PORT",
             "label": "HTTP listen port (Dogebox / panel)",
             "type": "text",
-            "default": "80000"
+            "default": "18000"
           },
           {
             "name": "HTTPS_PROXY_TLS_PORT",
@@ -53,7 +53,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "84ac00e4a7e7fb8b2ff4ef27058b010a463268aa7911d6ec17b7c93f86322873"
+      "nixFileSha256": "1778e3f5321ad25fb4d351262aa019d172676e869f90fc8cf2d63fd96174b18a"
     },
     "services": [
       {
@@ -69,7 +69,7 @@
       {
         "name": "http",
         "type": "http",
-        "port": 80000,
+        "port": 18000,
         "interfaces": [
           "https-proxy-http"
         ],
@@ -92,7 +92,7 @@
   "interfaces": [
     {
       "name": "https-proxy-http",
-      "version": "0.1.9",
+      "version": "0.1.10",
       "permissionGroups": [
         {
           "name": "HTTPS Proxy (HTTP / Dogebox)",
@@ -101,13 +101,13 @@
           "routes": [
             "/*"
           ],
-          "port": 80000
+          "port": 18000
         }
       ]
     },
     {
       "name": "https-proxy-tls",
-      "version": "0.1.9",
+      "version": "0.1.10",
       "permissionGroups": [
         {
           "name": "HTTPS Proxy (TLS direct)",

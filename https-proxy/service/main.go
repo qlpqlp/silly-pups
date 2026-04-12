@@ -346,7 +346,7 @@ func (s *server) startListeners() error {
 				continue
 			}
 			addr := fmt.Sprintf(":%d", L.ListenPort)
-			ln, err := tls.Listen("tcp", addr, tlsCfg)
+			ln, err := listenHTTPSOrRedirect(addr, tlsCfg)
 			if err != nil {
 				s.shutdownListeners()
 				return fmt.Errorf("tls listen %s: %w", addr, err)
@@ -377,7 +377,7 @@ func (s *server) startListeners() error {
 
 	port := strings.TrimSpace(env("PUBLIC_PORT", "10000"))
 	addr := ":" + port
-	ln, err := tls.Listen("tcp", addr, tlsCfg)
+	ln, err := listenHTTPSOrRedirect(addr, tlsCfg)
 	if err != nil {
 		return err
 	}

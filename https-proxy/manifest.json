@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "meta": {
     "name": "HTTPS Proxy",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "logoPath": "logo.png",
     "shortDescription": "Local HTTPS reverse proxy for other pups (self-signed TLS + web admin)",
     "longDescription": "Generates **one self-signed TLS certificate** per config (default SAN **dogebox**; ports are not part of certs — the same cert works for `https://dogebox:8080`, `https://dogebox:10000`, etc.). Use **port listeners** in the web UI so each HTTPS port forwards to that pup’s HTTP URL (e.g. `8080` → `http://127.0.0.1:8080`). If you leave port listeners empty, a single **PUBLIC_PORT** uses host-based routes instead. Admin is at `/__proxy/` on every listener. Trust `cert.pem` from the admin API. This is **not** Let’s Encrypt.",
@@ -47,7 +47,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "4a2638aeb64cb0598a7ec34f6c1fcb73fa3e0e4b80d357a7d17ca09ba9115111"
+      "nixFileSha256": "60e925e73ab7701b6ee520d81f47a76f0046b586d0cac4edafba49324c6e4e9a"
     },
     "services": [
       {
@@ -76,7 +76,7 @@
   "interfaces": [
     {
       "name": "https-proxy-https",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "permissionGroups": [
         {
           "name": "HTTPS Proxy UI",

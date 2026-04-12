@@ -99,11 +99,15 @@ func (s *Server) runSuchPubKeyFromWIF(wif string, testnet bool) (pubHex, p2pkh s
 
 // p2pkhScriptPubKeyHexForSign returns scriptPubKey hex for `such -c sign -s` using libdogecoin-derived pubkey.
 func (s *Server) p2pkhScriptPubKeyHexForSign(wf *WalletFile) (string, error) {
+	p := wf.PrimaryAddress()
+	if p == nil {
+		return "", fmt.Errorf("no primary address")
+	}
 	testnet := strings.EqualFold(wf.Network, "testnet")
-	pub := strings.TrimSpace(wf.PublicKeyHex)
+	pub := strings.TrimSpace(p.PubHex)
 	if pub == "" {
 		var err error
-		pub, _, err = s.runSuchPubKeyFromWIF(wf.WIFPrivateKey, testnet)
+		pub, _, err = s.runSuchPubKeyFromWIF(p.WIF, testnet)
 		if err != nil {
 			return "", err
 		}
@@ -283,6 +287,19 @@ func (s *Server) startSPVNode(w *WalletFile) {
 		_ = f.Close()
 	}()
 	log.Printf("[pq-wallet] spvnode pid=%d", cmd.Process.Pid)
+}
+
+func (s *Server) stopSPVNode() {
+	b, err := os.ReadFile(s.spvPidPath())
+	if err != nil {
+		return
+	}
+	pid := strings.TrimSpace(string(b))
+	if pid == "" {
+		return
+	}
+	_ = exec.Command("kill", "-TERM", pid).Run()
+	_ = os.Remove(s.spvPidPath())
 }
 
 func (s *Server) readSPVStatus() map[string]any {

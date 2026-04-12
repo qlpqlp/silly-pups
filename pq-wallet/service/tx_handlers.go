@@ -44,7 +44,12 @@ func (s *Server) handleTxSign(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	signed, err := s.runSuchSign(strings.TrimSpace(body.RawHex), scriptHex, wf.WIFPrivateKey, body.InputIndex, body.SighashType, testnet)
+	pa := wf.PrimaryAddress()
+	if pa == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no primary address"})
+		return
+	}
+	signed, err := s.runSuchSign(strings.TrimSpace(body.RawHex), scriptHex, pa.WIF, body.InputIndex, body.SighashType, testnet)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return

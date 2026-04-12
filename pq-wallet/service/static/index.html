@@ -3,147 +3,263 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PQ Doge Wallet — experimental</title>
+  <title>PQ Doge Wallet</title>
   <link rel="stylesheet" href="/static/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
 </head>
 <body>
-  <header class="hero">
-    <img src="/static/logo.png" alt="" class="logo" width="72" height="72" />
-    <div>
-      <h1>PQ Doge Wallet</h1>
-      <p class="tagline">Dogecoin addresses, post-quantum proof context, and mempool tooling — educational &amp; experimental.</p>
-    </div>
-  </header>
-
-  <nav class="tabs" role="tablist">
-    <button type="button" class="tab active" data-panel="wallet">Wallet</button>
-    <button type="button" class="tab" data-panel="learn">How it works</button>
-    <button type="button" class="tab" data-panel="network">Network &amp; SPV</button>
-  </nav>
-
-  <main>
-    <section id="panel-wallet" class="panel visible">
-      <div class="card warn">
-        <strong>Experimental.</strong> This pup is for learning and testing. Back up your private key (WIF) offline.
-        Post-quantum proofs on mainnet are early research — verify everything before moving real DOGE.
-      </div>
-
-      <div id="wallet-empty" class="card">
-        <h2>No wallet yet</h2>
-        <p>P2PKH address and WIF are created with libdogecoin (<code>such -c generate_private_key</code> and <code>generate_public_key</code>). The container also includes <code>sendtx</code> and <code>spvnode</code> (with liboqs for PQ).</p>
-        <label class="row">
-          <span>Network</span>
-          <select id="net-select">
-            <option value="mainnet">Mainnet</option>
-            <option value="testnet">Testnet</option>
-          </select>
-        </label>
-        <label class="row check">
-          <input type="checkbox" id="pq-keys" />
-          <span>Generate Falcon-512 PQ keys (<code>such -c falcon_keygen</code>)</span>
-        </label>
-        <button type="button" class="primary" id="btn-create">Generate wallet</button>
-      </div>
-
-      <div id="wallet-loaded" class="hidden">
-        <div class="card">
-          <h2>Receive</h2>
-          <p class="mono" id="addr-display"></p>
-          <button type="button" class="ghost" id="btn-copy-addr">Copy address</button>
+  <div class="app" id="app">
+    <aside class="sidebar" id="sidebar" aria-label="Main navigation">
+      <div class="sidebar-brand">
+        <img src="/static/logo.png" alt="" width="40" height="40" class="sidebar-logo" />
+        <div class="sidebar-titles">
+          <span class="sidebar-name">PQ Doge Wallet</span>
+          <span class="sidebar-sub">libdogecoin · liboqs</span>
         </div>
-        <div class="card">
-          <h2>Private key (WIF)</h2>
-          <p class="small">Store only on devices you control. Anyone with this string can spend your DOGE.</p>
-          <p class="mono wrap" id="wif-display"></p>
-          <div class="btn-row">
-            <button type="button" class="ghost" id="btn-copy-wif">Copy WIF</button>
-            <button type="button" class="primary" id="btn-backup">Download backup JSON</button>
+        <button type="button" class="sidebar-toggle" id="btn-sidebar-toggle" title="Collapse sidebar" aria-expanded="true">⟨</button>
+      </div>
+      <nav class="sidebar-nav">
+        <button type="button" class="nav-item active" data-view="dashboard">
+          <span class="nav-ico">◉</span><span class="nav-txt">Dashboard</span>
+        </button>
+        <button type="button" class="nav-item" data-view="addresses">
+          <span class="nav-ico">◎</span><span class="nav-txt">Addresses</span>
+        </button>
+        <button type="button" class="nav-item" data-view="transactions">
+          <span class="nav-ico">⇄</span><span class="nav-txt">Transactions</span>
+        </button>
+        <button type="button" class="nav-item" data-view="tools">
+          <span class="nav-ico">⚙</span><span class="nav-txt">Sign &amp; broadcast</span>
+        </button>
+        <button type="button" class="nav-item" data-view="network">
+          <span class="nav-ico">🌐</span><span class="nav-txt">Network &amp; SPV</span>
+        </button>
+        <button type="button" class="nav-item" data-view="learn">
+          <span class="nav-ico">📖</span><span class="nav-txt">How it works</span>
+        </button>
+        <button type="button" class="nav-item" data-view="settings">
+          <span class="nav-ico">⎔</span><span class="nav-txt">Wallet file</span>
+        </button>
+      </nav>
+      <div class="sidebar-foot">
+        <span class="muted small" id="conn-pill">● live</span>
+      </div>
+    </aside>
+
+    <div class="main-wrap">
+      <header class="topbar">
+        <div>
+          <h1 id="page-title">Dashboard</h1>
+          <p class="page-sub" id="page-sub">SPV headers, balances, and post-quantum hints</p>
+        </div>
+        <div class="topbar-actions">
+          <span class="badge" id="net-badge">mainnet</span>
+        </div>
+      </header>
+
+      <main class="content">
+        <!-- No wallet -->
+        <section id="view-onboarding" class="view">
+          <div class="card warn">
+            <strong>Experimental.</strong> Research software — back up keys offline. PQ proofs on mainnet are early-phase.
           </div>
-        </div>
-        <div class="card" id="pq-card">
-          <h2>Post-quantum material</h2>
-          <p class="small" id="pq-scheme"></p>
-          <p class="mono wrap" id="pq-pub"></p>
-          <p class="mono wrap" id="pq-priv"></p>
-        </div>
-        <div class="card">
-          <h2>libdogecoin SPV + SMPV</h2>
-          <p class="small">After the wallet is created, <code>spvnode</code> runs in the background (headers DB + mempool filter + SMPV). Inspect log tail below.</p>
-          <button type="button" class="ghost" id="btn-spv-status">Refresh SPV status</button>
-          <pre id="spv-out" class="mono small"></pre>
-        </div>
-        <div class="card">
-          <h2>Sign raw transaction</h2>
-          <p class="small">Unsigned raw hex → <code>such -c sign</code> with your WIF and P2PKH script for this address.</p>
-          <textarea id="raw-hex" rows="3" placeholder="paste unsigned raw tx hex"></textarea>
-          <label class="row"><span>Input index</span><input type="number" id="vin-idx" value="0" min="0" /></label>
-          <button type="button" class="primary" id="btn-sign">Sign</button>
-          <pre id="sign-out" class="mono small"></pre>
-        </div>
-        <div class="card">
-          <h2>Broadcast signed tx</h2>
-          <p class="small"><code>sendtx</code> relays to Dogecoin peers (set optional peer list as <code>host:port,host:port</code>).</p>
-          <textarea id="signed-hex" rows="3" placeholder="paste signed raw tx hex"></textarea>
-          <label class="row"><span>Peers (optional)</span><input type="text" id="peers-input" placeholder="empty = DNS seeds" /></label>
-          <button type="button" class="primary" id="btn-broadcast">Broadcast</button>
-          <pre id="bc-out" class="mono small"></pre>
-        </div>
-        <div class="card">
-          <h2>Send via Core RPC (optional)</h2>
-          <p class="small">If <code>DOGE_RPC_URL</code> is set (e.g. CORE pup), send without manual raw tx.</p>
-          <label class="row"><span>To address</span><input type="text" id="rpc-to" placeholder="D..." /></label>
-          <label class="row"><span>Amount (DOGE)</span><input type="text" id="rpc-amt" placeholder="1.0" /></label>
-          <button type="button" class="ghost" id="btn-rpc-send">Send</button>
-          <pre id="rpc-out" class="mono small"></pre>
-        </div>
-      </div>
-    </section>
+          <div class="card grid-2">
+            <div>
+              <h2>Create wallet</h2>
+              <p class="small muted">P2PKH + WIF via <code>such</code>; optional Falcon-512 PQ keys. State is stored under the pup volume.</p>
+              <label class="field"><span>Network</span>
+                <select id="net-select">
+                  <option value="mainnet">Mainnet</option>
+                  <option value="testnet">Testnet</option>
+                </select>
+              </label>
+              <label class="field check">
+                <input type="checkbox" id="pq-keys" />
+                <span>Generate Falcon-512 PQ keys</span>
+              </label>
+              <button type="button" class="btn primary" id="btn-create">Generate wallet</button>
+            </div>
+            <div>
+              <h2>Restore</h2>
+              <p class="small muted">Import a <code>wallet.json</code> backup (replaces only if no wallet exists — use Wallet file to delete first).</p>
+              <label class="field"><span>Backup JSON</span>
+                <input type="file" id="import-file" accept="application/json,.json" />
+              </label>
+              <button type="button" class="btn" id="btn-import">Import backup</button>
+            </div>
+          </div>
+        </section>
 
-    <section id="panel-learn" class="panel">
-      <div class="card">
-        <h2>TX_C and TX_R (conceptual)</h2>
-        <ol class="steps">
-          <li><strong>Normal transaction</strong> — You create and sign a Dogecoin transaction the same way as today.</li>
-          <li><strong>TX_C — commitment</strong> — A short fingerprint of the quantum-safe signature is placed in an <code>OP_RETURN</code> (the commitment).</li>
-          <li><strong>Optional carrier</strong> — A tiny output (for example 1 DOGE) can carry the flow; <strong>TX_R</strong> spends it to reveal the full PQ public key and signature on-chain, returning funds minus fees.</li>
-          <li><strong>Testing</strong> — Often the commitment alone is enough; the carrier step is optional.</li>
-        </ol>
-        <p class="small">See <a href="https://github.com/dogecoinfoundation/libdogecoin/pull/294" target="_blank" rel="noopener">libdogecoin PR #294</a> for PQC carrier support, liboqs integration, and Raccoon-G.</p>
-      </div>
-      <div class="card">
-        <h2>libdogecoin in this pup</h2>
-        <p>The Nix build compiles libdogecoin with <code>USE_LIBOQS=ON</code> (Falcon-512, Dilithium2). Tools on <code>PATH</code>: <code>such</code>, <code>sendtx</code>, <code>spvnode</code>. SPV/SMPV use the same code as <code>src/spv.c</code> / <code>src/smpv.c</code>.</p>
-      </div>
-    </section>
+        <!-- Dashboard -->
+        <section id="view-dashboard" class="view hidden">
+          <div class="stat-grid">
+            <div class="stat card">
+              <span class="stat-label">Spendable (hint)</span>
+              <span class="stat-val" id="stat-spend">—</span>
+              <span class="stat-hint">Explorer + cached txs</span>
+            </div>
+            <div class="stat card">
+              <span class="stat-label">Received</span>
+              <span class="stat-val" id="stat-in">—</span>
+            </div>
+            <div class="stat card">
+              <span class="stat-label">Sent</span>
+              <span class="stat-val" id="stat-out">—</span>
+            </div>
+            <div class="stat card">
+              <span class="stat-label">SPV process</span>
+              <span class="stat-val" id="stat-spv">—</span>
+            </div>
+          </div>
+          <div class="card block-live">
+            <div class="block-live-head">
+              <h2>Chain tip (from SPV log)</h2>
+              <span class="pill" id="pill-height">height —</span>
+            </div>
+            <p class="mono hash" id="hdr-hash">—</p>
+            <p class="small muted">Parsed live from <code>spv.log</code> tail. When <code>EXPLORER_ADDRESS_API</code> is set, balances sync from the indexer.</p>
+          </div>
+          <div class="charts">
+            <div class="card chart-card">
+              <h3>Header height</h3>
+              <canvas id="chart-height" height="120"></canvas>
+            </div>
+            <div class="card chart-card">
+              <h3>SPV up (1 = running)</h3>
+              <canvas id="chart-spv" height="120"></canvas>
+            </div>
+          </div>
+        </section>
 
-    <section id="panel-network" class="panel">
-      <div class="card">
-        <h2>SPV status (same tab as wallet)</h2>
-        <p class="small">Use <strong>Refresh SPV status</strong> on the Wallet tab, or <code>GET /api/spv/status</code>.</p>
-      </div>
-      <div class="card">
-        <h2>Mempool (MemeTracker)</h2>
-        <p>If you run the <strong>MemeTracker</strong> pup, set <code>MEMETRACKER_BASE_URL</code> to its HTTP URL. This wallet can ping health and call <code>/track/&lt;your address&gt;</code> so mempool gossip sees transactions paying you.</p>
-        <button type="button" class="ghost" id="btn-mem-status">Check MemeTracker status</button>
-        <button type="button" class="ghost" id="btn-mem-track">Track this wallet’s address</button>
-        <pre id="mem-out" class="mono small"></pre>
-      </div>
-      <div class="card">
-        <h2>Confirmations (explorer)</h2>
-        <p>Optional: set <code>EXPLORER_TX_API</code> to a URL containing <code>{txid}</code>, for example Blockchair’s Dogecoin transaction dashboard path. This is <strong>not</strong> libdogecoin SPV — it is a practical confirmation hint.</p>
-        <label class="row">
-          <span>Txid</span>
-          <input type="text" id="txid-input" placeholder="paste txid" />
-        </label>
-        <button type="button" class="ghost" id="btn-explorer">Fetch</button>
-        <pre id="ex-out" class="mono small"></pre>
-      </div>
-    </section>
-  </main>
+        <!-- Addresses -->
+        <section id="view-addresses" class="view hidden">
+          <div class="toolbar">
+            <button type="button" class="btn primary" id="btn-new-addr">Generate new address</button>
+            <p class="small muted">SPV watches the <strong>primary</strong> address. Switch primary to rescan with a new key.</p>
+          </div>
+          <div class="card table-wrap">
+            <table class="data-table" id="addr-table">
+              <thead>
+                <tr>
+                  <th>Label</th>
+                  <th>Address</th>
+                  <th>Primary</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
 
-  <footer>
-    <p>PQ Doge Wallet · silly-pups · MIT · Not financial advice.</p>
-  </footer>
-  <script src="/static/app.js"></script>
+        <!-- Transactions -->
+        <section id="view-transactions" class="view hidden">
+          <div class="toolbar">
+            <button type="button" class="btn primary" id="btn-sync-tx">Sync with explorer / RPC</button>
+            <span class="small muted" id="tx-sync-hint"></span>
+          </div>
+          <div class="card table-wrap">
+            <table class="data-table" id="tx-table">
+              <thead>
+                <tr>
+                  <th>Txid</th>
+                  <th>Dir</th>
+                  <th>Amount</th>
+                  <th>PQ hint</th>
+                  <th>Source</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Tools -->
+        <section id="view-tools" class="view hidden">
+          <div class="grid-2">
+            <div class="card">
+              <h2>Sign raw transaction</h2>
+              <p class="small muted">Uses <strong>primary</strong> address WIF + P2PKH script.</p>
+              <textarea id="raw-hex" rows="4" placeholder="unsigned raw tx hex"></textarea>
+              <label class="field"><span>Input index</span><input type="number" id="vin-idx" value="0" min="0" /></label>
+              <button type="button" class="btn primary" id="btn-sign">Sign</button>
+              <pre id="sign-out" class="mono small out"></pre>
+            </div>
+            <div class="card">
+              <h2>Broadcast</h2>
+              <textarea id="signed-hex" rows="4" placeholder="signed raw tx hex"></textarea>
+              <label class="field"><span>Peers (optional)</span><input type="text" id="peers-input" placeholder="host:port,…" /></label>
+              <button type="button" class="btn primary" id="btn-broadcast">Broadcast</button>
+              <pre id="bc-out" class="mono small out"></pre>
+            </div>
+            <div class="card">
+              <h2>Core RPC send</h2>
+              <p class="small muted">Requires <code>DOGE_RPC_URL</code>.</p>
+              <label class="field"><span>To</span><input type="text" id="rpc-to" placeholder="D…" /></label>
+              <label class="field"><span>Amount DOGE</span><input type="text" id="rpc-amt" /></label>
+              <button type="button" class="btn" id="btn-rpc-send">Send</button>
+              <pre id="rpc-out" class="mono small out"></pre>
+            </div>
+          </div>
+        </section>
+
+        <!-- Network -->
+        <section id="view-network" class="view hidden">
+          <div class="card">
+            <h2>SPV status</h2>
+            <button type="button" class="btn" id="btn-spv-status">Refresh</button>
+            <pre id="spv-out" class="mono small out"></pre>
+          </div>
+          <div class="card">
+            <h2>MemeTracker</h2>
+            <div class="btn-row">
+              <button type="button" class="btn" id="btn-mem-status">Health</button>
+              <button type="button" class="btn" id="btn-mem-track">Track primary address</button>
+            </div>
+            <pre id="mem-out" class="mono small out"></pre>
+          </div>
+          <div class="card">
+            <h2>Explorer tx</h2>
+            <label class="field"><span>Txid</span><input type="text" id="txid-input" /></label>
+            <button type="button" class="btn" id="btn-explorer">Fetch</button>
+            <pre id="ex-out" class="mono small out"></pre>
+          </div>
+        </section>
+
+        <!-- Learn -->
+        <section id="view-learn" class="view hidden">
+          <div class="card">
+            <h2>TX_C and TX_R</h2>
+            <ol class="steps">
+              <li><strong>Normal tx</strong> — ECDSA P2PKH as usual.</li>
+              <li><strong>TX_C</strong> — OP_RETURN carries a commitment to the PQ signature.</li>
+              <li><strong>Optional carrier</strong> — small output for the reveal path (TX_R).</li>
+            </ol>
+            <p class="small"><a href="https://github.com/dogecoinfoundation/libdogecoin/pull/294" target="_blank" rel="noopener">PR #294</a></p>
+          </div>
+        </section>
+
+        <!-- Settings -->
+        <section id="view-settings" class="view hidden">
+          <div class="card">
+            <h2>Backup</h2>
+            <p class="small muted">Downloads <code>wallet.json</code> including all generated addresses and PQ keys.</p>
+            <button type="button" class="btn primary" id="btn-backup">Download backup</button>
+          </div>
+          <div class="card danger-zone">
+            <h2>Remove wallet</h2>
+            <p class="small">Deletes wallet, SPV DBs, and cached state. Requires typing <code>DELETE</code>.</p>
+            <input type="text" id="delete-confirm" placeholder="Type DELETE" autocomplete="off" />
+            <button type="button" class="btn danger" id="btn-delete" disabled>Remove wallet from this pup</button>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <span>PQ Doge Wallet · silly-pups · MIT</span>
+      </footer>
+    </div>
+  </div>
+  <script src="/static/app.js" defer></script>
 </body>
 </html>

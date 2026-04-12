@@ -24,28 +24,13 @@ import (
 //go:embed static/*
 var staticFS embed.FS
 
-type WalletFile struct {
-	Version           int       `json:"version"`
-	CreatedAt         time.Time `json:"created_at"`
-	Network           string    `json:"network"`
-	P2PKHAddress      string    `json:"p2pkh_address"`
-	WIFPrivateKey     string    `json:"wif_private_key"`
-	PublicKeyHex      string    `json:"public_key_hex_compressed"`
-	PQScheme          string    `json:"pq_scheme"`
-	PQPublicHex       string    `json:"pq_public_key_hex,omitempty"`
-	PQPrivateHex      string    `json:"pq_private_key_hex,omitempty"`
-	PQSource          string    `json:"pq_key_source"`
-	PQNotes           string    `json:"pq_notes,omitempty"`
-	LibdogecoinSPV    string    `json:"libdogecoin_spv_note"`
-	ExperimentalDiscl string    `json:"experimental_disclaimer"`
-}
-
 type Server struct {
-	mu          sync.Mutex
-	storageDir  string
-	walletPath  string
-	memetracker string
-	explorer    string
+	mu           sync.Mutex
+	storageDir   string
+	walletPath   string
+	memetracker  string
+	explorer     string
+	explorerAddr string
 }
 
 func env(key, def string) string {
@@ -53,30 +38,6 @@ func env(key, def string) string {
 		return v
 	}
 	return def
-}
-
-func (s *Server) loadWallet() (*WalletFile, error) {
-	b, err := os.ReadFile(s.walletPath)
-	if err != nil {
-		return nil, err
-	}
-	var w WalletFile
-	if err := json.Unmarshal(b, &w); err != nil {
-		return nil, err
-	}
-	return &w, nil
-}
-
-func (s *Server) saveWallet(w *WalletFile) error {
-	b, err := json.MarshalIndent(w, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := s.walletPath + ".tmp"
-	if err := os.WriteFile(tmp, b, 0600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.walletPath)
 }
 
 func (s *Server) generateDogecoinWallet(testnet bool) (*WalletFile, error) {
@@ -88,9 +49,10 @@ func (s *Server) generateDogecoinWallet(testnet bool) (*WalletFile, error) {
 	if testnet {
 		network = "testnet"
 	}
+	now := time.Now().UTC()
 	w := &WalletFile{
-		Version:       1,
-		CreatedAt:     time.Now().UTC(),
+		Version:       2,
+		CreatedAt:     now,
 		Network:       network,
 		P2PKHAddress:  addr,
 		WIFPrivateKey: wif,
@@ -105,7 +67,17 @@ func (s *Server) generateDogecoinWallet(testnet bool) (*WalletFile, error) {
 			"Check GET /api/spv/status. Optional Dogecoin Core RPC (DOGE_RPC_URL) for sendtoaddress / confirmations.",
 		ExperimentalDiscl: "Experimental research software. You may lose funds. Back up your WIF. " +
 			"PQ proofs on mainnet are early-phase; verify any third-party tooling.",
+		Addresses: []WalletAddress{{
+			ID:        newAddressID(),
+			Label:     "Primary",
+			P2PKH:     addr,
+			WIF:       wif,
+			PubHex:    pubHex,
+			CreatedAt: now,
+			Primary:   true,
+		}},
 	}
+	w.syncLegacyFromPrimary()
 	return w, nil
 }
 
@@ -295,11 +267,14 @@ func main() {
 	walletPath := filepath.Join(storage, "wallet.json")
 
 	srv := &Server{
-		storageDir:  storage,
-		walletPath:  walletPath,
-		memetracker: env("MEMETRACKER_BASE_URL", ""),
-		explorer:    env("EXPLORER_TX_API", ""),
+		storageDir:   storage,
+		walletPath:   walletPath,
+		memetracker:  env("MEMETRACKER_BASE_URL", ""),
+		explorer:     env("EXPLORER_TX_API", ""),
+		explorerAddr: env("EXPLORER_ADDRESS_API", ""),
 	}
+
+	go srv.backgroundMetricsLoop()
 
 	mux := http.NewServeMux()
 	mux.Handle("/static/", http.StripPrefix("/static/", staticHandler()))
@@ -322,10 +297,18 @@ func main() {
 			srv.handleWalletGet(w, r)
 		case http.MethodPost:
 			srv.handleWalletCreate(w, r)
+		case http.MethodDelete:
+			srv.handleWalletDelete(w, r)
 		default:
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		}
 	})
+	mux.HandleFunc("/api/wallet/import", srv.handleWalletImport)
+	mux.HandleFunc("/api/wallet/addresses", srv.handleWalletNewAddress)
+	mux.HandleFunc("/api/wallet/primary", srv.handleWalletSetPrimary)
+	mux.HandleFunc("/api/dashboard", srv.handleDashboard)
+	mux.HandleFunc("/api/metrics", srv.handleMetrics)
+	mux.HandleFunc("/api/transactions", srv.handleTransactions)
 	mux.HandleFunc("/api/mempool/status", srv.handleMemetrackerPing)
 	mux.HandleFunc("/api/mempool/track", srv.handleTrackAddress)
 	mux.HandleFunc("/api/explorer/tx/", srv.handleExplorerTx)

@@ -70,6 +70,18 @@ func (s *Server) rpcSendToAddress(ctx context.Context, address string, amount fl
 	return txid, nil
 }
 
+func (s *Server) rpcGetReceivedByAddress(ctx context.Context, address string) (float64, error) {
+	res, err := s.rpcCall(ctx, "getreceivedbyaddress", []any{strings.TrimSpace(address)})
+	if err != nil {
+		return 0, err
+	}
+	var f float64
+	if err := json.Unmarshal(res, &f); err != nil {
+		return 0, err
+	}
+	return f, nil
+}
+
 func (s *Server) rpcGetTransaction(ctx context.Context, txid string) (map[string]any, error) {
 	res, err := s.rpcCall(ctx, "gettransaction", []any{txid})
 	if err != nil {

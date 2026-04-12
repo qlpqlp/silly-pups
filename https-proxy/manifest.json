@@ -2,10 +2,10 @@
   "manifestVersion": 1,
   "meta": {
     "name": "HTTPS Proxy",
-    "version": "0.1.5",
+    "version": "0.1.6",
     "logoPath": "logo.png",
     "shortDescription": "HTTPS reverse proxy for other pups (TLS self-signed by default + web admin)",
-    "longDescription": "**TLS is on by default** (self-signed cert, SAN **dogebox**). Open **`https://dogebox:<PUBLIC_PORT>/__proxy/`** and accept the browser warning (or trust `cert.pem`). Default admin token is **`DOGECOIN`** (override with **`HTTPS_PROXY_ADMIN_TOKEN`**). Turn off **Enable HTTPS** in the UI only if you need plain **HTTP**. If Firefox shows **SSL_ERROR_RX_RECORD_TOO_LONG**, you opened **https://** while the proxy was in HTTP-only mode — use **http://** for that mode, or re-enable HTTPS. **Port** in the URL must match **`PUBLIC_PORT`**. Use **port listeners** to map each listen port to an upstream pup. This is **not** Let’s Encrypt.",
+    "longDescription": "**TLS is on by default** (self-signed cert, SAN **dogebox** — same hostname works on **any port**). **Dogebox’s panel** reverse-proxies with **HTTP** to **`PUBLIC_PORT`**, so this pup serves **plain HTTP on `PUBLIC_PORT`** and **HTTPS on the companion port** (default **`PUBLIC_PORT+1`**, override **`HTTPS_PROXY_TLS_PORT`**). Use **`http://dogebox:<mapped PUBLIC_PORT>/__proxy/`** from the panel, or **`https://dogebox:<mapped TLS port>/__proxy/`** for HTTPS in the browser. Default admin token **`DOGECOIN`** (override **`HTTPS_PROXY_ADMIN_TOKEN`**). Turn off **Enable HTTPS** for HTTP-only on a single port. **Port listeners:** HTTP on each **`listen_port`** (Dogebox); HTTPS on **`listen_port + HTTPS_PROXY_LISTENER_TLS_OFFSET`** (default 10000). Not Let’s Encrypt.",
     "upstreamVersions": {
       "Go": "1.24"
     }
@@ -14,13 +14,19 @@
     "sections": [
       {
         "name": "HTTP/TLS",
-        "description": "Listen port on 0.0.0.0 (HTTPS/TLS by default). With no port listeners in the UI, this single port is used. If you add port listeners, each row has its own port (PUBLIC_PORT is ignored).",
+        "description": "With HTTPS on: **HTTP** listens on `PUBLIC_PORT` (Dogebox panel); **TLS** on `HTTPS_PROXY_TLS_PORT` or `PUBLIC_PORT+1`. With port-listener rows, HTTP on each `listen_port` and TLS on `listen_port + offset` (see long description).",
         "fields": [
           {
             "name": "PUBLIC_PORT",
-            "label": "Listen port (HTTP or HTTPS)",
+            "label": "HTTP listen port (Dogebox / panel)",
             "type": "text",
             "default": "10000"
+          },
+          {
+            "name": "HTTPS_PROXY_TLS_PORT",
+            "label": "HTTPS listen port (optional; default PUBLIC_PORT+1)",
+            "type": "text",
+            "default": ""
           }
         ]
       },
@@ -47,7 +53,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "0913d23561b6d2e267330f5ad3c1de881626826a54967c80ca7ab0377c273dfa"
+      "nixFileSha256": "63c4ba2c11bb09832cccb7e8a3904f04f8739014d661795d445ddf3aec9f6c60"
     },
     "services": [
       {
@@ -61,31 +67,56 @@
     ],
     "exposes": [
       {
-        "name": "https",
+        "name": "https-http",
         "type": "http",
         "port": 10000,
         "interfaces": [
-          "https-proxy-https"
+          "https-proxy-http"
         ],
         "listenOnHost": true,
         "webUI": true
+      },
+      {
+        "name": "https-tls",
+        "type": "http",
+        "port": 10001,
+        "interfaces": [
+          "https-proxy-tls"
+        ],
+        "listenOnHost": true,
+        "webUI": false
       }
     ],
     "requiresInternet": false
   },
   "interfaces": [
     {
-      "name": "https-proxy-https",
-      "version": "0.1.5",
+      "name": "https-proxy-http",
+      "version": "0.1.6",
       "permissionGroups": [
         {
-          "name": "HTTPS Proxy UI",
-          "description": "Web admin and proxied HTTP/HTTPS traffic",
+          "name": "HTTPS Proxy (HTTP / Dogebox)",
+          "description": "Plain HTTP for Dogebox reverse proxy and panel Web UI link",
           "severity": 2,
           "routes": [
             "/*"
           ],
           "port": 10000
+        }
+      ]
+    },
+    {
+      "name": "https-proxy-tls",
+      "version": "0.1.6",
+      "permissionGroups": [
+        {
+          "name": "HTTPS Proxy (TLS direct)",
+          "description": "HTTPS listener — use https://dogebox:<mapped port>/ for encrypted access (same cert SAN on every port)",
+          "severity": 2,
+          "routes": [
+            "/*"
+          ],
+          "port": 10001
         }
       ]
     }

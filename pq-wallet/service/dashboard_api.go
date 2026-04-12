@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -11,6 +12,12 @@ import (
 	"strings"
 	"time"
 )
+
+// txListRow is one row for /api/transactions (explorer cache + MemeTracker mempool matches).
+type txListRow struct {
+	TxRecord
+	Pending bool `json:"pending"`
+}
 
 // handleDashboard returns balances, SPV header parse, metrics tail, and merged tx summary.
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -51,24 +58,18 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	running, _ := spv["running"].(bool)
 
-	inSum := 0.0
-	outSum := 0.0
-	for _, t := range st.Transactions {
-		if strings.EqualFold(t.Direction, "in") {
-			inSum += t.AmountDOGE
-		}
-		if strings.EqualFold(t.Direction, "out") {
-			outSum += t.AmountDOGE
-		}
-	}
 	spendable := st.ExplorerBalanceDOGE
 	if spendable <= 0 {
+		var inSum, outSum float64
+		for _, t := range st.Transactions {
+			if strings.EqualFold(t.Direction, "in") {
+				inSum += t.AmountDOGE
+			}
+			if strings.EqualFold(t.Direction, "out") {
+				outSum += t.AmountDOGE
+			}
+		}
 		spendable = math.Max(0, inSum-outSum)
-	}
-
-	var currentPeer any
-	if hdr.CurrentPeer != nil {
-		currentPeer = hdr.CurrentPeer
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
@@ -100,17 +101,10 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		"wallet": wf,
 		"dashboard": map[string]any{
 			"spv": map[string]any{
-				"running":               running,
-				"header_height":         hdr.HeaderHeight,
-				"best_block_hash":       hdr.BestBlockHash,
-				"peer_count":            hdr.PeerCount,
-				"header_count_hint":     hdr.HeaderCountHint,
-				"spv_peer_hosts":        hdr.SPVPeerHosts,
-				"mempool_tx_count":      mempoolDisplay,
-				"mempool_tx_count_spv_log": hdr.MempoolTxCount,
-				"current_peer":          currentPeer,
-				"peers_recent":          hdr.PeersRecent,
-				"log_tail":              logTail,
+				"running":         running,
+				"header_height":   hdr.HeaderHeight,
+				"best_block_hash": hdr.BestBlockHash,
+				"mempool_tx_count": mempoolDisplay,
 			},
 			"memetracker": map[string]any{
 				"mempool_tx_count":     mtrCount,
@@ -121,13 +115,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 				"engine_error":         mtrEngErr,
 			},
 			"totals": map[string]any{
-				"received_doge":         round4(inSum),
-				"sent_doge":             round4(outSum),
-				"spendable_hint_doge":   round4(spendable),
-				"pending_mempool_doge":  round4(pendingMeme),
-				"memetracker_error":     memeErrStr,
-				"tx_count":              len(st.Transactions),
-				"last_explorer_sync":    st.LastExplorerSync,
+				"spendable_hint_doge":  round4(spendable),
+				"pending_mempool_doge": round4(pendingMeme),
+				"memetracker_error":    memeErrStr,
+				"tx_count":             len(st.Transactions),
+				"last_explorer_sync":   st.LastExplorerSync,
 			},
 			"metrics_sample": metricsLast24Hours(st.Metrics),
 		},
@@ -219,15 +211,94 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 			_ = s.saveState(st)
 		}
 	}
-	type txRow struct {
-		TxRecord
-		Pending bool `json:"pending"`
-	}
-	out := make([]txRow, 0, len(st.Transactions))
-	for _, t := range st.Transactions {
-		out = append(out, txRow{TxRecord: t, Pending: t.Confirmations == 0})
-	}
+	out := s.mergeTxListWithMemeTracker(wf, st)
 	writeJSON(w, http.StatusOK, map[string]any{"transactions": out})
+}
+
+func truthyAny(v any) bool {
+	b, ok := v.(bool)
+	return ok && b
+}
+
+func jsonStringAny(v any) string {
+	if v == nil {
+		return ""
+	}
+	switch t := v.(type) {
+	case string:
+		return strings.TrimSpace(t)
+	default:
+		return strings.TrimSpace(fmt.Sprint(t))
+	}
+}
+
+func floatFromAny(v any) float64 {
+	switch t := v.(type) {
+	case float64:
+		return t
+	case float32:
+		return float64(t)
+	case json.Number:
+		f, _ := t.Float64()
+		return f
+	case int:
+		return float64(t)
+	case int64:
+		return float64(t)
+	default:
+		return 0
+	}
+}
+
+func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []txListRow {
+	mtrOverlay := map[string]bool{}
+	var mtrOnly []txListRow
+	eng, engErr := s.ensureMempoolEngine(wf)
+	if eng != nil && engErr == nil {
+		_, mtrLive, _, _ := eng.DashboardSnapshot()
+		for _, m := range mtrLive {
+			if !truthyAny(m["tracked_match"]) {
+				continue
+			}
+			txid := strings.TrimSpace(jsonStringAny(m["txid"]))
+			if txid == "" {
+				continue
+			}
+			mtrOverlay[txid] = true
+			amt := floatFromAny(m["amount_doge"])
+			found := false
+			for _, t := range st.Transactions {
+				if t.Txid == txid {
+					found = true
+					break
+				}
+			}
+			if !found {
+				mtrOnly = append(mtrOnly, txListRow{
+					TxRecord: TxRecord{
+						Txid:          txid,
+						Direction:     "in",
+						AmountDOGE:    amt,
+						Source:        "memetracker",
+						Confirmations: 0,
+						SeenAt:        time.Now().UTC(),
+					},
+					Pending: true,
+				})
+			}
+		}
+	}
+	out := make([]txListRow, 0, len(mtrOnly)+len(st.Transactions))
+	out = append(out, mtrOnly...)
+	for _, t := range st.Transactions {
+		tr := txListRow{TxRecord: t, Pending: t.Confirmations == 0}
+		if mtrOverlay[t.Txid] {
+			tr.Pending = true
+			tr.Source = "memetracker"
+		}
+		out = append(out, tr)
+	}
+	return out
 }
 
 func (s *Server) syncTransactionsFromNetwork(ctx context.Context, wf *WalletFile) ([]TxRecord, float64, error) {

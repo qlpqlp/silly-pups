@@ -59,15 +59,15 @@
   <div class="card">
     <h1>HTTPS reverse proxy</h1>
     <p class="lead" id="lead-main">
-      <strong>Default:</strong> <strong>HTTPS</strong> on <code>PUBLIC_PORT</code> with a self-signed cert — open <code>https://dogebox:&lt;PORT&gt;/__proxy/</code>, accept the browser warning (or install <code>cert.pem</code>).
+      <strong>Dogebox + HTTPS:</strong> With TLS on, this pup listens on <strong>two</strong> ports — <strong>HTTP</strong> on <code>PUBLIC_PORT</code> (what the Dogebox panel uses) and <strong>HTTPS</strong> on the companion port (default <code>PUBLIC_PORT+1</code>, or <code>HTTPS_PROXY_TLS_PORT</code>). Open <code>http://dogebox:&lt;HTTP-mapped-port&gt;/__proxy/</code> from the panel, or <code>https://dogebox:&lt;HTTPS-mapped-port&gt;/__proxy/</code> for encryption (same hostname <code>dogebox</code> on every port; cert SAN matches the name, not the port).
       Default admin token is <strong>DOGECOIN</strong> unless you set <code>HTTPS_PROXY_ADMIN_TOKEN</code>.
-      If you see <strong>SSL_ERROR_RX_RECORD_TOO_LONG</strong> in Firefox, you used <code>https://</code> while HTTPS was off — use <code>http://</code> instead, or turn HTTPS on below. The port in the URL must match your pup’s <code>PUBLIC_PORT</code>.
+      If you see <strong>SSL_ERROR_RX_RECORD_TOO_LONG</strong>, you used <code>https://</code> on the HTTP-only port — use the HTTPS port, or <code>http://</code> on the HTTP port.
       Admin stays at <code id="admin-path-label">/__proxy</code> on every listener.
     </p>
 
     <div class="row">
       <label><input type="checkbox" id="https-enabled" checked /> Enable HTTPS (TLS) on this proxy</label>
-      <p class="hint">On = self-signed cert and TLS (default). Off = plain HTTP only on the same ports.</p>
+      <p class="hint">On = HTTP on <code>PUBLIC_PORT</code> + HTTPS on companion port (Dogebox-compatible). Off = plain HTTP only on <code>PUBLIC_PORT</code> (or each listener port).</p>
     </div>
 
     <div class="row">

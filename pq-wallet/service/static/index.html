@@ -151,21 +151,18 @@
               <span class="badge badge-pending-label">Pending</span>
               <span class="badge badge-pending-amt mono" id="wallet-pending-line">—</span>
             </div>
-            <p class="wallet-hero-hint small muted">Available = spendable hint (explorer + cached txs). Pending = unconfirmed (mempool / relay) for your primary address.</p>
           </div>
-          <div class="stat-grid">
-            <div class="stat card">
-              <span class="stat-label">Spendable (hint)</span>
-              <span class="stat-val" id="stat-spend">—</span>
-              <span class="stat-hint">Explorer + cached txs</span>
+          <div class="card block-live">
+            <div class="block-live-head">
+              <h2><span class="material-symbols-outlined icon-inline">savings</span> Chain tip (SPV)</h2>
+              <span class="pill" id="pill-height">height —</span>
             </div>
-            <div class="stat card">
-              <span class="stat-label">Received</span>
-              <span class="stat-val" id="stat-in">—</span>
-            </div>
-            <div class="stat card">
-              <span class="stat-label">Sent</span>
-              <span class="stat-val" id="stat-out">—</span>
+            <p class="mono hash" id="hdr-hash">—</p>
+          </div>
+          <div class="charts charts-single">
+            <div class="card chart-card">
+              <h3>Mempool <span class="chart-sub">(last 24h, MemeTracker relay)</span></h3>
+              <canvas id="chart-mempool" height="120"></canvas>
             </div>
           </div>
           <div class="card" id="mtr-mempool-card">
@@ -184,39 +181,6 @@
               </table>
             </div>
             <button type="button" class="btn mtr-expand-btn hidden" id="btn-mtr-mempool-expand" aria-expanded="false">Show all</button>
-          </div>
-          <div class="card block-live">
-            <div class="block-live-head">
-              <h2><span class="material-symbols-outlined icon-inline">savings</span> Chain tip (SPV)</h2>
-              <span class="pill" id="pill-height">height —</span>
-            </div>
-            <p class="mono hash" id="hdr-hash">—</p>
-            <p class="small muted">Tip height and hash are parsed from <code>spv.log</code>. Peer details come from libdogecoin handshake lines (<code>Connected to node …</code>, <code>PQ_PEER …</code>). Ensure <code>spv.log</code> is line-buffered (see pup run script) so lines appear promptly.</p>
-            <div class="peer-detail">
-              <h3 class="peer-detail-title"><span class="material-symbols-outlined icon-inline">lan</span> Current P2P peer</h3>
-              <dl class="peer-dl">
-                <dt>Address</dt>
-                <dd class="mono" id="peer-c-addr">—</dd>
-                <dt>Node id</dt>
-                <dd class="mono" id="peer-c-node">—</dd>
-                <dt>User agent</dt>
-                <dd class="mono small" id="peer-c-ua">—</dd>
-                <dt>Remote start height</dt>
-                <dd class="mono" id="peer-c-h">—</dd>
-              </dl>
-              <p class="small muted peer-recent-title">Recent handshakes (spv.log)</p>
-              <ul class="peer-recent-list" id="peer-recent-list"></ul>
-            </div>
-          </div>
-          <div class="charts">
-            <div class="card chart-card">
-              <h3>SPV transaction count <span class="chart-sub">(last 24h, from spv.log)</span></h3>
-              <canvas id="chart-spv-tx" height="120"></canvas>
-            </div>
-            <div class="card chart-card">
-              <h3>Mempool <span class="chart-sub">(last 24h, MemeTracker relay)</span></h3>
-              <canvas id="chart-mempool" height="120"></canvas>
-            </div>
           </div>
         </section>
 
@@ -262,20 +226,9 @@
             <button type="button" class="btn primary" id="btn-sync-tx"><span class="material-symbols-outlined btn-ico">swap_horiz</span> Sync with explorer</button>
             <span class="small muted" id="tx-sync-hint"></span>
           </div>
-          <div class="card table-wrap">
-            <table class="data-table" id="tx-table">
-              <thead>
-                <tr>
-                  <th>Txid</th>
-                  <th>Dir</th>
-                  <th>Amount</th>
-                  <th>Status</th>
-                  <th>PQ</th>
-                  <th>Source</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
+          <div class="card tx-list-card">
+            <div class="tx-list" id="tx-list" role="list" aria-label="Transactions"></div>
+            <p class="small muted tx-list-empty hidden" id="tx-list-empty">No transactions yet. Sync with explorer or wait for MemeTracker payments.</p>
           </div>
         </section>
 

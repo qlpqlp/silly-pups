@@ -18,7 +18,7 @@ const state = {
   walletLocked: false,
   lastPendingDoge: 0,
   view: "dashboard",
-  charts: { spvTx: null, mempool: null },
+  charts: { mempool: null },
   pollFast: null,
   pollTx: null,
   pollLogs: null,
@@ -225,17 +225,6 @@ function initCharts() {
       y: { ticks: { color: "#8a9bb3", beginAtZero: true }, grid: { color: "rgba(255,255,255,0.06)" } },
     },
   };
-  const ctxS = $("chart-spv-tx");
-  if (ctxS && !state.charts.spvTx) {
-    state.charts.spvTx = new Chart(ctxS, {
-      type: "line",
-      data: {
-        labels: [],
-        datasets: [{ label: "SPV tx count", data: [], borderColor: "#f2cb2c", tension: 0.25, fill: false }],
-      },
-      options: common,
-    });
-  }
   const ctxM = $("chart-mempool");
   if (ctxM && !state.charts.mempool) {
     state.charts.mempool = new Chart(ctxM, {
@@ -263,13 +252,7 @@ function updateCharts(metrics) {
   const m = filterMetrics24h(metrics || []);
   if (!m.length) return;
   const labels = m.map((x) => fmtTime(x.t));
-  const spvTx = m.map((x) => Number(x.spv_tx_seen_count) || 0);
   const mem = m.map((x) => Number(x.mempool_relay_count) || 0);
-  if (state.charts.spvTx) {
-    state.charts.spvTx.data.labels = labels;
-    state.charts.spvTx.data.datasets[0].data = spvTx;
-    state.charts.spvTx.update("none");
-  }
   if (state.charts.mempool) {
     state.charts.mempool.data.labels = labels;
     state.charts.mempool.data.datasets[0].data = mem;
@@ -315,7 +298,6 @@ async function refreshDashboard() {
   if (!data.dashboard) return;
   const t = data.dashboard.totals || {};
   const spendStr = t.spendable_hint_doge != null ? String(t.spendable_hint_doge) : "—";
-  $("stat-spend").textContent = spendStr;
   const balBig = $("wallet-balance-big");
   if (balBig) balBig.textContent = spendStr;
   const pend = t.pending_mempool_doge;
@@ -331,8 +313,6 @@ async function refreshDashboard() {
     }
   }
   maybeNotifyPending(pend);
-  $("stat-in").textContent = t.received_doge != null ? String(t.received_doge) : "—";
-  $("stat-out").textContent = t.sent_doge != null ? String(t.sent_doge) : "—";
   const spv = data.dashboard.spv || {};
   const mtr = data.dashboard.memetracker || {};
   const mtrMeta = $("mtr-mempool-meta");
@@ -369,39 +349,6 @@ async function refreshDashboard() {
       }
     }
   }
-  const cp = spv.current_peer;
-  const setPeer = (id, v) => {
-    const el = $(id);
-    if (el) el.textContent = v != null && String(v) !== "" ? String(v) : "—";
-  };
-  if (cp && typeof cp === "object") {
-    setPeer("peer-c-addr", cp.address);
-    setPeer("peer-c-node", cp.node_id != null ? String(cp.node_id) : "");
-    setPeer("peer-c-ua", cp.sub_version);
-    setPeer("peer-c-h", cp.remote_start_height != null ? String(cp.remote_start_height) : "");
-  } else {
-    setPeer("peer-c-addr", "");
-    setPeer("peer-c-node", "");
-    setPeer("peer-c-ua", "");
-    setPeer("peer-c-h", "");
-  }
-  const prList = $("peer-recent-list");
-  if (prList && Array.isArray(spv.peers_recent)) {
-    prList.innerHTML = "";
-    spv.peers_recent.forEach((p) => {
-      const li = document.createElement("li");
-      li.textContent =
-        "#" +
-        (p.node_id != null ? p.node_id : "") +
-        " " +
-        (p.address || "") +
-        " · " +
-        (p.sub_version || "") +
-        " · h=" +
-        (p.remote_start_height != null ? p.remote_start_height : "");
-      prList.appendChild(li);
-    });
-  }
   const h = spv.header_height;
   $("pill-height").textContent = h != null && Number(h) > 0 ? `height ${h}` : "height —";
   $("hdr-hash").textContent = spv.best_block_hash || "—";
@@ -414,22 +361,77 @@ async function refreshTxList(refresh) {
   const q = refresh ? "?refresh=1" : "";
   const data = await api("/api/transactions" + q);
   const txs = data.transactions || [];
-  $("tx-sync-hint").textContent = refresh ? "Synced" : "";
-  const tb = $("tx-table").querySelector("tbody");
-  tb.innerHTML = "";
+  const hint = $("tx-sync-hint");
+  if (hint) hint.textContent = refresh ? "Synced" : "";
+  const list = $("tx-list");
+  const emptyEl = $("tx-list-empty");
+  if (!list) return;
+  list.innerHTML = "";
+  if (!txs.length) {
+    if (emptyEl) emptyEl.classList.remove("hidden");
+  } else if (emptyEl) {
+    emptyEl.classList.add("hidden");
+  }
   let pendingNav = 0;
   txs.forEach((tx) => {
-    if (tx.pending) pendingNav += 1;
-    const tr = document.createElement("tr");
-    const short = (tx.txid || "").slice(0, 18) + (tx.txid && tx.txid.length > 18 ? "…" : "");
-    const pqBadge = tx.pq_hint
-      ? '<span class="badge-pq"><span class="material-symbols-outlined" style="font-size:15px">verified</span> PQ</span>'
-      : '<span class="badge-pq off">—</span>';
-    const stCell = tx.pending
-      ? '<span class="badge badge-tx-pending">Pending</span>'
-      : '<span class="muted small">Confirmed</span>';
-    tr.innerHTML = `<td class="mono">${escapeHtml(short)}</td><td>${escapeHtml(tx.direction || "")}</td><td>${tx.amount_doge != null ? escapeHtml(String(tx.amount_doge)) : ""}</td><td>${stCell}</td><td>${pqBadge}</td><td>${escapeHtml(tx.source || "")}</td>`;
-    tb.appendChild(tr);
+    const isMTR = String(tx.source || "").toLowerCase() === "memetracker";
+    const showPending = isMTR || tx.pending;
+    if (showPending) pendingNav += 1;
+    const card = document.createElement("article");
+    card.className = "tx-card";
+    card.setAttribute("role", "listitem");
+    const short = (tx.txid || "").slice(0, 22) + (tx.txid && tx.txid.length > 22 ? "…" : "");
+    const head = document.createElement("div");
+    head.className = "tx-card-head";
+    const status = document.createElement("span");
+    if (showPending) {
+      status.className = "badge badge-tx-pending";
+      status.textContent = "Pending";
+    } else {
+      status.className = "muted small";
+      status.textContent = "Confirmed";
+    }
+    const amt = document.createElement("span");
+    amt.className = "tx-card-amt mono";
+    amt.textContent = tx.amount_doge != null ? `${tx.amount_doge} DOGE` : "—";
+    head.appendChild(status);
+    head.appendChild(amt);
+    const body = document.createElement("div");
+    body.className = "tx-card-body";
+    function addRow(label, valueEl) {
+      const row = document.createElement("div");
+      row.className = "tx-card-row";
+      const k = document.createElement("span");
+      k.className = "tx-card-k";
+      k.textContent = label;
+      row.appendChild(k);
+      row.appendChild(valueEl);
+      body.appendChild(row);
+    }
+    const txidEl = document.createElement("span");
+    txidEl.className = "mono tx-card-txid";
+    txidEl.title = tx.txid || "";
+    txidEl.textContent = short;
+    addRow("Txid", txidEl);
+    const dirEl = document.createElement("span");
+    dirEl.textContent = tx.direction || "";
+    addRow("Dir", dirEl);
+    const pqWrap = document.createElement("span");
+    if (tx.pq_hint) {
+      pqWrap.className = "badge-pq";
+      pqWrap.innerHTML =
+        '<span class="material-symbols-outlined" style="font-size:15px" aria-hidden="true">verified</span> PQ';
+    } else {
+      pqWrap.className = "badge-pq off";
+      pqWrap.textContent = "—";
+    }
+    addRow("PQ", pqWrap);
+    const srcEl = document.createElement("span");
+    srcEl.textContent = tx.source || "";
+    addRow("Source", srcEl);
+    card.appendChild(head);
+    card.appendChild(body);
+    list.appendChild(card);
   });
   const navB = $("nav-tx-pending-badge");
   if (navB) {

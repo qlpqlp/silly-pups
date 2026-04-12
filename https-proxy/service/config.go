@@ -58,6 +58,14 @@ func validateConfig(cfg *Config) error {
 		}
 		seen[p] = struct{}{}
 	}
+	if err := validateHTTPSPortPairs(cfg); err != nil {
+		return err
+	}
+	if cfg.HTTPSEnabled && len(cfg.Listeners) == 0 {
+		if primaryTLSPort() == publicPortInt() {
+			return fmt.Errorf("HTTPS_PROXY_TLS_PORT must differ from PUBLIC_PORT — HTTP serves Dogebox on PUBLIC_PORT; TLS uses the companion port")
+		}
+	}
 	return nil
 }
 

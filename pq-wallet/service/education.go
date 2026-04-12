@@ -50,7 +50,7 @@ func educationPayload() map[string]any {
 				"body": []string{
 					"Binaries on PATH: **`such`**, **`sendtx`**, **`spvnode`**, built with **USE_LIBOQS** for Falcon/Dilithium support in libdogecoin.",
 					"**Broadcast** uses **`sendtx`** only (P2P), not JSON-RPC `sendrawtransaction`.",
-					"**SPV** (`spvnode`) follows headers and watches your primary address; `spv.log` drives chain tip and peer handshakes (`Connected to node …`, `PQ_PEER …`). The run script uses line-buffered output so those lines appear promptly. **Pending** amounts use the embedded **Memepool Tracker** (data under `mempooltracker/`). Charts plot SPV-related tx visibility vs relay mempool counts over the last 24 hours.",
+					"**SPV** (`spvnode`) follows headers and watches your primary address. **Pending** amounts use the embedded **Memepool Tracker** (data under `mempooltracker/`). The dashboard charts mempool relay activity over the last 24 hours.",
 				},
 			},
 		},

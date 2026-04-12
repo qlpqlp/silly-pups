@@ -4,7 +4,7 @@
 let
   proxy_bin = pkgs.buildGoModule {
     pname = "https-proxy";
-    version = "0.1.5";
+    version = "0.1.6";
     src = ./service;
     vendorHash = null;
     go = pkgs.go_1_24;
@@ -26,6 +26,8 @@ let
     mkdir -p "$STORAGE"
 
     export PUBLIC_PORT
+    # Optional: TLS port when HTTPS is on (default PUBLIC_PORT+1). Second container expose must match.
+    export HTTPS_PROXY_TLS_PORT="''${HTTPS_PROXY_TLS_PORT:-}"
     export HTTPS_PROXY_STORAGE="$STORAGE"
     export HTTPS_PROXY_ADMIN_TOKEN="''${HTTPS_PROXY_ADMIN_TOKEN:-DOGECOIN}"
 

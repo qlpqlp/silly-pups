@@ -62,6 +62,9 @@ func hostKey(host string) string {
 
 func (s *server) rebuildCertLocked() error {
 	cfg := s.store.snapshot()
+	if !cfg.HTTPSEnabled {
+		return nil
+	}
 	cert, err := tlsCertForSANs(cfg.TLSDomains, cfg.TLSIPs)
 	if err != nil {
 		return err
@@ -114,7 +117,11 @@ func (s *server) proxyForUpstream(upstream string) (*httputil.ReverseProxy, erro
 	od := p.Director
 	p.Director = func(req *http.Request) {
 		od(req)
-		req.Header.Set("X-Forwarded-Proto", "https")
+		proto := "http"
+		if s.store.snapshot().HTTPSEnabled {
+			proto = "https"
+		}
+		req.Header.Set("X-Forwarded-Proto", proto)
 		if req.Header.Get("X-Forwarded-Host") == "" {
 			req.Header.Set("X-Forwarded-Host", req.Host)
 		}
@@ -286,6 +293,10 @@ func (s *server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
+		if !s.store.snapshot().HTTPSEnabled {
+			http.Error(w, "HTTPS not enabled; turn on TLS in config first", http.StatusNotFound)
+			return
+		}
 		s.mu.RLock()
 		pem := certToPEM(s.cert)
 		s.mu.RUnlock()
@@ -335,6 +346,78 @@ func (s *server) reloadListeners() {
 }
 
 func (s *server) startListeners() error {
+	cfg := s.store.snapshot()
+	if !cfg.HTTPSEnabled {
+		return s.startHTTPListeners()
+	}
+	return s.startTLSListeners()
+}
+
+func (s *server) startHTTPListeners() error {
+	cfg := s.store.snapshot()
+
+	if len(cfg.Listeners) > 0 {
+		n := 0
+		for _, L := range cfg.Listeners {
+			up := strings.TrimSpace(L.Upstream)
+			if L.ListenPort < 1 || L.ListenPort > 65535 || up == "" {
+				continue
+			}
+			addr := fmt.Sprintf(":%d", L.ListenPort)
+			ln, err := net.Listen("tcp", addr)
+			if err != nil {
+				s.shutdownListeners()
+				return fmt.Errorf("http listen %s: %w", addr, err)
+			}
+			hs := &http.Server{
+				Handler:      s.makeHandler(up),
+				ReadTimeout:  60 * time.Second,
+				WriteTimeout: 0,
+				IdleTimeout:  120 * time.Second,
+			}
+			s.listenerMu.Lock()
+			s.listenerServers = append(s.listenerServers, hs)
+			s.listenerMu.Unlock()
+			port := L.ListenPort
+			go func() {
+				log.Printf("[https-proxy] HTTP :%d -> %s (enable HTTPS in admin for TLS)", port, up)
+				if err := hs.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					log.Printf("[https-proxy] listener :%d stopped: %v", port, err)
+				}
+			}()
+			n++
+		}
+		if n == 0 {
+			return errors.New("no valid port listeners (need listen_port + upstream)")
+		}
+		return nil
+	}
+
+	port := strings.TrimSpace(env("PUBLIC_PORT", "10000"))
+	addr := ":" + port
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	hs := &http.Server{
+		Handler:      s.makeHandler(""),
+		ReadTimeout:  60 * time.Second,
+		WriteTimeout: 0,
+		IdleTimeout:  120 * time.Second,
+	}
+	s.listenerMu.Lock()
+	s.listenerServers = append(s.listenerServers, hs)
+	s.listenerMu.Unlock()
+	go func() {
+		log.Printf("[https-proxy] HTTP %s host-based routes; admin %s/ — enable HTTPS in UI for TLS", addr, s.adminPrefix())
+		if err := hs.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal(err)
+		}
+	}()
+	return nil
+}
+
+func (s *server) startTLSListeners() error {
 	cfg := s.store.snapshot()
 	tlsCfg := s.tlsConfig()
 

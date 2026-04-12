@@ -58,12 +58,16 @@
 <body>
   <div class="card">
     <h1>HTTPS reverse proxy</h1>
-    <p class="lead">
-      One <strong>self-signed</strong> certificate is generated for the names you list below (default <code>dogebox</code>).
-      Certificates do <strong>not</strong> include port numbers — the same cert is valid for <code>https://dogebox:8080</code>,
-      <code>https://dogebox:10000</code>, etc. Add one row per <strong>HTTPS listen port</strong>, each forwarding to that pup’s plain HTTP URL.
-      Admin UI stays at <code id="admin-path-label">/__proxy</code> on every listener.
+    <p class="lead" id="lead-main">
+      <strong>Default:</strong> plain <strong>HTTP</strong> on <code>PUBLIC_PORT</code> (same as the rest of Dogebox) — open <code>http://dogebox:10000/__proxy/</code> with no TLS.
+      Turn on <strong>HTTPS</strong> below after you configure routes; then use <code>https://</code> and trust the cert (or download PEM).
+      Admin stays at <code id="admin-path-label">/__proxy</code> on every listener.
     </p>
+
+    <div class="row">
+      <label><input type="checkbox" id="https-enabled" /> Enable HTTPS (TLS) on this proxy</label>
+      <p class="hint">Off = HTTP only. On = self-signed cert and TLS listeners (same ports as configured).</p>
+    </div>
 
     <div class="row">
       <label for="token">Admin token</label>
@@ -71,6 +75,7 @@
       <p class="hint">Saved in this browser only (localStorage).</p>
     </div>
 
+    <div id="tls-section">
     <h2>TLS names (certificate)</h2>
     <div class="grid2">
       <div class="row" style="margin:0">
@@ -82,11 +87,12 @@
         <textarea id="tls-ips" placeholder="192.168.x.x"></textarea>
       </div>
     </div>
+    </div>
 
-    <h2>Port listeners (recommended for dogebox:8080, dogebox:33880, …)</h2>
-    <p class="hint" style="margin:0 0 0.5rem">Leave empty to use a single HTTPS port from the pup env (<code>PUBLIC_PORT</code>) + host-based routes below.</p>
+    <h2>Port listeners (dogebox:8080, dogebox:33880, …)</h2>
+    <p class="hint" style="margin:0 0 0.5rem">Leave empty to use a single port from the pup env (<code>PUBLIC_PORT</code>) + host-based routes below.</p>
     <table>
-      <thead><tr><th>HTTPS port</th><th>HTTP upstream (pup)</th><th></th></tr></thead>
+      <thead><tr><th>Listen port</th><th>HTTP upstream (pup)</th><th></th></tr></thead>
       <tbody id="listeners-body"></tbody>
     </table>
     <div class="toolbar">
@@ -108,7 +114,7 @@
     </div>
 
     <div class="toolbar">
-      <button type="button" class="btn-primary" id="btn-save">Save &amp; reload TLS / listeners</button>
+      <button type="button" class="btn-primary" id="btn-save">Save &amp; reload listeners</button>
       <button type="button" class="btn-ghost" id="btn-reload">Reload from server</button>
       <a id="cert-link" href="#" target="_blank" rel="noopener">Download cert.pem</a>
     </div>
@@ -165,6 +171,7 @@
     document.getElementById("btn-add-listener").onclick = () => {
       document.getElementById("listeners-body").appendChild(rowListener());
     };
+    document.getElementById("https-enabled").addEventListener("change", toggleTlsUI);
 
     function collectRoutes() {
       const out = [];
@@ -192,7 +199,17 @@
       return s.split(/[\n,]+/).map((x) => x.trim()).filter(Boolean);
     }
 
+    function toggleTlsUI() {
+      const on = document.getElementById("https-enabled").checked;
+      const sec = document.getElementById("tls-section");
+      if (sec) sec.style.display = on ? "" : "none";
+      const cl = document.getElementById("cert-link");
+      if (cl) cl.style.display = on ? "" : "none";
+    }
+
     function fill(cfg) {
+      document.getElementById("https-enabled").checked = !!cfg.https_enabled;
+      toggleTlsUI();
       document.getElementById("tls-domains").value = (cfg.tls_domains || []).join(", ");
       document.getElementById("tls-ips").value = (cfg.tls_ips || []).join("\n");
       document.getElementById("default-up").value = cfg.default_upstream || "";
@@ -230,6 +247,7 @@
       localStorage.setItem(LS, tokenEl.value.trim());
       const listeners = collectListeners();
       const cfg = {
+        https_enabled: document.getElementById("https-enabled").checked,
         tls_domains: splitList(document.getElementById("tls-domains").value),
         tls_ips: splitList(document.getElementById("tls-ips").value),
         listeners,
@@ -256,7 +274,13 @@
         setMsg("Save failed: " + res.status + " " + t, false);
         return;
       }
-      setMsg("Saved. TLS + listeners updated (trust new cert if SANs changed).", true);
+      const httpsOn = document.getElementById("https-enabled").checked;
+      setMsg(
+        httpsOn
+          ? "Saved. HTTPS enabled — use https:// URLs; trust cert if the browser warns."
+          : "Saved. HTTP only — use http:// URLs (no TLS).",
+        true
+      );
     };
 
     document.getElementById("cert-link").onclick = (e) => {
@@ -266,6 +290,7 @@
       window.open(u, "_blank");
     };
 
+    toggleTlsUI();
     loadCfg();
   </script>
 </body>

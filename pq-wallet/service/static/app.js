@@ -132,13 +132,35 @@ async function loadEducation() {
     });
     if (data.flow && data.flow.length) {
       const card = document.createElement("div");
-      card.className = "card learn-section";
-      card.innerHTML = "<h3>Quick flow</h3><ol class=\"steps\"></ol>";
-      const ol = card.querySelector("ol");
+      card.className = "card learn-section learn-flow-card";
+      const lead = data.flow_lead || "From a normal Dogecoin spend to optional post-quantum commitments.";
+      card.innerHTML =
+        "<h3>Quick flow</h3>" +
+        '<p class="learn-flow-lead small muted">' +
+        escapeHtml(lead) +
+        "</p>" +
+        '<div class="learn-flow-steps" role="list"></div>';
+      const wrap = card.querySelector(".learn-flow-steps");
       data.flow.forEach((f) => {
-        const li = document.createElement("li");
-        li.innerHTML = "<strong>" + escapeHtml(f.name || "") + "</strong> — " + escapeHtml(f.detail || "");
-        ol.appendChild(li);
+        const step = document.createElement("div");
+        step.className = "learn-flow-step";
+        step.setAttribute("role", "listitem");
+        const num = document.createElement("span");
+        num.className = "learn-flow-num";
+        num.textContent = f.step || "";
+        const body = document.createElement("div");
+        body.className = "learn-flow-body";
+        const h4 = document.createElement("h4");
+        h4.className = "learn-flow-name";
+        h4.textContent = f.name || "";
+        const p = document.createElement("p");
+        p.className = "learn-flow-detail small";
+        p.innerHTML = mdBold(f.detail || "");
+        body.appendChild(h4);
+        body.appendChild(p);
+        step.appendChild(num);
+        step.appendChild(body);
+        wrap.appendChild(step);
       });
       root.appendChild(card);
     }
@@ -296,7 +318,6 @@ function maybeNotifyPending(pending) {
 
 async function refreshDashboard() {
   const data = await api("/api/dashboard");
-  $("conn-pill").innerHTML = '<span class="material-symbols-outlined icon-inline">verified</span> live';
   if (!data.dashboard) return;
   const t = data.dashboard.totals || {};
   const spendStr =
@@ -1099,7 +1120,7 @@ function startPollers() {
     try {
       await refreshDashboard();
     } catch {
-      $("conn-pill").innerHTML = '<span class="material-symbols-outlined icon-inline">warning</span> stale';
+      /* dashboard poll failed */
     }
   }, 4000);
   state.pollTx = setInterval(async () => {

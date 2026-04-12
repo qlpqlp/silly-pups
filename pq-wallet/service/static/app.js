@@ -24,6 +24,8 @@ const state = {
   pollLogs: null,
   qrScanner: null,
   receiveQrAddr: null,
+  txDetailTxid: "",
+  txDetailHex: "",
 };
 
 function $(id) {
@@ -283,7 +285,7 @@ function maybeNotifyPending(pending) {
   if (p > 0 && p > state.lastPendingDoge && "Notification" in window && Notification.permission === "granted") {
     try {
       new Notification("PQ Wallet — pending", {
-        body: `≈ ${p.toFixed(4)} DOGE unconfirmed`,
+        body: `≈ ${p.toFixed(2)} DOGE unconfirmed`,
       });
     } catch {
       /* ignore */
@@ -297,7 +299,10 @@ async function refreshDashboard() {
   $("conn-pill").innerHTML = '<span class="material-symbols-outlined icon-inline">verified</span> live';
   if (!data.dashboard) return;
   const t = data.dashboard.totals || {};
-  const spendStr = t.spendable_hint_doge != null ? String(t.spendable_hint_doge) : "—";
+  const spendStr =
+    t.spendable_hint_doge != null && !Number.isNaN(Number(t.spendable_hint_doge))
+      ? Number(t.spendable_hint_doge).toFixed(2)
+      : "—";
   const balBig = $("wallet-balance-big");
   const balUnit = $("wallet-balance-unit");
   if (balBig) balBig.textContent = spendStr;
@@ -310,7 +315,7 @@ async function refreshDashboard() {
   const pendEl = $("wallet-pending-line");
   if (pendRow && pendEl) {
     if (pend != null && Number(pend) > 0) {
-      pendEl.textContent = `${Number(pend).toFixed(4)} DOGE`;
+      pendEl.textContent = `${Number(pend).toFixed(2)} DOGE`;
       pendRow.hidden = false;
     } else {
       pendEl.textContent = "—";
@@ -399,10 +404,10 @@ async function refreshTxList(refresh) {
     const txidFull = String(tx.txid || "").trim();
     if (txidFull) {
       card.style.cursor = "pointer";
-      card.title = "Open on SoChain";
+      card.title = "Details (explorer + raw hex if available)";
       card.addEventListener("click", (e) => {
         if (e.target.closest("a, button")) return;
-        window.open(sochainTxUrl(txidFull), "_blank", "noopener,noreferrer");
+        openTxDetailModal(tx);
       });
     }
     const short = (tx.txid || "").slice(0, 22) + (tx.txid && tx.txid.length > 22 ? "…" : "");
@@ -418,7 +423,10 @@ async function refreshTxList(refresh) {
     }
     const amt = document.createElement("span");
     amt.className = "tx-card-amt mono";
-    amt.textContent = tx.amount_doge != null ? `${tx.amount_doge} DOGE` : "—";
+    amt.textContent =
+      tx.amount_doge != null && !Number.isNaN(Number(tx.amount_doge))
+        ? `${Number(tx.amount_doge).toFixed(2)} DOGE`
+        : "—";
     head.appendChild(status);
     head.appendChild(amt);
     const body = document.createElement("div");
@@ -546,6 +554,95 @@ function sochainTxUrl(txid) {
   const net = (state.wallet && state.wallet.network && String(state.wallet.network).toLowerCase()) || "mainnet";
   const coin = net === "testnet" ? "DOGETEST" : "DOGE";
   return "https://sochain.com/tx/" + coin + "/" + encodeURIComponent(raw);
+}
+
+/** Best-effort extract of a long transaction hex from explorer JSON (field names vary by API). */
+function extractTxHexFromExplorerPayload(obj, depth) {
+  if (depth === undefined) depth = 0;
+  if (depth > 12 || obj == null) return "";
+  if (typeof obj === "string") {
+    const s = obj.trim();
+    if (/^[0-9a-f]{64,}$/i.test(s) && s.length % 2 === 0) return s;
+    return "";
+  }
+  if (typeof obj === "object" && !Array.isArray(obj)) {
+    const keys = ["raw_hex", "hex", "transaction_hex", "tx_hex", "raw", "data_hex"];
+    for (const k of keys) {
+      if (obj[k] != null && typeof obj[k] === "string") {
+        const h = extractTxHexFromExplorerPayload(obj[k], depth + 1);
+        if (h) return h;
+      }
+    }
+  }
+  if (typeof obj === "object") {
+    if (Array.isArray(obj)) {
+      for (const it of obj) {
+        const h = extractTxHexFromExplorerPayload(it, depth + 1);
+        if (h) return h;
+      }
+    } else {
+      for (const v of Object.values(obj)) {
+        const h = extractTxHexFromExplorerPayload(v, depth + 1);
+        if (h) return h;
+      }
+    }
+  }
+  return "";
+}
+
+async function openTxDetailModal(tx) {
+  const modal = $("tx-detail-modal");
+  const body = $("tx-detail-body");
+  const sub = $("tx-detail-sub");
+  const ext = $("btn-tx-external");
+  const txid = String((tx && tx.txid) || "").trim();
+  if (!modal || !body) return;
+  state.txDetailTxid = txid;
+  state.txDetailHex = "";
+  modal.classList.remove("hidden");
+  body.textContent = "Loading…";
+  if (sub) sub.textContent = "Fetching explorer data when EXPLORER_TX_API is configured.";
+  if (ext) {
+    ext.href = sochainTxUrl(txid);
+    ext.textContent = "Open on SoChain";
+  }
+  try {
+    const res = await api("/api/explorer/tx/" + encodeURIComponent(txid));
+    if (res.error) {
+      body.textContent =
+        String(res.error) +
+        "\n\nYou can still copy the txid and use SoChain or another explorer. Configure EXPLORER_TX_API on the pup for JSON/raw from your indexer.";
+      if (sub) sub.textContent = "Explorer API not configured or request failed.";
+    } else if (res.raw != null && typeof res.raw === "string") {
+      body.textContent = res.raw.slice(0, 500000);
+      let parsed = null;
+      try {
+        parsed = JSON.parse(res.raw);
+      } catch {
+        parsed = null;
+      }
+      state.txDetailHex = parsed ? extractTxHexFromExplorerPayload(parsed) : "";
+      if (!state.txDetailHex && /^[0-9a-f]+$/i.test(res.raw.trim()) && res.raw.trim().length >= 64) {
+        state.txDetailHex = res.raw.trim();
+      }
+      if (sub) sub.textContent = "Upstream response (may include raw transaction fields).";
+    } else {
+      const payload = res.data != null ? res.data : res;
+      const text = JSON.stringify(payload, null, 2);
+      body.textContent = text.slice(0, 500000);
+      state.txDetailHex = extractTxHexFromExplorerPayload(payload);
+      if (sub) sub.textContent = "Parsed JSON — copy hex for signing/broadcast if your API exposes it.";
+    }
+  } catch (e) {
+    body.textContent = String(e);
+  }
+  const copyRawBtn = $("btn-tx-copy-raw");
+  if (copyRawBtn) copyRawBtn.disabled = !state.txDetailHex;
+}
+
+function closeTxDetailModal() {
+  const modal = $("tx-detail-modal");
+  if (modal) modal.classList.add("hidden");
 }
 
 function getPrimaryAddress(w) {
@@ -1052,6 +1149,35 @@ function wireImportFileUI() {
 }
 
 wireImportFileUI();
+
+const txDetailBack = $("tx-detail-backdrop");
+const txDetailClose = $("btn-tx-detail-close");
+const btnTxCopyTxid = $("btn-tx-copy-txid");
+const btnTxCopyRaw = $("btn-tx-copy-raw");
+if (txDetailBack) txDetailBack.addEventListener("click", closeTxDetailModal);
+if (txDetailClose) txDetailClose.addEventListener("click", closeTxDetailModal);
+if (btnTxCopyTxid) {
+  btnTxCopyTxid.addEventListener("click", async () => {
+    const id = state.txDetailTxid || "";
+    if (!id || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(id);
+    } catch {
+      /* ignore */
+    }
+  });
+}
+if (btnTxCopyRaw) {
+  btnTxCopyRaw.addEventListener("click", async () => {
+    const h = state.txDetailHex || "";
+    if (!h || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(h);
+    } catch {
+      /* ignore */
+    }
+  });
+}
 
 if (typeof Notification !== "undefined" && Notification.permission === "default") {
   Notification.requestPermission().catch(() => {});

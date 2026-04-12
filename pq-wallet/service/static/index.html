@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PQ Doge Wallet</title>
+  <title>Post Quantum Doge Wallet</title>
+  <link rel="icon" href="/logo.png" type="image/png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:ital,wght@0,300;0,400;0,700;1,400&display=swap" rel="stylesheet" />
@@ -33,7 +34,7 @@
         <img src="/static/logo.png" alt="" width="40" height="40" class="sidebar-logo" />
         <div class="sidebar-titles">
           <span class="sidebar-name">PQ Doge Wallet</span>
-          <span class="sidebar-sub">libdogecoin · liboqs</span>
+          <span class="sidebar-sub">Quantum Secure</span>
         </div>
         <button type="button" class="sidebar-toggle icon-btn" id="btn-sidebar-toggle" title="Collapse sidebar" aria-expanded="true">
           <span class="material-symbols-outlined">menu_open</span>
@@ -67,6 +68,9 @@
         </button>
       </nav>
       <div class="sidebar-foot">
+        <a class="sidebar-foundation" href="https://foundation.dogecoin.com/" target="_blank" rel="noopener noreferrer" title="Dogecoin Foundation">
+          <img src="https://lib.dogecoin.org/img/dogecoin-foundation.svg" alt="Dogecoin Foundation" width="140" height="32" class="sidebar-foundation-logo" />
+        </a>
         <span class="muted small" id="conn-pill"><span class="material-symbols-outlined icon-inline">verified</span> live</span>
       </div>
     </aside>
@@ -143,7 +147,7 @@
         </section>
 
         <section id="view-dashboard" class="view hidden">
-          <div class="wallet-hero card">
+          <div class="wallet-hero">
             <p class="wallet-hero-label">Available balance</p>
             <div class="wallet-hero-balance-row">
               <span class="wallet-hero-balance" id="wallet-balance-big">—</span>
@@ -341,6 +345,21 @@
       <footer class="footer">
         <span>PQ Doge Wallet · silly-pups · MIT</span>
       </footer>
+    </div>
+  </div>
+
+  <div id="tx-detail-modal" class="tx-detail-modal hidden" role="dialog" aria-modal="true" aria-labelledby="tx-detail-title">
+    <div class="tx-detail-modal-backdrop" id="tx-detail-backdrop"></div>
+    <div class="tx-detail-modal-panel card">
+      <h3 id="tx-detail-title">Transaction</h3>
+      <p class="small muted" id="tx-detail-sub">Explorer data and raw fields when available (copy for signing or verification).</p>
+      <div class="tx-detail-actions">
+        <button type="button" class="btn btn-sm" id="btn-tx-copy-txid"><span class="material-symbols-outlined btn-ico">content_copy</span> Copy txid</button>
+        <button type="button" class="btn btn-sm" id="btn-tx-copy-raw" title="Copy hex if the explorer returned it"><span class="material-symbols-outlined btn-ico">content_copy</span> Copy raw hex</button>
+        <a class="btn btn-sm" id="btn-tx-external" href="#" target="_blank" rel="noopener noreferrer">Open in explorer</a>
+      </div>
+      <pre class="mono small tx-detail-pre" id="tx-detail-body">…</pre>
+      <button type="button" class="btn" id="btn-tx-detail-close">Close</button>
     </div>
   </div>
 

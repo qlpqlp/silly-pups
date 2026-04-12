@@ -96,27 +96,32 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	if engErr != nil {
 		mtrEngErr = engErr.Error()
 	}
+	if eng != nil && engErr == nil {
+		if s.persistMemeTrackerTxs(st, mtrLive) {
+			_ = s.saveState(st)
+		}
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"wallet": wf,
 		"dashboard": map[string]any{
 			"spv": map[string]any{
-				"running":         running,
-				"header_height":   hdr.HeaderHeight,
-				"best_block_hash": hdr.BestBlockHash,
+				"running":          running,
+				"header_height":    hdr.HeaderHeight,
+				"best_block_hash":  hdr.BestBlockHash,
 				"mempool_tx_count": mempoolDisplay,
 			},
 			"memetracker": map[string]any{
 				"mempool_tx_count":     mtrCount,
 				"mempool_transactions": mtrLive,
 				"worker_peers":         mtrWorkers,
-				"workers_connected":  mtrConn,
+				"workers_connected":    mtrConn,
 				"engine_ok":            eng != nil && engErr == nil,
 				"engine_error":         mtrEngErr,
 			},
 			"totals": map[string]any{
-				"spendable_hint_doge":  round4(spendable),
-				"pending_mempool_doge": round4(pendingMeme),
+				"spendable_hint_doge":  round2(spendable),
+				"pending_mempool_doge": round2(pendingMeme),
 				"memetracker_error":    memeErrStr,
 				"tx_count":             len(st.Transactions),
 				"last_explorer_sync":   st.LastExplorerSync,
@@ -153,6 +158,10 @@ func metricsLast24Hours(m []MetricPoint) []MetricPoint {
 
 func round4(f float64) float64 {
 	return math.Round(f*1e4) / 1e4
+}
+
+func round2(f float64) float64 {
+	return math.Round(f*100) / 100
 }
 
 // handleMetrics returns metric history for charts.
@@ -197,6 +206,13 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
+	}
+	engTx, engTxErr := s.ensureMempoolEngine(wf)
+	if engTx != nil && engTxErr == nil {
+		_, mtrLive, _, _ := engTx.DashboardSnapshot()
+		if s.persistMemeTrackerTxs(st, mtrLive) {
+			_ = s.saveState(st)
+		}
 	}
 	if refresh {
 		ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
@@ -250,9 +266,45 @@ func floatFromAny(v any) float64 {
 	}
 }
 
+// persistMemeTrackerTxs appends mempool-tracked txs to state so they remain listed after they leave the live mempool.
+func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any) bool {
+	existing := make(map[string]struct{}, len(st.Transactions))
+	for _, t := range st.Transactions {
+		if t.Txid != "" {
+			existing[t.Txid] = struct{}{}
+		}
+	}
+	var incoming []TxRecord
+	for _, m := range mtrLive {
+		if !truthyAny(m["tracked_match"]) {
+			continue
+		}
+		txid := strings.TrimSpace(jsonStringAny(m["txid"]))
+		if txid == "" {
+			continue
+		}
+		if _, ok := existing[txid]; ok {
+			continue
+		}
+		existing[txid] = struct{}{}
+		incoming = append(incoming, TxRecord{
+			Txid:          txid,
+			Direction:     "in",
+			AmountDOGE:    floatFromAny(m["amount_doge"]),
+			Source:        "memetracker",
+			Confirmations: 0,
+			SeenAt:        time.Now().UTC(),
+		})
+	}
+	if len(incoming) == 0 {
+		return false
+	}
+	st.Transactions = mergeTxRecords(st.Transactions, incoming)
+	return true
+}
+
 func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []txListRow {
 	mtrOverlay := map[string]bool{}
-	var mtrOnly []txListRow
 	eng, engErr := s.ensureMempoolEngine(wf)
 	if eng != nil && engErr == nil {
 		_, mtrLive, _, _ := eng.DashboardSnapshot()
@@ -265,31 +317,9 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 				continue
 			}
 			mtrOverlay[txid] = true
-			amt := floatFromAny(m["amount_doge"])
-			found := false
-			for _, t := range st.Transactions {
-				if t.Txid == txid {
-					found = true
-					break
-				}
-			}
-			if !found {
-				mtrOnly = append(mtrOnly, txListRow{
-					TxRecord: TxRecord{
-						Txid:          txid,
-						Direction:     "in",
-						AmountDOGE:    amt,
-						Source:        "memetracker",
-						Confirmations: 0,
-						SeenAt:        time.Now().UTC(),
-					},
-					Pending: true,
-				})
-			}
 		}
 	}
-	out := make([]txListRow, 0, len(mtrOnly)+len(st.Transactions))
-	out = append(out, mtrOnly...)
+	out := make([]txListRow, 0, len(st.Transactions))
 	for _, t := range st.Transactions {
 		tr := txListRow{TxRecord: t, Pending: t.Confirmations == 0}
 		if mtrOverlay[t.Txid] && t.Confirmations == 0 {

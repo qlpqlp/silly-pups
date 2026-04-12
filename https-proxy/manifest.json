@@ -78,7 +78,7 @@
       },
       {
         "name": "https",
-        "type": "https",
+        "type": "http",
         "port": 10001,
         "interfaces": [
           "https-proxy-tls"

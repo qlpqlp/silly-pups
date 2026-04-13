@@ -43,7 +43,6 @@ let
     version = "0.1.0";
     src = ./service;
     vendorHash = null;
-    proxyVendor = true;
     go = pkgs.go_1_24;
   };
 

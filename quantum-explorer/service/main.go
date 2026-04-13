@@ -4,8 +4,9 @@ import (
 	"bufio"
 	"context"
 	"crypto/subtle"
-	"encoding/hex"
 	"embed"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -19,10 +20,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"encoding/binary"
 	"time"
 
-	"github.com/inevitable360/silly-pups/pq-wallet/service/mempooltracker"
+	"github.com/inevitable360/silly-pups/quantum-explorer/service/mempooltracker"
 )
 
 //go:embed static/*
@@ -35,26 +35,26 @@ type Checkpoint struct {
 }
 
 type Config struct {
-	HTTPPort   int        `json:"http_port"`
-	AdminPort  int        `json:"admin_port"`
-	Network    string     `json:"network"`
-	AdminUser  string     `json:"admin_user"`
-	AdminPass  string     `json:"admin_pass"`
-	ExplorerTxAPI string  `json:"explorer_tx_api"`
-	Checkpoint Checkpoint `json:"checkpoint"`
+	HTTPPort      int        `json:"http_port"`
+	AdminPort     int        `json:"admin_port"`
+	Network       string     `json:"network"`
+	AdminUser     string     `json:"admin_user"`
+	AdminPass     string     `json:"admin_pass"`
+	ExplorerTxAPI string     `json:"explorer_tx_api"`
+	Checkpoint    Checkpoint `json:"checkpoint"`
 }
 
 type PQTx struct {
-	Txid      string   `json:"txid"`
-	Addresses []string `json:"addresses"`
-	FirstSeen string   `json:"first_seen"`
-	LastSeen  string   `json:"last_seen"`
-	Confirmed bool     `json:"confirmed"`
-	PQValid   bool     `json:"pq_valid"`
-	PQScore   int      `json:"pq_score"`
-	PQReason  string   `json:"pq_reason,omitempty"`
+	Txid       string   `json:"txid"`
+	Addresses  []string `json:"addresses"`
+	FirstSeen  string   `json:"first_seen"`
+	LastSeen   string   `json:"last_seen"`
+	Confirmed  bool     `json:"confirmed"`
+	PQValid    bool     `json:"pq_valid"`
+	PQScore    int      `json:"pq_score"`
+	PQReason   string   `json:"pq_reason,omitempty"`
 	PQEvidence []string `json:"pq_evidence,omitempty"`
-	Verifier  string   `json:"verifier,omitempty"`
+	Verifier   string   `json:"verifier,omitempty"`
 }
 
 type app struct {
@@ -99,11 +99,11 @@ func envInt(key string, def int) int {
 
 func defaultConfig() Config {
 	return Config{
-		HTTPPort:  envInt("PUBLIC_PORT", 33666),
-		AdminPort: envInt("QE_ADMIN_PORT", 33667),
-		Network:   env("NETWORK", "mainnet"),
-		AdminUser: env("QE_ADMIN_USER", "shibe"),
-		AdminPass: env("QE_ADMIN_PASS", "suchpass"),
+		HTTPPort:      envInt("PUBLIC_PORT", 33666),
+		AdminPort:     envInt("QE_ADMIN_PORT", 33667),
+		Network:       env("NETWORK", "mainnet"),
+		AdminUser:     env("QE_ADMIN_USER", "shibe"),
+		AdminPass:     env("QE_ADMIN_PASS", "suchpass"),
 		ExplorerTxAPI: env("QE_EXPLORER_TX_API", ""),
 		Checkpoint: Checkpoint{
 			Height:    6150000,
@@ -778,11 +778,11 @@ func (a *app) adminStatus(w http.ResponseWriter, _ *http.Request) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	writeJSON(w, 200, map[string]any{
-		"mempool_running": a.engRunning,
-		"spv_running":     a.spvRunning,
-		"spv_start_error": a.spvStartErr,
-		"checkpoint":      a.cfg.Checkpoint,
-		"network":         a.cfg.Network,
+		"mempool_running":  a.engRunning,
+		"spv_running":      a.spvRunning,
+		"spv_start_error":  a.spvStartErr,
+		"checkpoint":       a.cfg.Checkpoint,
+		"network":          a.cfg.Network,
 		"last_spv_log_err": a.lastSPVLogErr,
 	})
 }
@@ -818,11 +818,11 @@ func main() {
 	storage := env("QE_STORAGE_DIR", "/storage/quantum-explorer")
 	must(os.MkdirAll(storage, 0o755))
 	a := &app{
-		cfgPath:    filepath.Join(storage, "quantum-explorer-config.json"),
-		storePath:  filepath.Join(storage, "quantum-explorer-pqtx.json"),
-		storageDir: storage,
-		txs:        map[string]*PQTx{},
-		blockIndex: map[string][]string{},
+		cfgPath:      filepath.Join(storage, "quantum-explorer-config.json"),
+		storePath:    filepath.Join(storage, "quantum-explorer-pqtx.json"),
+		storageDir:   storage,
+		txs:          map[string]*PQTx{},
+		blockIndex:   map[string][]string{},
 		addressIndex: map[string][]string{},
 	}
 	a.cfg = loadConfig(a.cfgPath)

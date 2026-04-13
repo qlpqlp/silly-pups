@@ -424,21 +424,20 @@ func verifyPQStrict(rawHex string) (valid bool, reason string, evidence []string
 	return true, "recognized PQ commitment markers in OP_RETURN", ev, outputTags
 }
 
-// buildPQVerificationDetail parses raw tx hex for UI: per-output breakdown + strict verifier result.
-func buildPQVerificationDetail(rawHex string) map[string]any {
+// buildPQVerificationDetail parses raw tx hex for UI: full decode + PQ strict verifier (see decode map).
+func buildPQVerificationDetail(rawHex string, network string) map[string]any {
+	h := strings.TrimSpace(rawHex)
 	out := map[string]any{
 		"raw_tx_hex_available": false,
-		"raw_tx_hex_length":    0,
-		"outputs":              []map[string]any{},
+		"decode":               nil,
 		"strict":               nil,
 	}
-	h := strings.TrimSpace(rawHex)
 	if h == "" {
 		out["note"] = "No raw transaction hex (need P2P full tx in mempool cache or QE_EXPLORER_TX_API)."
+		out["decode"] = DecodeTxJSON("", network)
 		return out
 	}
-	raw, err := hex.DecodeString(h)
-	if err != nil {
+	if _, err := hex.DecodeString(h); err != nil {
 		out["decode_error"] = err.Error()
 		return out
 	}
@@ -449,46 +448,11 @@ func buildPQVerificationDetail(rawHex string) map[string]any {
 	} else {
 		out["raw_tx_hex_preview"] = h
 	}
-	outs, err := parseTxOutputs(raw)
-	if err != nil {
-		out["parse_error"] = err.Error()
+	dec := DecodeTxJSON(h, network)
+	out["decode"] = dec
+	if _, has := dec["error"]; has {
 		return out
 	}
-	lines := make([]map[string]any, 0, len(outs))
-	for i, o := range outs {
-		row := map[string]any{
-			"index":      i,
-			"value_sats": o.valueSats,
-			"script_len": len(o.script),
-			"kind":       "other",
-		}
-		if tag := scriptAddressTag(o.script); tag != "" {
-			row["kind"] = "p2pkh_address_tag"
-			row["address_tag"] = tag
-		} else if d, ok := extractOpReturnData(o.script); ok {
-			row["kind"] = "op_return"
-			if len(d) <= 512 {
-				row["op_return_hex"] = hex.EncodeToString(d)
-			} else {
-				row["op_return_hex"] = hex.EncodeToString(d[:256]) + "…"
-			}
-			var sb strings.Builder
-			for _, b := range d {
-				if b >= 32 && b < 127 {
-					sb.WriteByte(b)
-				} else {
-					sb.WriteByte('.')
-				}
-			}
-			txt := sb.String()
-			if len(txt) > 240 {
-				txt = txt[:240] + "…"
-			}
-			row["op_return_text"] = txt
-		}
-		lines = append(lines, row)
-	}
-	out["outputs"] = lines
 	valid, reason, ev, tags := verifyPQStrict(h)
 	out["strict"] = map[string]any{
 		"valid":       valid,
@@ -821,10 +785,28 @@ func (a *app) publicStatus(w http.ResponseWriter, _ *http.Request) {
 	logBytes, _ := os.ReadFile(logPath)
 	logStr := string(logBytes)
 	snap := parseSPVLogSnapshot(logStr)
-	headers := snap.HeaderRows
-	if len(headers) > 15 {
-		headers = headers[:15]
+	headerRows := make([]map[string]any, 0, 16)
+	for _, h := range a.recentChainHeaders(15) {
+		headerRows = append(headerRows, map[string]any{
+			"height": h.Height, "hash": h.Hash, "timestamp": h.Timestamp,
+			"raw": h.RawSource, "source": "chain_index",
+		})
 	}
+	if len(headerRows) == 0 {
+		for _, row := range snap.HeaderRows {
+			if len(headerRows) >= 15 {
+				break
+			}
+			headerRows = append(headerRows, map[string]any{
+				"height": row.Height, "hash": row.Hash, "timestamp": row.Timestamp,
+				"raw": row.Raw, "source": "spv_log_fallback",
+			})
+		}
+	}
+	if len(headerRows) > 15 {
+		headerRows = headerRows[:15]
+	}
+	headers := headerRows
 	pqFoundOnSPV := false
 	pqConfirmedValid := 0
 	pqConfirmedInvalid := 0
@@ -924,35 +906,47 @@ func (a *app) publicBlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.mu.RLock()
+	eng := a.eng
+	tpl := strings.TrimSpace(a.cfg.ExplorerTxAPI)
+	net := strings.ToLower(strings.TrimSpace(a.cfg.Network))
+	a.mu.RUnlock()
 	txSummaries := make([]map[string]any, 0, len(txids))
 	for _, id := range txids {
 		id = strings.ToLower(id)
+		rawHex := a.fetchRawTxHex(id, eng, tpl)
+		var dec map[string]any
+		if rawHex != "" {
+			dec = DecodeTxJSON(rawHex, net)
+		}
 		a.mu.RLock()
 		t := a.txs[id]
 		a.mu.RUnlock()
+		row := map[string]any{
+			"txid":         id,
+			"decode":       dec,
+			"detail_query": "/api/public/tx?txid=" + id,
+		}
 		if t != nil {
 			cp := *t
-			txSummaries = append(txSummaries, map[string]any{
-				"txid":         id,
-				"pq_tx":        &cp,
-				"detail_query": "/api/public/tx?txid=" + id,
-			})
+			row["pq_tx"] = &cp
 		} else {
-			txSummaries = append(txSummaries, map[string]any{
-				"txid":  id,
-				"pq_tx": nil,
-				"note":  "Seen in SPV log heuristics but not in PQ transaction index",
-			})
+			row["pq_tx"] = nil
+			row["note"] = "Heuristic link from SPV log; not in PQ index. Decode works if raw tx was relayed."
 		}
+		if rawHex == "" {
+			row["decode_note"] = "No raw tx bytes yet — keep mempool running or set QE_EXPLORER_TX_API."
+		}
+		txSummaries = append(txSummaries, row)
 	}
 
 	writeJSON(w, 200, map[string]any{
 		"block":                   b,
 		"associated_transactions": txSummaries,
 		"notes": []string{
-			"Headers are inferred from libdogecoin spvnode logs (pipe rows and tip lines), not full blocks.",
-			"Associated transactions are 64-hex ids found on the same log line as a height when spvnode prints them that way.",
-			"Use /api/public/tx?txid= for strict PQ verification when the tx is in the PQ index.",
+			"Block headers are indexed in the chain database (from SPV ingestion), not read from the full spv.log for UI.",
+			"Transactions listed here are heuristic 64-hex links from SPV log lines; full decoding requires raw tx (P2P or API).",
+			"A future full indexer can store every relayed tx and UTXO set for exact fees.",
 		},
 	})
 }
@@ -986,12 +980,13 @@ func (a *app) publicTxDetail(w http.ResponseWriter, r *http.Request) {
 	a.mu.RLock()
 	eng := a.eng
 	tpl := strings.TrimSpace(a.cfg.ExplorerTxAPI)
+	net := strings.ToLower(strings.TrimSpace(a.cfg.Network))
 	a.mu.RUnlock()
 	rawHex := a.fetchRawTxHex(q, eng, tpl)
 	cp := *tx
 	writeJSON(w, 200, map[string]any{
 		"tx":              &cp,
-		"pq_verification": buildPQVerificationDetail(rawHex),
+		"pq_verification": buildPQVerificationDetail(rawHex, net),
 	})
 }
 
@@ -1083,7 +1078,7 @@ func (a *app) publicSearch(w http.ResponseWriter, r *http.Request) {
 func (a *app) adminStatus(w http.ResponseWriter, _ *http.Request) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	note := "Admin checkpoint is saved for your records. spvnode only uses libdogecoin embedded checkpoints (-p/-q); tallest mainnet in current upstream build is ~6093890. If headers.db already synced from genesis, delete it and restart SPV to jump to embedded checkpoint."
+	note := "spvnode ignores admin JSON; it uses libdogecoin's embedded checkpoints (-p/-q). This pup's default reference height (~6093890) matches an older libdogecoin rev — your spvnode binary may embed a higher checkpoint (e.g. ~6.16M). If the header tip seems stuck: peers may be slow or absent; the library may need a newer release for fresher checkpoints; or headers.db may need reset (backup, delete headers.db, restart SPV) so -q picks the latest embedded anchor. This is an upstream libdogecoin/network limit, not Quantum Explorer."
 	writeJSON(w, 200, map[string]any{
 		"mempool_running":     a.engRunning,
 		"mempool_start_error": a.mempoolStartErr,

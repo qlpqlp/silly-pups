@@ -317,5 +317,13 @@ func (p *postgresChainBackend) AdminDiagnostics() map[string]any {
 	} else {
 		out["summary_error"] = err.Error()
 	}
+	out["fields_explained"] = map[string]string{
+		"qe_chain_headers":    "Block headers learned from SPV ingestion.",
+		"qe_block_tx_links":   "Heuristic height↔txid pairs from spv.log regex parsing (not full blocks).",
+		"heights_with_tx_links": "Distinct heights that have ≥1 row in qe_block_tx_links.",
+	}
+	if nL == 0 {
+		out["note"] = "qe_block_tx_links is empty: no spv.log lines matched height+txid heuristics yet. Headers in qe_chain_headers are unrelated."
+	}
 	return out
 }

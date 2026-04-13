@@ -241,6 +241,10 @@ func (b *jsonChainBackend) AdminDiagnostics() map[string]any {
 	}
 	b.mu.RLock()
 	dirty := b.dirty
+	totalHeuristicTx := 0
+	for _, txs := range b.heightTxs {
+		totalHeuristicTx += len(txs)
+	}
 	b.mu.RUnlock()
 	out["dirty_unsaved"] = dirty
 	hc, tip, txh, err := b.Summary()
@@ -250,6 +254,16 @@ func (b *jsonChainBackend) AdminDiagnostics() map[string]any {
 		out["header_count"] = hc
 		out["tip_height"] = tip
 		out["heights_with_tx_links"] = txh
+		out["total_heuristic_tx_ids"] = int64(totalHeuristicTx)
+	}
+	out["fields_explained"] = map[string]string{
+		"header_count":            "Distinct block heights that have a header record (sparse — can be many rows as logs accumulate).",
+		"tip_height":              "Largest height key in the header index (sync progress anchor).",
+		"heights_with_tx_links":   "Count of heights that have ≥1 heuristic txid linked from spv.log line patterns — independent of headers.",
+		"total_heuristic_tx_ids":  "Total txid strings stored in those height→tx lists (0 if log lines never matched regex).",
+	}
+	if txh == 0 && err == nil {
+		out["note"] = "heights_with_tx_links is 0: spv.log did not match the explorer's height+txid heuristics (common). Block headers can still be fully indexed. Tx↔height links require specific log line shapes."
 	}
 	return out
 }

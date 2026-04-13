@@ -2,10 +2,10 @@
   "manifestVersion": 1,
   "meta": {
     "name": "Quantum Explorer",
-    "version": "0.1.3",
+    "version": "0.1.4",
     "logoPath": "logo.png",
     "shortDescription": "Realtime Post-Quantum Dogecoin explorer",
-    "longDescription": "Quantum Explorer tracks Dogecoin post-quantum transaction signals in realtime from pure P2P mempool gossip and confirms transaction visibility through SPV logs. Public users can search by Dogecoin address, txid, block height/hash text, and see latest PQ activity with pending/confirmed + PQ-validity indicators. Admin controls (Basic Auth) run on a separate admin port for additional isolation: mempool/SPV start-stop and checkpoint metadata. Default checkpoint: block 6150000, hash 9e8f55907f17dc4870cdc9e6ea75236782190c13c10a8126baea3b1da94593c5, timestamp 2026-04-03T03:16:25Z.",
+    "longDescription": "Quantum Explorer tracks Dogecoin post-quantum transaction signals in realtime from pure P2P mempool gossip and confirms transaction visibility through SPV logs. Public users can search by Dogecoin address, txid, block height/hash text, and see latest PQ activity with pending/confirmed + PQ-validity indicators. Admin controls are token-gated on the same web port via /admin/<TOKEN> and /api/admin/<TOKEN>/* for mempool/SPV start-stop and checkpoint metadata. Default checkpoint: block 6150000, hash 9e8f55907f17dc4870cdc9e6ea75236782190c13c10a8126baea3b1da94593c5, timestamp 2026-04-03T03:16:25Z.",
     "upstreamVersions": {
       "Go": "1.24",
       "libdogecoin": "spvnode"
@@ -23,12 +23,10 @@
         ]
       },
       {
-        "name": "Backoffice Auth",
-        "description": "Basic Auth credentials for admin API and separate admin port.",
+        "name": "Backoffice Token",
+        "description": "Token used in URL path to access admin UI/API on same port.",
         "fields": [
-          { "name": "QE_ADMIN_PORT", "label": "Admin HTTP port", "type": "text", "default": "33667" },
-          { "name": "QE_ADMIN_USER", "label": "Admin username", "type": "text", "default": "shibe" },
-          { "name": "QE_ADMIN_PASS", "label": "Admin password", "type": "password", "default": "suchpass" }
+          { "name": "QE_ADMIN_TOKEN", "label": "Admin token for /admin/<TOKEN>", "type": "text", "default": "QUANTUM-TOKEN" }
         ]
       }
     ]
@@ -52,14 +50,6 @@
         "interfaces": [ "quantum-explorer-public" ],
         "listenOnHost": true,
         "webUI": true
-      },
-      {
-        "name": "admin-port",
-        "type": "http",
-        "port": 33667,
-        "interfaces": [ "quantum-explorer-admin" ],
-        "listenOnHost": true,
-        "webUI": true
       }
     ],
     "requiresInternet": true
@@ -67,27 +57,14 @@
   "interfaces": [
     {
       "name": "quantum-explorer-public",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "permissionGroups": [
         {
           "name": "Quantum Explorer HTTP",
-          "description": "Public explorer UI and search API",
+          "description": "Public explorer UI, search API, and token-gated admin routes",
           "severity": 2,
-          "routes": [ "/", "/logo.png", "/api/public/*" ],
+          "routes": [ "/", "/logo.png", "/api/public/*", "/admin/*", "/api/admin/*" ],
           "port": 33666
-        }
-      ]
-    },
-    {
-      "name": "quantum-explorer-admin",
-      "version": "0.1.3",
-      "permissionGroups": [
-        {
-          "name": "Quantum Explorer Admin API",
-          "description": "Protected admin API over dedicated port",
-          "severity": 3,
-          "routes": [ "/", "/api/admin/*" ],
-          "port": 33667
         }
       ]
     }

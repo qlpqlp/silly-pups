@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"crypto/subtle"
 	"embed"
 	"encoding/binary"
 	"encoding/hex"
@@ -36,10 +35,8 @@ type Checkpoint struct {
 
 type Config struct {
 	HTTPPort      int        `json:"http_port"`
-	AdminPort     int        `json:"admin_port"`
 	Network       string     `json:"network"`
-	AdminUser     string     `json:"admin_user"`
-	AdminPass     string     `json:"admin_pass"`
+	AdminToken    string     `json:"admin_token"`
 	ExplorerTxAPI string     `json:"explorer_tx_api"`
 	Checkpoint    Checkpoint `json:"checkpoint"`
 }
@@ -101,10 +98,8 @@ func envInt(key string, def int) int {
 func defaultConfig() Config {
 	return Config{
 		HTTPPort:      envInt("PUBLIC_PORT", 33666),
-		AdminPort:     envInt("QE_ADMIN_PORT", 33667),
 		Network:       env("NETWORK", "mainnet"),
-		AdminUser:     env("QE_ADMIN_USER", "shibe"),
-		AdminPass:     env("QE_ADMIN_PASS", "suchpass"),
+		AdminToken:    env("QE_ADMIN_TOKEN", "QUANTUM-TOKEN"),
 		ExplorerTxAPI: env("QE_EXPLORER_TX_API", ""),
 		Checkpoint: Checkpoint{
 			Height:    6150000,
@@ -121,17 +116,11 @@ func loadConfig(path string) Config {
 		return cfg
 	}
 	_ = json.Unmarshal(b, &cfg)
-	if cfg.AdminUser == "" {
-		cfg.AdminUser = "shibe"
-	}
-	if cfg.AdminPass == "" {
-		cfg.AdminPass = "suchpass"
+	if strings.TrimSpace(cfg.AdminToken) == "" {
+		cfg.AdminToken = "QUANTUM-TOKEN"
 	}
 	if cfg.HTTPPort < 1 || cfg.HTTPPort > 65535 {
 		cfg.HTTPPort = 33666
-	}
-	if cfg.AdminPort < 1 || cfg.AdminPort > 65535 {
-		cfg.AdminPort = 33667
 	}
 	if cfg.Network == "" {
 		cfg.Network = "mainnet"
@@ -613,21 +602,10 @@ func (a *app) refreshLoop() {
 	}
 }
 
-func (a *app) basicAuth(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		u, p, ok := r.BasicAuth()
-		a.mu.RLock()
-		cfgU, cfgP := a.cfg.AdminUser, a.cfg.AdminPass
-		a.mu.RUnlock()
-		userOK := subtle.ConstantTimeCompare([]byte(u), []byte(cfgU)) == 1
-		passOK := subtle.ConstantTimeCompare([]byte(p), []byte(cfgP)) == 1
-		if !ok || !userOK || !passOK {
-			w.Header().Set("WWW-Authenticate", `Basic realm="Quantum Explorer Admin"`)
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		next(w, r)
-	}
+func (a *app) adminTokenValid(token string) bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return strings.TrimSpace(token) != "" && strings.TrimSpace(token) == strings.TrimSpace(a.cfg.AdminToken)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -853,10 +831,10 @@ func main() {
 	publicMux := http.NewServeMux()
 	publicMux.HandleFunc("/api/public/status", a.publicStatus)
 	publicMux.HandleFunc("/api/public/search", a.publicSearch)
-
-	adminMux := http.NewServeMux()
-	adminMux.HandleFunc("/", a.basicAuth(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
+	publicMux.HandleFunc("/admin/", func(w http.ResponseWriter, r *http.Request) {
+		token := strings.TrimPrefix(r.URL.Path, "/admin/")
+		token = strings.TrimSpace(strings.Trim(token, "/"))
+		if !a.adminTokenValid(token) {
 			http.NotFound(w, r)
 			return
 		}
@@ -867,40 +845,47 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(b)
-	}))
-	adminMux.HandleFunc("/logo.png", a.basicAuth(func(w http.ResponseWriter, _ *http.Request) {
-		b, err := staticFS.ReadFile("static/logo.png")
-		if err != nil {
-			http.NotFound(w, nil)
+	})
+	publicMux.HandleFunc("/api/admin/", func(w http.ResponseWriter, r *http.Request) {
+		rest := strings.TrimPrefix(r.URL.Path, "/api/admin/")
+		parts := strings.SplitN(rest, "/", 2)
+		if len(parts) != 2 {
+			http.NotFound(w, r)
 			return
 		}
-		w.Header().Set("Content-Type", "image/png")
-		_, _ = w.Write(b)
-	}))
-	adminMux.HandleFunc("/api/admin/status", a.basicAuth(a.adminStatus))
-	adminMux.HandleFunc("/api/admin/checkpoint", a.basicAuth(a.adminCheckpoint))
-	adminMux.HandleFunc("/api/admin/mempool/start", a.basicAuth(func(w http.ResponseWriter, _ *http.Request) {
-		if err := a.startMempool(); err != nil {
-			writeJSON(w, 500, map[string]string{"error": err.Error()})
+		token := strings.TrimSpace(parts[0])
+		action := "/" + strings.TrimSpace(parts[1])
+		if !a.adminTokenValid(token) {
+			http.NotFound(w, r)
 			return
 		}
-		writeJSON(w, 200, map[string]any{"ok": true})
-	}))
-	adminMux.HandleFunc("/api/admin/mempool/stop", a.basicAuth(func(w http.ResponseWriter, _ *http.Request) {
-		a.stopMempool()
-		writeJSON(w, 200, map[string]any{"ok": true})
-	}))
-	adminMux.HandleFunc("/api/admin/spv/start", a.basicAuth(func(w http.ResponseWriter, _ *http.Request) {
-		if err := a.startSPV(); err != nil && !errors.Is(err, os.ErrNotExist) {
-			writeJSON(w, 500, map[string]string{"error": err.Error()})
-			return
+		switch action {
+		case "/status":
+			a.adminStatus(w, r)
+		case "/checkpoint":
+			a.adminCheckpoint(w, r)
+		case "/mempool/start":
+			if err := a.startMempool(); err != nil {
+				writeJSON(w, 500, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, 200, map[string]any{"ok": true})
+		case "/mempool/stop":
+			a.stopMempool()
+			writeJSON(w, 200, map[string]any{"ok": true})
+		case "/spv/start":
+			if err := a.startSPV(); err != nil && !errors.Is(err, os.ErrNotExist) {
+				writeJSON(w, 500, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, 200, map[string]any{"ok": true, "note": "SPV started from configured checkpoint metadata."})
+		case "/spv/stop":
+			a.stopSPV()
+			writeJSON(w, 200, map[string]any{"ok": true})
+		default:
+			http.NotFound(w, r)
 		}
-		writeJSON(w, 200, map[string]any{"ok": true, "note": "SPV started from configured checkpoint metadata."})
-	}))
-	adminMux.HandleFunc("/api/admin/spv/stop", a.basicAuth(func(w http.ResponseWriter, _ *http.Request) {
-		a.stopSPV()
-		writeJSON(w, 200, map[string]any{"ok": true})
-	}))
+	})
 
 	publicMux.HandleFunc("/logo.png", func(w http.ResponseWriter, _ *http.Request) {
 		b, err := staticFS.ReadFile("static/logo.png")
@@ -926,13 +911,7 @@ func main() {
 	})
 
 	publicAddr := ":" + strconv.Itoa(a.cfg.HTTPPort)
-	adminAddr := ":" + strconv.Itoa(a.cfg.AdminPort)
 	log.Printf("[quantum-explorer] public listening on %s network=%s", publicAddr, a.cfg.Network)
-	log.Printf("[quantum-explorer] admin listening on %s (basic auth)", adminAddr)
-	go func() {
-		if err := http.ListenAndServe(adminAddr, adminMux); err != nil {
-			log.Fatalf("[quantum-explorer] admin server failed: %v", err)
-		}
-	}()
+	log.Printf("[quantum-explorer] admin UI path tokenized: /admin/<TOKEN>")
 	log.Fatal(http.ListenAndServe(publicAddr, publicMux))
 }

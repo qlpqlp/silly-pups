@@ -27,7 +27,7 @@
 <body>
   <div class="wrap">
     <h1>Quantum Explorer Admin</h1>
-    <p class="muted">This page runs on the dedicated admin port and is protected by Basic Auth.</p>
+    <p class="muted">This page is protected by token in URL path.</p>
 
     <section class="card">
       <h2>Runtime Status</h2>
@@ -59,9 +59,11 @@
   <script>
     async function j(url, opt){const r = await fetch(url, opt); return {ok:r.ok, s:r.status, d:await r.json().catch(()=>({}))};}
     function toast(msg){console.log(msg);}
+    const ADMIN_TOKEN = (location.pathname.split("/").filter(Boolean).pop() || "").trim();
+    const API_BASE = `/api/admin/${encodeURIComponent(ADMIN_TOKEN)}`;
 
     async function loadStatus(){
-      const r = await j("/api/admin/status");
+      const r = await j(`${API_BASE}/status`);
       const el = document.getElementById("status");
       if(!r.ok){ el.textContent = `Error ${r.s}: ${JSON.stringify(r.d)}`; return; }
       const d = r.d || {};
@@ -89,11 +91,11 @@
       await loadStatus();
     }
 
-    document.getElementById("m-start").onclick = ()=>call("/api/admin/mempool/start");
-    document.getElementById("m-stop").onclick = ()=>call("/api/admin/mempool/stop");
-    document.getElementById("s-start").onclick = ()=>call("/api/admin/spv/start");
-    document.getElementById("s-stop").onclick = ()=>call("/api/admin/spv/stop");
-    document.getElementById("cp-save").onclick = ()=>call("/api/admin/checkpoint", {
+    document.getElementById("m-start").onclick = ()=>call(`${API_BASE}/mempool/start`);
+    document.getElementById("m-stop").onclick = ()=>call(`${API_BASE}/mempool/stop`);
+    document.getElementById("s-start").onclick = ()=>call(`${API_BASE}/spv/start`);
+    document.getElementById("s-stop").onclick = ()=>call(`${API_BASE}/spv/stop`);
+    document.getElementById("cp-save").onclick = ()=>call(`${API_BASE}/checkpoint`, {
       height: Number(document.getElementById("cp-height").value || 0),
       hash: String(document.getElementById("cp-hash").value || "").trim(),
       timestamp: String(document.getElementById("cp-time").value || "").trim()

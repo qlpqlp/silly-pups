@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"embed"
 	"encoding/binary"
@@ -67,16 +66,19 @@ type app struct {
 	spvCmd          *exec.Cmd
 	spvRunning      bool
 	spvStartErr     string
-	txs             map[string]*PQTx
-	blockIndex      map[string][]string
-	addressIndex    map[string][]string
-	lastSPVLogErr   string
+	txs           map[string]*PQTx
+	addressIndex  map[string][]string
+	lastSPVLogErr string
+
+	// SPV-derived chain index: JSON file (default) or PostgreSQL when QE_POSTGRES_URL is set.
+	chain chainBackend
 }
 
 type SPVHeader struct {
-	Height int    `json:"height"`
-	Hash   string `json:"hash"`
-	Raw    string `json:"raw"`
+	Height    int    `json:"height"`
+	Hash      string `json:"hash"`
+	Raw       string `json:"raw"`
+	Timestamp string `json:"timestamp,omitempty"` // RFC3339 or raw from log (e.g. ctime)
 }
 
 func env(key, def string) string {
@@ -418,9 +420,83 @@ func verifyPQStrict(rawHex string) (valid bool, reason string, evidence []string
 	return true, "recognized PQ commitment markers in OP_RETURN", ev, outputTags
 }
 
+// buildPQVerificationDetail parses raw tx hex for UI: per-output breakdown + strict verifier result.
+func buildPQVerificationDetail(rawHex string) map[string]any {
+	out := map[string]any{
+		"raw_tx_hex_available": false,
+		"raw_tx_hex_length":    0,
+		"outputs":              []map[string]any{},
+		"strict":               nil,
+	}
+	h := strings.TrimSpace(rawHex)
+	if h == "" {
+		out["note"] = "No raw transaction hex (need P2P full tx in mempool cache or QE_EXPLORER_TX_API)."
+		return out
+	}
+	raw, err := hex.DecodeString(h)
+	if err != nil {
+		out["decode_error"] = err.Error()
+		return out
+	}
+	out["raw_tx_hex_available"] = true
+	out["raw_tx_hex_length"] = len(h)
+	if len(h) > 256 {
+		out["raw_tx_hex_preview"] = h[:256] + "…"
+	} else {
+		out["raw_tx_hex_preview"] = h
+	}
+	outs, err := parseTxOutputs(raw)
+	if err != nil {
+		out["parse_error"] = err.Error()
+		return out
+	}
+	lines := make([]map[string]any, 0, len(outs))
+	for i, o := range outs {
+		row := map[string]any{
+			"index":      i,
+			"value_sats": o.valueSats,
+			"script_len": len(o.script),
+			"kind":       "other",
+		}
+		if tag := scriptAddressTag(o.script); tag != "" {
+			row["kind"] = "p2pkh_address_tag"
+			row["address_tag"] = tag
+		} else if d, ok := extractOpReturnData(o.script); ok {
+			row["kind"] = "op_return"
+			if len(d) <= 512 {
+				row["op_return_hex"] = hex.EncodeToString(d)
+			} else {
+				row["op_return_hex"] = hex.EncodeToString(d[:256]) + "…"
+			}
+			var sb strings.Builder
+			for _, b := range d {
+				if b >= 32 && b < 127 {
+					sb.WriteByte(b)
+				} else {
+					sb.WriteByte('.')
+				}
+			}
+			txt := sb.String()
+			if len(txt) > 240 {
+				txt = txt[:240] + "…"
+			}
+			row["op_return_text"] = txt
+		}
+		lines = append(lines, row)
+	}
+	out["outputs"] = lines
+	valid, reason, ev, tags := verifyPQStrict(h)
+	out["strict"] = map[string]any{
+		"valid":       valid,
+		"reason":      reason,
+		"evidence":    ev,
+		"output_tags": tags,
+	}
+	return out
+}
+
 func (a *app) reindexUnsafe() {
 	a.addressIndex = map[string][]string{}
-	a.blockIndex = map[string][]string{}
 	for txid, t := range a.txs {
 		for _, ad := range t.Addresses {
 			ad = strings.TrimSpace(strings.ToLower(ad))
@@ -597,25 +673,36 @@ func (a *app) refreshLoop() {
 			a.persistTxs()
 		}
 
-		// Mark confirmed txids when they appear in spv.log.
+		// SPV log: ingest header chain index + mark confirmed txids.
 		logPath := filepath.Join(a.storageDir, "spv.log")
-		f, err := os.Open(logPath)
+		logBytes, err := os.ReadFile(logPath)
+		logStr := string(logBytes)
+		if len(logStr) > 1<<22 {
+			logStr = logStr[len(logStr)-(1<<22):]
+		}
+		a.mu.Lock()
 		if err != nil {
-			a.mu.Lock()
 			a.lastSPVLogErr = err.Error()
 			a.mu.Unlock()
 			continue
 		}
-		sc := bufio.NewScanner(io.LimitReader(f, 1<<20))
-		found := map[string]struct{}{}
-		for sc.Scan() {
-			line := sc.Text()
-			for _, m := range reTxid.FindAllString(line, -1) {
-				found[strings.ToLower(m)] = struct{}{}
+		a.lastSPVLogErr = ""
+		a.mu.Unlock()
+
+		chg, ingErr := a.ingestSPVLogChain(logStr)
+		if ingErr != nil {
+			log.Printf("[quantum-explorer] chain ingest: %v", ingErr)
+		} else if chg {
+			if err := a.chain.Persist(); err != nil {
+				log.Printf("[quantum-explorer] chain persist: %v", err)
 			}
 		}
-		_ = f.Close()
+
 		a.mu.Lock()
+		found := map[string]struct{}{}
+		for _, m := range reTxid.FindAllString(logStr, -1) {
+			found[strings.ToLower(m)] = struct{}{}
+		}
 		for txid, tx := range a.txs {
 			if _, ok := found[strings.ToLower(txid)]; ok {
 				tx.Confirmed = true
@@ -623,6 +710,7 @@ func (a *app) refreshLoop() {
 		}
 		a.reindexUnsafe()
 		a.mu.Unlock()
+		a.persistTxs()
 	}
 }
 
@@ -636,58 +724,6 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
-}
-
-func parseSPVHeadersFromLog(logText string, limit int) []SPVHeader {
-	if limit <= 0 {
-		limit = 10
-	}
-	// Common spvnode header formats we may see in logs:
-	// 1) "<64hex>|<height>|<timestamp>|..."
-	// 2) lines containing "height <n>" and optionally a 64-hex hash
-	rePipe := regexp.MustCompile(`(?i)\b([0-9a-f]{64})\|([0-9]{1,12})\b`)
-	reHeight := regexp.MustCompile(`(?i)\bheight[:=\s]+([0-9]{1,12})\b`)
-	reHash := regexp.MustCompile(`(?i)\b([0-9a-f]{64})\b`)
-
-	lines := strings.Split(logText, "\n")
-	out := make([]SPVHeader, 0, limit)
-	seen := make(map[int]struct{})
-	for i := len(lines) - 1; i >= 0 && len(out) < limit; i-- {
-		line := strings.TrimSpace(lines[i])
-		if line == "" {
-			continue
-		}
-		if m := rePipe.FindStringSubmatch(line); len(m) == 3 {
-			h, _ := strconv.Atoi(m[2])
-			if h <= 0 {
-				continue
-			}
-			if _, ok := seen[h]; ok {
-				continue
-			}
-			seen[h] = struct{}{}
-			out = append(out, SPVHeader{Height: h, Hash: strings.ToLower(m[1]), Raw: line})
-			continue
-		}
-		hm := reHeight.FindStringSubmatch(line)
-		if len(hm) != 2 {
-			continue
-		}
-		h, _ := strconv.Atoi(hm[1])
-		if h <= 0 {
-			continue
-		}
-		if _, ok := seen[h]; ok {
-			continue
-		}
-		hash := ""
-		if m := reHash.FindStringSubmatch(line); len(m) == 2 {
-			hash = strings.ToLower(m[1])
-		}
-		seen[h] = struct{}{}
-		out = append(out, SPVHeader{Height: h, Hash: hash, Raw: line})
-	}
-	return out
 }
 
 func (a *app) latest(limit int) []*PQTx {
@@ -707,40 +743,193 @@ func (a *app) latest(limit int) []*PQTx {
 
 func (a *app) publicStatus(w http.ResponseWriter, _ *http.Request) {
 	rows := a.latest(100)
-	m := map[string]int{"mempool_live": 0, "pq_seen": len(rows), "confirmed": 0, "invalid": 0}
+	m := map[string]int{"mempool_live": 0, "pq_seen": len(rows), "confirmed": 0, "invalid": 0, "pq_valid": 0}
 	for _, t := range rows {
 		if t.Confirmed {
 			m["confirmed"]++
 		}
 		if !t.PQValid {
 			m["invalid"]++
+		} else {
+			m["pq_valid"]++
 		}
 	}
 	m["mempool_live"] = len(rows) - m["confirmed"]
 	logPath := filepath.Join(a.storageDir, "spv.log")
 	logBytes, _ := os.ReadFile(logPath)
-	headers := parseSPVHeadersFromLog(string(logBytes), 10)
+	logStr := string(logBytes)
+	snap := parseSPVLogSnapshot(logStr)
+	headers := snap.HeaderRows
+	if len(headers) > 15 {
+		headers = headers[:15]
+	}
 	pqFoundOnSPV := false
+	pqConfirmedValid := 0
+	pqConfirmedInvalid := 0
 	for _, t := range rows {
 		if t.Confirmed {
 			pqFoundOnSPV = true
-			break
+			if t.PQValid {
+				pqConfirmedValid++
+			} else {
+				pqConfirmedInvalid++
+			}
 		}
 	}
+	latestPQ := rows
+	if len(latestPQ) > 10 {
+		cp := make([]*PQTx, 10)
+		copy(cp, latestPQ[:10])
+		latestPQ = cp
+	}
+	chainSum := a.chainSummaryMap()
+	chainHdrs := a.recentChainHeaders(12)
+
 	writeJSON(w, 200, map[string]any{
-		"metrics": m,
-		"latest":  rows,
+		"metrics":                 m,
+		"latest":                  rows,
+		"latest_pq_transactions":  latestPQ,
 		"mempool": map[string]any{
 			"running":     a.engRunning,
 			"start_error": a.mempoolStartErr,
 		},
 		"spv": map[string]any{
-			"running":           a.spvRunning,
-			"start_error":       a.spvStartErr,
-			"latest_headers":    headers,
-			"pq_found_on_spv":   pqFoundOnSPV,
-			"headers_available": len(headers),
+			"running":            a.spvRunning,
+			"start_error":        a.spvStartErr,
+			"latest_headers":     headers,
+			"pq_found_on_spv":    pqFoundOnSPV,
+			"headers_available":  len(headers),
+			"tip_height":         snap.TipHeight,
+			"tip_hash":           snap.TipHash,
+			"tip_time_from_log":  snap.LastTipTime,
+			"peer_count_hint":    snap.PeerCount,
+			"mempool_tx_hint":    snap.MempoolTxHint,
+			"indexed_tx_count":   len(rows),
+			"pq_confirmed_valid": pqConfirmedValid,
+			"pq_confirmed_invalid": pqConfirmedInvalid,
 		},
+		"chain_index": map[string]any{
+			"summary":         chainSum,
+			"recent_headers":  chainHdrs,
+			"block_detail_qs": "GET /api/public/block?height=<n> or &hash=<64hex>",
+		},
+	})
+}
+
+func (a *app) publicBlock(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	hash := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("hash")))
+	heightStr := strings.TrimSpace(r.URL.Query().Get("height"))
+	if hash == "" && heightStr == "" {
+		writeJSON(w, 400, map[string]string{"error": "provide hash= or height="})
+		return
+	}
+	var b *IndexedBlockHeader
+	var err error
+	if hash != "" {
+		if len(hash) != 64 || !isHex64String(hash) {
+			writeJSON(w, 400, map[string]string{"error": "hash must be 64 hex chars"})
+			return
+		}
+		b, err = a.chain.GetByHash(hash)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+	if b == nil && heightStr != "" {
+		h, err2 := strconv.Atoi(heightStr)
+		if err2 != nil || h <= 0 {
+			writeJSON(w, 400, map[string]string{"error": "invalid height"})
+			return
+		}
+		b, err = a.chain.GetByHeight(h)
+	}
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	if b == nil {
+		writeJSON(w, 404, map[string]string{"error": "block header not in SPV chain index yet"})
+		return
+	}
+	txids, err := a.chain.ListTxidsForHeight(b.Height)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+
+	txSummaries := make([]map[string]any, 0, len(txids))
+	for _, id := range txids {
+		id = strings.ToLower(id)
+		a.mu.RLock()
+		t := a.txs[id]
+		a.mu.RUnlock()
+		if t != nil {
+			cp := *t
+			txSummaries = append(txSummaries, map[string]any{
+				"txid":         id,
+				"pq_tx":        &cp,
+				"detail_query": "/api/public/tx?txid=" + id,
+			})
+		} else {
+			txSummaries = append(txSummaries, map[string]any{
+				"txid":  id,
+				"pq_tx": nil,
+				"note":  "Seen in SPV log heuristics but not in PQ transaction index",
+			})
+		}
+	}
+
+	writeJSON(w, 200, map[string]any{
+		"block": b,
+		"associated_transactions": txSummaries,
+		"notes": []string{
+			"Headers are inferred from libdogecoin spvnode logs (pipe rows and tip lines), not full blocks.",
+			"Associated transactions are 64-hex ids found on the same log line as a height when spvnode prints them that way.",
+			"Use /api/public/tx?txid= for strict PQ verification when the tx is in the PQ index.",
+		},
+	})
+}
+
+func (a *app) publicTxDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("txid")))
+	if len(q) != 64 || !isHex64String(q) {
+		writeJSON(w, 400, map[string]string{"error": "txid must be 64 hex characters"})
+		return
+	}
+	a.mu.RLock()
+	tx, ok := a.txs[q]
+	if !ok {
+		for k, v := range a.txs {
+			if strings.EqualFold(k, q) {
+				tx, ok = v, true
+				q = strings.ToLower(k)
+				break
+			}
+		}
+	}
+	a.mu.RUnlock()
+	if !ok || tx == nil {
+		writeJSON(w, 404, map[string]string{"error": "transaction not in PQ index"})
+		return
+	}
+	a.mu.RLock()
+	eng := a.eng
+	tpl := strings.TrimSpace(a.cfg.ExplorerTxAPI)
+	a.mu.RUnlock()
+	rawHex := a.fetchRawTxHex(q, eng, tpl)
+	cp := *tx
+	writeJSON(w, 200, map[string]any{
+		"tx":              &cp,
+		"pq_verification": buildPQVerificationDetail(rawHex),
 	})
 }
 
@@ -756,24 +945,65 @@ func (a *app) publicSearch(w http.ResponseWriter, r *http.Request) {
 	txidsByAddr := a.addressIndex[q]
 	a.mu.RUnlock()
 	if len(txidsByAddr) > 0 {
-		set := map[string]struct{}{}
+		a.mu.RLock()
 		for _, id := range txidsByAddr {
-			set[id] = struct{}{}
-		}
-		for _, t := range rows {
-			if _, ok := set[t.Txid]; ok {
-				out = append(out, t)
+			id = strings.ToLower(id)
+			if t := a.txs[id]; t != nil {
+				cp := *t
+				out = append(out, &cp)
 			}
 		}
+		a.mu.RUnlock()
 		writeJSON(w, 200, map[string]any{"query": q, "kind": "address", "results": out})
 		return
 	}
 	if matched, _ := regexp.MatchString(`^[0-9a-f]{64}$`, q); matched {
+		blk, err := a.chain.GetByHash(q)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": err.Error()})
+			return
+		}
+		if blk != nil {
+			writeJSON(w, 200, map[string]any{
+				"query":       q,
+				"kind":        "block_hash",
+				"block":       blk,
+				"block_query": "/api/public/block?hash=" + q,
+			})
+			return
+		}
 		for _, t := range rows {
 			if strings.EqualFold(t.Txid, q) {
-				writeJSON(w, 200, map[string]any{"query": q, "kind": "txid", "results": []*PQTx{t}})
+				writeJSON(w, 200, map[string]any{
+					"query":      q,
+					"kind":       "txid",
+					"results":    []*PQTx{t},
+					"tx_detail":  "/api/public/tx?txid=" + q,
+				})
 				return
 			}
+		}
+		writeJSON(w, 200, map[string]any{
+			"query": q,
+			"kind":  "unknown_hex64",
+			"note":  "Not a known block hash in the SPV chain index or a PQ-indexed txid",
+		})
+		return
+	}
+	if h, err := strconv.Atoi(q); err == nil && q == strconv.Itoa(h) && h > 0 {
+		blk, err := a.chain.GetByHeight(h)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": err.Error()})
+			return
+		}
+		if blk != nil {
+			writeJSON(w, 200, map[string]any{
+				"query":       q,
+				"kind":        "block_height",
+				"block":       blk,
+				"block_query": "/api/public/block?height=" + q,
+			})
+			return
 		}
 	}
 	for _, t := range rows {
@@ -783,7 +1013,7 @@ func (a *app) publicSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	kind := "text"
 	if _, err := strconv.Atoi(q); err == nil {
-		kind = "block-height"
+		kind = "block-height-no-index"
 	}
 	writeJSON(w, 200, map[string]any{"query": q, "kind": kind, "results": out})
 }
@@ -800,8 +1030,9 @@ func (a *app) adminStatus(w http.ResponseWriter, _ *http.Request) {
 		"checkpoint":          a.cfg.Checkpoint,
 		"network":             a.cfg.Network,
 		"last_spv_log_err":    a.lastSPVLogErr,
-		"spv_checkpoint_help": note,
-		"spv_use_checkpoint":  strings.TrimSpace(env("QE_SPV_USE_CHECKPOINT", "1")) != "0",
+		"spv_checkpoint_help":  note,
+		"spv_use_checkpoint":   strings.TrimSpace(env("QE_SPV_USE_CHECKPOINT", "1")) != "0",
+		"chain_index_backend":  a.chain.Kind(),
 	})
 }
 
@@ -832,19 +1063,46 @@ func must(err error) {
 	}
 }
 
+func (a *app) chainSummaryMap() map[string]any {
+	if a.chain == nil {
+		return map[string]any{"header_count": 0, "tip_height": 0, "tx_links": 0}
+	}
+	hc, tip, txh, err := a.chain.Summary()
+	if err != nil {
+		return map[string]any{"header_count": 0, "tip_height": 0, "tx_links": 0, "error": err.Error()}
+	}
+	return map[string]any{"header_count": hc, "tip_height": tip, "tx_links": txh}
+}
+
+func (a *app) recentChainHeaders(n int) []IndexedBlockHeader {
+	if a.chain == nil {
+		return nil
+	}
+	h, err := a.chain.RecentHeaders(n)
+	if err != nil {
+		return nil
+	}
+	return h
+}
+
 func main() {
 	storage := env("QE_STORAGE_DIR", "/storage/quantum-explorer")
 	must(os.MkdirAll(storage, 0o755))
+	cb, err := openChainBackend(storage)
+	if err != nil {
+		log.Fatalf("[quantum-explorer] chain backend: %v", err)
+	}
 	a := &app{
 		cfgPath:      filepath.Join(storage, "quantum-explorer-config.json"),
 		storePath:    filepath.Join(storage, "quantum-explorer-pqtx.json"),
 		storageDir:   storage,
 		txs:          map[string]*PQTx{},
-		blockIndex:   map[string][]string{},
 		addressIndex: map[string][]string{},
+		chain:        cb,
 	}
 	a.cfg = loadConfig(a.cfgPath)
 	a.txs = loadTxs(a.storePath)
+	log.Printf("[quantum-explorer] chain index backend=%s", cb.Kind())
 	a.reindexUnsafe()
 	_ = saveJSON(a.cfgPath, a.cfg)
 	if err := a.startMempool(); err != nil {
@@ -861,6 +1119,8 @@ func main() {
 
 	publicMux := http.NewServeMux()
 	publicMux.HandleFunc("/api/public/status", a.publicStatus)
+	publicMux.HandleFunc("/api/public/block", a.publicBlock)
+	publicMux.HandleFunc("/api/public/tx", a.publicTxDetail)
 	publicMux.HandleFunc("/api/public/search", a.publicSearch)
 	publicMux.HandleFunc("/admin/", func(w http.ResponseWriter, r *http.Request) {
 		token := strings.TrimPrefix(r.URL.Path, "/admin/")

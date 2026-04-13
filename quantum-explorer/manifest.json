@@ -2,10 +2,10 @@
   "manifestVersion": 1,
   "meta": {
     "name": "Quantum Explorer",
-    "version": "0.1.7",
+    "version": "0.1.10",
     "logoPath": "logo.png",
     "shortDescription": "Realtime Post-Quantum Dogecoin explorer",
-    "longDescription": "Quantum Explorer tracks Dogecoin post-quantum transaction signals in realtime from pure P2P mempool gossip and confirms transaction visibility through SPV logs. Public users can search by Dogecoin address, txid, block height/hash text, and see latest PQ activity with pending/confirmed + PQ-validity indicators. Admin controls are token-gated on the same web port via /admin/<TOKEN> and /api/admin/<TOKEN>/* for mempool/SPV start-stop. The admin checkpoint form stores operator reference metadata only: libdogecoin spvnode does not read that JSON. Instead it uses its own embedded checkpoint table; this pup passes -p and -q (with -l) so a fresh headers.db starts from the latest embedded checkpoint instead of genesis. If an older run already built headers.db from height 0, delete headers.db (and restart SPV) to benefit. The bundled libdogecoin revision fixes the tallest mainnet embedded checkpoint (about 6,093,890); you cannot SPV-jump to a higher height until upstream adds checkpoints. Optional QE_SPV_WATCH_ADDRESS sets spvnode -a like pq-wallet. QE_SPV_AUTO_START=0 disables SPV on process boot.",
+    "longDescription": "Quantum Explorer tracks Dogecoin post-quantum transaction signals in realtime from pure P2P mempool gossip and confirms transaction visibility through SPV logs. Public users can search by Dogecoin address, txid, block height/hash text, and see latest PQ activity with pending/confirmed + PQ-validity indicators. Admin controls are token-gated on the same web port via /admin/<TOKEN> and /api/admin/<TOKEN>/* for mempool/SPV start-stop. The admin checkpoint form stores operator reference metadata only: libdogecoin spvnode does not read that JSON. Instead it uses its own embedded checkpoint table; this pup passes -p and -q (with -l) so a fresh headers.db starts from the latest embedded checkpoint instead of genesis. If an older run already built headers.db from height 0, delete headers.db (and restart SPV) to benefit. The bundled libdogecoin revision fixes the tallest mainnet embedded checkpoint (about 6,093,890); you cannot SPV-jump to a higher height until upstream adds checkpoints. Optional QE_SPV_WATCH_ADDRESS sets spvnode -a like pq-wallet. QE_SPV_AUTO_START=0 disables SPV on process boot. The SPV chain index (headers and heuristic block→tx links) defaults to a JSON file under the storage dir; set QE_POSTGRES_URL to a PostgreSQL connection string (for example postgres://user:pass@host:5432/dbname) for concurrent reads and a single writer without SQLite.",
     "upstreamVersions": {
       "Go": "1.24",
       "libdogecoin": "spvnode"
@@ -29,6 +29,13 @@
           { "name": "QE_SPV_WATCH_ADDRESS", "label": "Optional: P2PKH address for spvnode -a (recommended)", "type": "text", "default": "" },
           { "name": "QE_SPV_USE_CHECKPOINT", "label": "Use embedded checkpoints -p/-q (1=yes, 0=sync from genesis)", "type": "text", "default": "1" },
           { "name": "QE_SPV_AUTO_START", "label": "Start spvnode when Quantum Explorer starts (1=yes, 0=no)", "type": "text", "default": "1" }
+        ]
+      },
+      {
+        "name": "Chain index storage",
+        "description": "Leave empty to store the SPV chain index in qe-chain-index.json (fine for a single process). Set a Postgres URL when many clients hit the public APIs or you run multiple app instances (one writer recommended). On first connect to an empty database, existing qe-chain-index.json is imported once.",
+        "fields": [
+          { "name": "QE_POSTGRES_URL", "label": "Optional: PostgreSQL URL for chain index (postgres://…)", "type": "text", "default": "" }
         ]
       },
       {
@@ -66,7 +73,7 @@
   "interfaces": [
     {
       "name": "quantum-explorer-public",
-      "version": "0.1.7",
+      "version": "0.1.10",
       "permissionGroups": [
         {
           "name": "Quantum Explorer HTTP",

@@ -81,6 +81,7 @@ let
     export QE_ADMIN_PORT="''${QE_ADMIN_PORT:-33667}"
     export NETWORK="''${NETWORK:-mainnet}"
     export QE_EXPLORER_TX_API="''${QE_EXPLORER_TX_API:-}"
+    export QE_POSTGRES_URL="''${QE_POSTGRES_URL:-}"
     export QE_ADMIN_USER="''${QE_ADMIN_USER:-shibe}"
     export QE_ADMIN_PASS="''${QE_ADMIN_PASS:-suchpass}"
     export QE_SPV_USE_CHECKPOINT="''${QE_SPV_USE_CHECKPOINT:-1}"

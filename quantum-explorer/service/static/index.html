@@ -26,7 +26,8 @@
     input,select { background:#0d1622; color:var(--txt); border:1px solid var(--line); border-radius:10px; padding:.6rem .7rem; font:inherit; width:100%; }
     .btn { border:1px solid var(--line); background:#162232; color:var(--txt); border-radius:10px; padding:.6rem .8rem; font:inherit; cursor:pointer; width:100%; }
     .btn.primary { background:linear-gradient(135deg,var(--doge),#e6a317); color:#1a1408; border-color:transparent; font-weight:700; }
-    .kpi { display:grid; grid-template-columns:repeat(2,1fr); gap:.5rem; }
+    .kpi { display:grid; grid-template-columns:repeat(3,1fr); gap:.5rem; }
+    @media (max-width:720px){ .kpi { grid-template-columns:repeat(2,1fr); } }
     .pill { border:1px solid var(--line); border-radius:12px; padding:.55rem .65rem; background:#0f1824; }
     .pill b { display:block; font-size:1.1rem; }
     .muted { color:var(--muted); font-size:.86rem; }
@@ -42,6 +43,26 @@
     .pq-bad { color:var(--bad); }
     .banner { display:none; background:rgba(255,125,125,.12); border:1px solid rgba(255,125,125,.45); color:#ffc2c2; border-radius:12px; padding:.65rem .75rem; margin-bottom:.75rem; }
     .banner.show { display:block; }
+    .pq-block { border:2px solid var(--doge); border-radius:16px; overflow:hidden; background:linear-gradient(180deg,#141f2e 0%,#0f1824 100%); box-shadow:0 8px 32px rgba(0,0,0,.35); }
+    .pq-block-head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.6rem; padding:.75rem 1rem; background:linear-gradient(90deg,rgba(242,203,44,.15),transparent); border-bottom:1px solid var(--line); }
+    .pq-block-head h2 { margin:0; font-size:1.1rem; }
+    .pq-block-meta { font-size:.82rem; color:var(--muted); }
+    .pq-block-rows { padding:.35rem 0; }
+    .pq-tx-row { display:block; width:100%; text-align:left; border:none; border-bottom:1px solid var(--line); padding:.65rem .9rem; background:transparent; color:var(--txt); font:inherit; cursor:pointer; transition:background .15s; }
+    .pq-tx-row:last-child { border-bottom:none; }
+    .pq-tx-row:hover, .pq-tx-row:focus-visible { background:rgba(242,203,44,.08); outline:none; }
+    .pq-tx-row .mono { font-size:.78rem; opacity:.95; }
+    .pq-tx-row .row-meta { margin-top:.35rem; font-size:.8rem; color:var(--muted); }
+    .modal-backdrop { display:none; position:fixed; inset:0; z-index:200; background:rgba(5,8,12,.78); align-items:flex-start; justify-content:center; padding:1rem; overflow-y:auto; }
+    .modal-backdrop.show { display:flex; }
+    .modal-card { width:100%; max-width:720px; margin:2vh auto; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:1rem 1.1rem; max-height:90vh; overflow:auto; box-shadow:0 16px 48px rgba(0,0,0,.5); }
+    .modal-card h2 { margin:0 0 .5rem; font-size:1.15rem; }
+    .modal-close { float:right; border:1px solid var(--line); background:#162232; color:var(--txt); border-radius:10px; padding:.35rem .75rem; font:inherit; cursor:pointer; }
+    .detail-section { margin:.85rem 0; padding-top:.75rem; border-top:1px solid var(--line); }
+    .detail-section h3 { margin:0 0 .45rem; font-size:.95rem; color:var(--muted); font-weight:600; }
+    .detail-kv { font-size:.86rem; margin:.25rem 0; }
+    .detail-kv strong { color:var(--muted); font-weight:600; margin-right:.35rem; }
+    .out-row { border:1px solid var(--line); border-radius:10px; padding:.5rem .55rem; margin-bottom:.4rem; background:#0f1824; font-size:.82rem; }
     @media (max-width:900px){ .grid { grid-template-columns:1fr; } }
   </style>
 </head>
@@ -63,30 +84,54 @@
           <button class="btn primary" id="btn-search">Search</button>
         </div>
         <p class="muted">Quantum Explorer indexes only PQ-like transactions and exposes verification state.</p>
+        <p class="muted" id="chain-index-strip" style="font-size:.82rem;margin:.35rem 0">Chain index: …</p>
         <div id="search-out"></div>
       </section>
 
       <aside class="card">
         <h2>Metrics</h2>
+        <div class="badges" id="metric-badges" style="margin-bottom:.6rem"></div>
         <div class="kpi">
           <div class="pill"><span class="muted">Mempool (live)</span><b id="k-mempool">0</b></div>
           <div class="pill"><span class="muted">PQ seen</span><b id="k-pq">0</b></div>
-          <div class="pill"><span class="muted">Confirmed</span><b id="k-confirmed">0</b></div>
+          <div class="pill"><span class="muted">PQ valid</span><b id="k-pqvalid">0</b></div>
+          <div class="pill"><span class="muted">Confirmed (SPV)</span><b id="k-confirmed">0</b></div>
           <div class="pill"><span class="muted">Invalid PQ</span><b id="k-invalid">0</b></div>
+          <div class="pill"><span class="muted">SPV tip height</span><b id="k-spv-tip">—</b></div>
+          <div class="pill"><span class="muted">SPV peers (log)</span><b id="k-spv-peers">—</b></div>
+          <div class="pill"><span class="muted">SPV mempool (log)</span><b id="k-spv-mempool">—</b></div>
         </div>
       </aside>
     </div>
 
-    <section class="card" style="margin-top:.8rem">
-      <h2>Latest Post-Quantum Transactions</h2>
-      <div id="tx-list"></div>
-      <button class="btn" id="btn-more" style="display:none;margin-top:.45rem">Show more</button>
+    <section class="card" style="margin-top:.8rem;border:none;background:transparent;padding:0;box-shadow:none">
+      <div class="pq-block" id="pq-block">
+        <div class="pq-block-head">
+          <div>
+            <h2>PQ transactions — latest block</h2>
+            <div class="pq-block-meta" id="pq-block-context">Correlates with SPV chain tip when available.</div>
+          </div>
+          <div class="badges" id="pq-block-badges"></div>
+        </div>
+        <div class="pq-block-rows" id="pq-block-rows"></div>
+      </div>
     </section>
 
+    <div class="modal-backdrop" id="tx-modal" role="dialog" aria-modal="true" aria-labelledby="tx-modal-title">
+      <div class="modal-card">
+        <button type="button" class="modal-close" id="tx-modal-close" aria-label="Close">Close</button>
+        <h2 id="tx-modal-title">Transaction</h2>
+        <div id="tx-modal-body" class="muted">Loading…</div>
+      </div>
+    </div>
+
     <section class="card" style="margin-top:.8rem">
-      <h2>SPV Latest Headers (10)</h2>
-      <p class="muted" id="spv-pq-status">PQ on SPV: checking…</p>
-      <p class="muted" id="mempool-status">Mempool: checking…</p>
+      <h2>SPV chain &amp; headers</h2>
+      <div class="badges" id="spv-badges" style="margin:.35rem 0 .6rem"></div>
+      <div id="spv-tip-card" class="head-row" style="margin-bottom:.65rem"></div>
+      <p class="muted" id="spv-pq-status">SPV: checking…</p>
+      <p class="muted" id="mempool-status">Mempool tracker: checking…</p>
+      <h3 class="muted" style="font-size:.95rem;margin:.75rem 0 .4rem">Recent header rows (from spv.log)</h3>
       <div id="spv-headers" class="headers"></div>
     </section>
 
@@ -97,40 +142,143 @@
     function badge(cls,txt){return `<span class="badge ${cls}">${esc(txt)}</span>`;}
     async function j(url,opt){const r=await fetch(url,opt);return {ok:r.ok,s:r.status,d:await r.json().catch(()=>({}))};}
 
-    let showAll = false;
-    let latestRows = [];
+    let latestPQ10 = [];
 
-    function renderTx(rows){
-      const el=document.getElementById("tx-list");
-      const btnMore=document.getElementById("btn-more");
-      if(!rows.length){ el.innerHTML='<p class="muted">No post-quantum transactions indexed yet.</p>'; return; }
-      latestRows = rows.slice();
-      const visible = showAll ? rows : rows.slice(0,5);
-      el.innerHTML=visible.map(t=>`
-        <div class="tx">
+    function renderPQBlock(spv, rows){
+      const rowsEl = document.getElementById("pq-block-rows");
+      const ctx = document.getElementById("pq-block-context");
+      const bb = document.getElementById("pq-block-badges");
+      const tipH = spv && spv.tip_height > 0 ? spv.tip_height : null;
+      const tipHash = spv && spv.tip_hash ? String(spv.tip_hash).slice(0, 18) + "…" : "";
+      if (tipH != null) {
+        ctx.textContent = `SPV tip height ${tipH}${tipHash ? " · " + tipHash : ""} — showing latest ${rows.length} indexed PQ-related txs (not necessarily in that block).`;
+      } else {
+        ctx.textContent = `No SPV tip yet — latest ${rows.length} indexed PQ-related transactions from mempool / tracker.`;
+      }
+      bb.innerHTML = [
+        badge(rows.length > 0 ? "pq-ok" : "pending", `${rows.length} in feed`),
+        badge(spv && spv.running ? "confirmed" : "pending", spv && spv.running ? "SPV sync" : "SPV off")
+      ].join("");
+      if (!rows.length) {
+        rowsEl.innerHTML = '<p class="muted" style="padding:.75rem 1rem;margin:0">No post-quantum transactions indexed yet.</p>';
+        return;
+      }
+      rowsEl.innerHTML = rows.map(t => `
+        <button type="button" class="pq-tx-row" data-txid="${esc(t.txid)}">
           <div class="mono">${esc(t.txid)}</div>
-          <div class="badges">
+          <div class="badges" style="margin:.4rem 0">
             ${badge(t.confirmed ? "confirmed":"pending", t.confirmed ? "Confirmed":"Pending")}
             ${badge(t.pq_valid ? "pq-ok":"pq-bad", t.pq_valid ? "PQ valid":"PQ invalid")}
-            ${badge("", t.pq_score + "% PQ")}
+            ${badge("", (t.pq_score ?? 0) + "% PQ")}
           </div>
-          <div class="muted">Seen: ${esc(t.first_seen || "-")} · Addresses: ${esc((t.addresses||[]).length)} · Source: ${t.confirmed ? "SPV + mempool":"mempool"}</div>
-        </div>`).join("");
-      if (rows.length > 5) {
-        btnMore.style.display = "block";
-        btnMore.textContent = showAll ? "Show less" : `Show more (${rows.length - 5} more)`;
-      } else {
-        btnMore.style.display = "none";
-      }
+          <div class="row-meta">Last seen ${esc(t.last_seen || t.first_seen || "—")} · ${esc(String((t.addresses||[]).length))} addr hints · Verifier: ${esc(t.verifier || "—")}</div>
+          <div class="row-meta pq-bad" style="margin-top:.2rem">${t.pq_reason ? esc(t.pq_reason) : ""}</div>
+        </button>`).join("");
+      rowsEl.querySelectorAll(".pq-tx-row").forEach(btn => {
+        btn.onclick = () => openTxDetail(btn.getAttribute("data-txid"));
+      });
     }
+
+    function closeTxModal(){
+      document.getElementById("tx-modal").classList.remove("show");
+    }
+    function openTxModal(){
+      document.getElementById("tx-modal").classList.add("show");
+    }
+
+    async function openTxDetail(txid){
+      if (!txid) return;
+      openTxModal();
+      const body = document.getElementById("tx-modal-body");
+      const title = document.getElementById("tx-modal-title");
+      title.textContent = "Transaction";
+      body.innerHTML = "<p>Loading…</p>";
+      const r = await j("/api/public/tx?txid=" + encodeURIComponent(txid));
+      if (!r.ok) {
+        body.innerHTML = `<p class="bad">${esc(r.d.error || r.s || "error")}</p>`;
+        return;
+      }
+      const tx = r.d.tx || {};
+      const pq = r.d.pq_verification || {};
+      const strict = pq.strict || {};
+      title.textContent = "PQ transaction detail";
+      let outsHtml = "";
+      const outs = pq.outputs || [];
+      if (outs.length) {
+        outsHtml = outs.map(o => `
+          <div class="out-row">
+            <strong>#${esc(o.index)}</strong> ${esc(o.kind || "")} · ${esc(String(o.value_sats ?? ""))} sats · script ${esc(String(o.script_len ?? ""))} B
+            ${o.address_tag ? `<div class="mono" style="margin-top:.25rem">Addr tag: ${esc(o.address_tag)}</div>` : ""}
+            ${o.op_return_hex ? `<div class="mono muted" style="margin-top:.25rem;word-break:break-all">OP_RETURN hex: ${esc(o.op_return_hex)}</div>` : ""}
+            ${o.op_return_text ? `<div class="muted" style="margin-top:.2rem">OP_RETURN text: ${esc(o.op_return_text)}</div>` : ""}
+          </div>`).join("");
+      }
+      body.innerHTML = `
+        <div class="detail-section" style="border-top:none;padding-top:0">
+          <div class="mono" style="font-size:.85rem">${esc(tx.txid)}</div>
+          <div class="badges" style="margin:.5rem 0">
+            ${badge(tx.confirmed ? "confirmed":"pending", tx.confirmed ? "Confirmed (SPV log)":"Pending")}
+            ${badge(tx.pq_valid ? "pq-ok":"pq-bad", tx.pq_valid ? "Indexed PQ valid":"Indexed PQ invalid")}
+            ${badge("", esc(tx.verifier || "—"))}
+          </div>
+          <div class="detail-kv"><strong>First seen</strong> ${esc(tx.first_seen||"—")}</div>
+          <div class="detail-kv"><strong>Last seen</strong> ${esc(tx.last_seen||"—")}</div>
+          <div class="detail-kv"><strong>Score</strong> ${esc(String(tx.pq_score ?? "—"))}</div>
+          <div class="detail-kv"><strong>Indexed reason</strong> ${esc(tx.pq_reason||"—")}</div>
+          <div class="detail-kv"><strong>Indexed evidence</strong> ${esc(JSON.stringify(tx.pq_evidence||[]))}</div>
+          <div class="detail-kv"><strong>Addresses (hints)</strong> ${esc(JSON.stringify(tx.addresses||[]))}</div>
+        </div>
+        <div class="detail-section">
+          <h3>Strict PQ verification (raw tx)</h3>
+          <p class="muted" style="font-size:.82rem;margin:0 0 .5rem">${esc(pq.note || "")}</p>
+          <div class="detail-kv"><strong>Raw hex available</strong> ${pq.raw_tx_hex_available ? "yes" : "no"}</div>
+          ${pq.raw_tx_hex_length ? `<div class="detail-kv"><strong>Raw hex length</strong> ${esc(String(pq.raw_tx_hex_length))}</div>` : ""}
+          ${pq.decode_error ? `<div class="detail-kv bad"><strong>Decode</strong> ${esc(pq.decode_error)}</div>` : ""}
+          ${pq.parse_error ? `<div class="detail-kv bad"><strong>Parse</strong> ${esc(pq.parse_error)}</div>` : ""}
+          <div class="badges" style="margin:.45rem 0">
+            ${badge(strict.valid ? "pq-ok" : "pq-bad", strict.valid ? "STRICT: valid" : "STRICT: invalid")}
+          </div>
+          <div class="detail-kv"><strong>Reason</strong> ${esc(strict.reason||"—")}</div>
+          <div class="detail-kv"><strong>Evidence</strong> ${esc(JSON.stringify(strict.evidence||[]))}</div>
+          <div class="detail-kv"><strong>Output tags (script)</strong> ${esc(JSON.stringify(strict.output_tags||[]))}</div>
+          ${pq.raw_tx_hex_preview ? `<pre class="mono muted" style="font-size:.72rem;white-space:pre-wrap;word-break:break-all;margin-top:.5rem">${esc(pq.raw_tx_hex_preview)}</pre>` : ""}
+        </div>
+        <div class="detail-section">
+          <h3>Outputs decoded</h3>
+          ${outsHtml || "<p class=\"muted\">No output breakdown (missing raw tx).</p>"}
+        </div>`;
+    }
+
+    document.getElementById("tx-modal-close").onclick = closeTxModal;
+    document.getElementById("tx-modal").addEventListener("click", (e) => { if (e.target.id === "tx-modal") closeTxModal(); });
 
     function renderSPV(spv){
       const out=document.getElementById("spv-headers");
       const status=document.getElementById("spv-pq-status");
       const banner=document.getElementById("runtime-error-banner");
+      const tipCard=document.getElementById("spv-tip-card");
+      const spvBadges=document.getElementById("spv-badges");
       const headers = (spv && spv.latest_headers) || [];
       const pq = !!(spv && spv.pq_found_on_spv);
-      status.textContent = `SPV running: ${spv && spv.running ? "yes":"no"} · PQ found on SPV: ${pq ? "yes":"no"}`;
+      const vOk = Number(spv && spv.pq_confirmed_valid) || 0;
+      const vBad = Number(spv && spv.pq_confirmed_invalid) || 0;
+      status.textContent = `SPV process: ${spv && spv.running ? "running":"stopped"} · Indexed txs seen in SPV log (confirmed): ${pq ? "yes":"no"} · Confirmed PQ valid/invalid: ${vOk} / ${vBad}`;
+      spvBadges.innerHTML = [
+        badge(spv && spv.running ? "confirmed" : "pending", spv && spv.running ? "SPV running" : "SPV stopped"),
+        badge(pq ? "pq-ok" : "pq-bad", pq ? "Has confirmed txs (log)" : "No confirmed match in log yet"),
+        badge(vOk > 0 ? "pq-ok" : "", `PQ valid (confirmed) ${vOk}`),
+        badge(vBad > 0 ? "pq-bad" : "", `PQ invalid (confirmed) ${vBad}`)
+      ].join("");
+      const tipH = spv && spv.tip_height != null && spv.tip_height > 0 ? spv.tip_height : null;
+      const tipHash = spv && spv.tip_hash ? String(spv.tip_hash) : "";
+      const tipTime = spv && spv.tip_time_from_log ? String(spv.tip_time_from_log) : "";
+      if (tipH != null || tipHash) {
+        tipCard.innerHTML = `<div><strong>Tip height (from log)</strong> ${esc(tipH ?? "—")}</div>
+          <div class="mono"><strong>Tip hash</strong> ${esc(tipHash || "—")}</div>
+          <div class="muted" style="margin-top:.35rem"><strong>Block time (log)</strong> ${esc(tipTime || "—")}</div>`;
+      } else {
+        tipCard.innerHTML = '<p class="muted">No SPV tip parsed yet — wait for sync or check spv.log if the process is running.</p>';
+      }
       const spvErr = spv && spv.start_error ? String(spv.start_error) : "";
       const memErr = window.__mempoolErr || "";
       const parts = [];
@@ -144,13 +292,14 @@
         banner.textContent = "";
       }
       if(!headers.length){
-        out.innerHTML = '<p class="muted">No SPV headers parsed yet.</p>';
+        out.innerHTML = '<p class="muted">No <code>hash|height|…</code> header rows in spv.log yet. Tip height may still appear above from <code>New headers tip height …</code> lines.</p>';
         return;
       }
       out.innerHTML = headers.map(h => `
         <div class="head-row">
-          <div><strong>Height:</strong> ${esc(h.height ?? "-")}</div>
-          <div class="mono"><strong>Hash:</strong> ${esc(h.hash || "-")}</div>
+          <div><strong>Height</strong> ${esc(h.height ?? "-")}</div>
+          <div class="mono"><strong>Hash</strong> ${esc(h.hash || "—")}</div>
+          <div class="muted" style="margin-top:.3rem"><strong>Timestamp</strong> ${esc(h.timestamp || "—")}</div>
         </div>`).join("");
     }
 
@@ -160,25 +309,67 @@
       const m=r.d.metrics||{};
       const mp=r.d.mempool||{};
       window.__mempoolErr = mp.start_error ? String(mp.start_error) : "";
-      document.getElementById("mempool-status").textContent = `Mempool running: ${mp.running ? "yes":"no"}`;
+      document.getElementById("mempool-status").textContent = `Mempool tracker running: ${mp.running ? "yes":"no"}`;
       document.getElementById("k-mempool").textContent = m.mempool_live ?? 0;
       document.getElementById("k-pq").textContent = m.pq_seen ?? 0;
+      document.getElementById("k-pqvalid").textContent = m.pq_valid ?? 0;
       document.getElementById("k-confirmed").textContent = m.confirmed ?? 0;
       document.getElementById("k-invalid").textContent = m.invalid ?? 0;
-      renderTx(r.d.latest||[]);
-      renderSPV(r.d.spv||{});
+      const spv = r.d.spv || {};
+      const tip = spv.tip_height > 0 ? String(spv.tip_height) : "—";
+      document.getElementById("k-spv-tip").textContent = tip;
+      document.getElementById("k-spv-peers").textContent = spv.peer_count_hint > 0 ? String(spv.peer_count_hint) : "—";
+      document.getElementById("k-spv-mempool").textContent = spv.mempool_tx_hint > 0 ? String(spv.mempool_tx_hint) : "—";
+      const mb = document.getElementById("metric-badges");
+      const pqV = m.pq_valid ?? 0;
+      const pqI = m.invalid ?? 0;
+      mb.innerHTML = [
+        badge(pqV > 0 ? "pq-ok" : "muted", `PQ valid ${pqV}`),
+        badge(pqI > 0 ? "pq-bad" : "muted", `PQ invalid ${pqI}`),
+        badge((m.confirmed ?? 0) > 0 ? "confirmed" : "pending", `SPV-confirmed ${m.confirmed ?? 0}`)
+      ].join("");
+      latestPQ10 = r.d.latest_pq_transactions || (r.d.latest || []).slice(0, 10);
+      renderPQBlock(spv, latestPQ10);
+      renderSPV(spv);
+      const ci = r.d.chain_index || {};
+      const sum = ci.summary || {};
+      const tip = sum.tip_height > 0 ? sum.tip_height : "—";
+      document.getElementById("chain-index-strip").textContent =
+        `SPV chain index: ${sum.header_count ?? 0} headers, tip height ${tip}. Search by block height, block hash, txid, or address.`;
     }
-    document.getElementById("btn-more").onclick = () => {
-      showAll = !showAll;
-      renderTx(latestRows);
-    };
-
 
     document.getElementById("btn-search").onclick = async () => {
       const q=document.getElementById("q").value.trim();
       if(!q) return;
+      const out = document.getElementById("search-out");
       const r=await j("/api/public/search?q="+encodeURIComponent(q));
-      document.getElementById("search-out").innerHTML = `<pre class="mono muted">${esc(JSON.stringify(r.d,null,2))}</pre>`;
+      if (!r.ok) {
+        out.innerHTML = `<p class="bad">Search failed ${r.s}</p><pre class="mono muted">${esc(JSON.stringify(r.d,null,2))}</pre>`;
+        return;
+      }
+      const d = r.d;
+      let extra = "";
+      if ((d.kind === "block_hash" || d.kind === "block_height") && d.block_query) {
+        const br = await j(d.block_query);
+        if (br.ok && br.d && br.d.block) {
+          const b = br.d.block;
+          const txs = (br.d.associated_transactions || []).map(x => {
+            const id = x.txid || "";
+            const has = x.pq_tx;
+            return `<li class="mono" style="margin:.35rem 0">${esc(id)} ${has ? `<button type="button" class="btn" style="width:auto;padding:.25rem .5rem;margin-left:.35rem" data-txid="${esc(id)}">PQ details</button>` : `<span class="muted">${esc(x.note || "")}</span>`}</li>`;
+          }).join("");
+          extra = `<div class="card" style="margin-top:.65rem;padding:.75rem;background:#0f1824">
+            <strong>Block</strong> height ${esc(b.height)} · <span class="mono">${esc(b.hash || "—")}</span>
+            <div class="muted" style="margin:.35rem 0">${esc(b.timestamp || "—")}</div>
+            <strong>Associated tx ids (from SPV log)</strong>
+            <ul style="margin:.35rem 0;padding-left:1.1rem">${txs || "<li class='muted'>None linked</li>"}</ul>
+          </div>`;
+        }
+      }
+      out.innerHTML = extra + `<pre class="mono muted" style="margin-top:.55rem">${esc(JSON.stringify(d,null,2))}</pre>`;
+      out.querySelectorAll("button[data-txid]").forEach(btn => {
+        btn.onclick = () => openTxDetail(btn.getAttribute("data-txid"));
+      });
     };
     load();
     setInterval(load, 4000);

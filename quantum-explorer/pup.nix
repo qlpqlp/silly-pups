@@ -19,16 +19,16 @@ let
     postPatch = ''
       # Match pq-wallet fixes for libevent resolution + net link target.
       substituteInPlace CMakeLists.txt \
-        --replace-fail 'FIND_LIBRARY(LIBEVENT NAMES event event_core event_extras event_pthreads HINTS "${PROJECT_SOURCE_DIR}/src/libevent/build/lib/${CMAKE_BUILD_TYPE}" REQUIRED)' \
-                       'FIND_LIBRARY(LIBEVENT NAMES event event_core event_extras event_pthreads HINTS "${PROJECT_SOURCE_DIR}/src/libevent/build/lib" "${PROJECT_SOURCE_DIR}/src/libevent/build/lib/${CMAKE_BUILD_TYPE}" REQUIRED)' \
-        --replace-fail 'TARGET_LINK_LIBRARIES(${LIBS} ${LIBEVENT} ${LIBEVENT_PTHREADS} tbs ncrypt crypt32)' \
-                       'TARGET_LINK_LIBRARIES(${LIBDOGECOIN_NAME} PUBLIC ${LIBEVENT} ${LIBEVENT_PTHREADS} tbs ncrypt crypt32)' \
-        --replace-fail 'TARGET_LINK_LIBRARIES(${LIBS} ${LIBEVENT} ${LIBEVENT_PTHREADS})' \
-                       'TARGET_LINK_LIBRARIES(${LIBDOGECOIN_NAME} PUBLIC ${LIBEVENT} ${LIBEVENT_PTHREADS})' \
-        --replace-fail 'TARGET_LINK_LIBRARIES(such ${LIBS} tbs ncrypt crypt32)' \
-                       'TARGET_LINK_LIBRARIES(such ${LIBDOGECOIN_NAME} tbs ncrypt crypt32)' \
-        --replace-fail 'TARGET_LINK_LIBRARIES(such ${LIBS})' \
-                       'TARGET_LINK_LIBRARIES(such ${LIBDOGECOIN_NAME})'
+        --replace-fail 'FIND_LIBRARY(LIBEVENT NAMES event event_core event_extras event_pthreads HINTS "''${PROJECT_SOURCE_DIR}/src/libevent/build/lib/''${CMAKE_BUILD_TYPE}" REQUIRED)' \
+                       'FIND_LIBRARY(LIBEVENT NAMES event event_core event_extras event_pthreads HINTS "''${PROJECT_SOURCE_DIR}/src/libevent/build/lib" "''${PROJECT_SOURCE_DIR}/src/libevent/build/lib/''${CMAKE_BUILD_TYPE}" REQUIRED)' \
+        --replace-fail 'TARGET_LINK_LIBRARIES(''${LIBS} ''${LIBEVENT} ''${LIBEVENT_PTHREADS} tbs ncrypt crypt32)' \
+                       'TARGET_LINK_LIBRARIES(''${LIBDOGECOIN_NAME} PUBLIC ''${LIBEVENT} ''${LIBEVENT_PTHREADS} tbs ncrypt crypt32)' \
+        --replace-fail 'TARGET_LINK_LIBRARIES(''${LIBS} ''${LIBEVENT} ''${LIBEVENT_PTHREADS})' \
+                       'TARGET_LINK_LIBRARIES(''${LIBDOGECOIN_NAME} PUBLIC ''${LIBEVENT} ''${LIBEVENT_PTHREADS})' \
+        --replace-fail 'TARGET_LINK_LIBRARIES(such ''${LIBS} tbs ncrypt crypt32)' \
+                       'TARGET_LINK_LIBRARIES(such ''${LIBDOGECOIN_NAME} tbs ncrypt crypt32)' \
+        --replace-fail 'TARGET_LINK_LIBRARIES(such ''${LIBS})' \
+                       'TARGET_LINK_LIBRARIES(such ''${LIBDOGECOIN_NAME})'
     '';
 
     cmakeFlags = [

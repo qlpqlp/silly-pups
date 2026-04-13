@@ -13,7 +13,7 @@ let
     };
 
     nativeBuildInputs = [ pkgs.cmake pkgs.pkg-config pkgs.ninja ];
-    buildInputs = [ pkgs.gmp pkgs.openssl ];
+    buildInputs = [ pkgs.gmp pkgs.openssl pkgs.libevent ];
     strictDeps = true;
 
     cmakeFlags = [
@@ -23,6 +23,8 @@ let
       "-DUSE_LIBOQS=OFF"
       "-DUSE_TPM2=OFF"
       "-DWITH_BENCH=OFF"
+      "-DLIBEVENT_INCLUDE_DIR=${pkgs.libevent.dev}/include"
+      "-DLIBEVENT_LIBRARIES=${pkgs.libevent}/lib"
     ];
 
     buildPhase = ''

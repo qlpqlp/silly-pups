@@ -64,15 +64,16 @@ type app struct {
 	storePath  string
 	storageDir string
 
-	eng           *mempooltracker.Engine
-	engRunning    bool
-	spvCmd        *exec.Cmd
-	spvRunning    bool
-	spvStartErr   string
-	txs           map[string]*PQTx
-	blockIndex    map[string][]string
-	addressIndex  map[string][]string
-	lastSPVLogErr string
+	eng             *mempooltracker.Engine
+	engRunning      bool
+	mempoolStartErr string
+	spvCmd          *exec.Cmd
+	spvRunning      bool
+	spvStartErr     string
+	txs             map[string]*PQTx
+	blockIndex      map[string][]string
+	addressIndex    map[string][]string
+	lastSPVLogErr   string
 }
 
 type SPVHeader struct {
@@ -444,10 +445,12 @@ func (a *app) startMempool() error {
 		Network:    strings.ToLower(a.cfg.Network),
 	})
 	if err != nil {
+		a.mempoolStartErr = err.Error()
 		return err
 	}
 	a.eng = eng
 	a.engRunning = true
+	a.mempoolStartErr = ""
 	return nil
 }
 
@@ -720,6 +723,10 @@ func (a *app) publicStatus(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, 200, map[string]any{
 		"metrics": m,
 		"latest":  rows,
+		"mempool": map[string]any{
+			"running":     a.engRunning,
+			"start_error": a.mempoolStartErr,
+		},
 		"spv": map[string]any{
 			"running":           a.spvRunning,
 			"start_error":       a.spvStartErr,
@@ -778,12 +785,13 @@ func (a *app) adminStatus(w http.ResponseWriter, _ *http.Request) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	writeJSON(w, 200, map[string]any{
-		"mempool_running":  a.engRunning,
-		"spv_running":      a.spvRunning,
-		"spv_start_error":  a.spvStartErr,
-		"checkpoint":       a.cfg.Checkpoint,
-		"network":          a.cfg.Network,
-		"last_spv_log_err": a.lastSPVLogErr,
+		"mempool_running":     a.engRunning,
+		"mempool_start_error": a.mempoolStartErr,
+		"spv_running":         a.spvRunning,
+		"spv_start_error":     a.spvStartErr,
+		"checkpoint":          a.cfg.Checkpoint,
+		"network":             a.cfg.Network,
+		"last_spv_log_err":    a.lastSPVLogErr,
 	})
 }
 
@@ -829,7 +837,9 @@ func main() {
 	a.txs = loadTxs(a.storePath)
 	a.reindexUnsafe()
 	_ = saveJSON(a.cfgPath, a.cfg)
-	_ = a.startMempool()
+	if err := a.startMempool(); err != nil {
+		log.Printf("[quantum-explorer] mempool autostart failed: %v", err)
+	}
 	if err := a.startSPV(); err != nil {
 		log.Printf("[quantum-explorer] SPV autostart failed: %v (set LIBDOGECOIN_SPVNODE to your spvnode binary path)", err)
 	}
@@ -840,6 +850,28 @@ func main() {
 	publicMux.HandleFunc("/api/public/search", a.publicSearch)
 
 	adminMux := http.NewServeMux()
+	adminMux.HandleFunc("/", a.basicAuth(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		b, err := staticFS.ReadFile("static/admin.html")
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(b)
+	}))
+	adminMux.HandleFunc("/logo.png", a.basicAuth(func(w http.ResponseWriter, _ *http.Request) {
+		b, err := staticFS.ReadFile("static/logo.png")
+		if err != nil {
+			http.NotFound(w, nil)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(b)
+	}))
 	adminMux.HandleFunc("/api/admin/status", a.basicAuth(a.adminStatus))
 	adminMux.HandleFunc("/api/admin/checkpoint", a.basicAuth(a.adminCheckpoint))
 	adminMux.HandleFunc("/api/admin/mempool/start", a.basicAuth(func(w http.ResponseWriter, _ *http.Request) {

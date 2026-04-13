@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Quantum Explorer Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&display=swap" rel="stylesheet" />
+  <style>
+    :root { --bg:#0c121a; --card:#121c29; --txt:#eef5ff; --muted:#95a7c2; --line:#26384f; --ok:#41d18e; --bad:#ff7d7d; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:"Comic Neue","Segoe UI",sans-serif; background:var(--bg); color:var(--txt); }
+    .wrap { max-width:920px; margin:0 auto; padding:1rem; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:.9rem; margin-bottom:.8rem; }
+    h1,h2 { margin:.1rem 0 .6rem; }
+    .row { display:flex; gap:.5rem; flex-wrap:wrap; }
+    input,button { font:inherit; border-radius:10px; border:1px solid var(--line); padding:.55rem .7rem; }
+    input { background:#0d1622; color:var(--txt); min-width:220px; }
+    button { background:#162232; color:var(--txt); cursor:pointer; }
+    .ok { color:var(--ok); }
+    .bad { color:var(--bad); }
+    .mono { font-family:ui-monospace,Consolas,monospace; word-break:break-all; }
+    .muted { color:var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Quantum Explorer Admin</h1>
+    <p class="muted">This page runs on the dedicated admin port and is protected by Basic Auth.</p>
+
+    <section class="card">
+      <h2>Runtime Status</h2>
+      <div id="status" class="mono muted">Loading...</div>
+    </section>
+
+    <section class="card">
+      <h2>Controls</h2>
+      <div class="row">
+        <button id="m-start">Start Mempool</button>
+        <button id="m-stop">Stop Mempool</button>
+        <button id="s-start">Start SPV</button>
+        <button id="s-stop">Stop SPV</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Checkpoint</h2>
+      <div class="row">
+        <input id="cp-height" type="number" placeholder="Height" />
+        <input id="cp-hash" placeholder="Block hash" />
+        <input id="cp-time" placeholder="Timestamp RFC3339" />
+        <button id="cp-save">Save checkpoint</button>
+      </div>
+      <p class="muted">Saving does not restart services automatically.</p>
+    </section>
+  </div>
+
+  <script>
+    async function j(url, opt){const r = await fetch(url, opt); return {ok:r.ok, s:r.status, d:await r.json().catch(()=>({}))};}
+    function toast(msg){console.log(msg);}
+
+    async function loadStatus(){
+      const r = await j("/api/admin/status");
+      const el = document.getElementById("status");
+      if(!r.ok){ el.textContent = `Error ${r.s}: ${JSON.stringify(r.d)}`; return; }
+      const d = r.d || {};
+      el.innerHTML = [
+        `mempool_running: ${d.mempool_running ? "<span class='ok'>true</span>" : "<span class='bad'>false</span>"}`,
+        `mempool_start_error: ${d.mempool_start_error ? d.mempool_start_error : "-"}`,
+        `spv_running: ${d.spv_running ? "<span class='ok'>true</span>" : "<span class='bad'>false</span>"}`,
+        `spv_start_error: ${d.spv_start_error ? d.spv_start_error : "-"}`,
+        `network: ${d.network || "-"}`,
+        `checkpoint: ${JSON.stringify(d.checkpoint || {})}`
+      ].join("<br>");
+      const cp = d.checkpoint || {};
+      if (cp.height) document.getElementById("cp-height").value = cp.height;
+      if (cp.hash) document.getElementById("cp-hash").value = cp.hash;
+      if (cp.timestamp) document.getElementById("cp-time").value = cp.timestamp;
+    }
+
+    async function call(path, body){
+      const r = await j(path, {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: body ? JSON.stringify(body) : "{}"
+      });
+      toast(JSON.stringify(r.d || {}));
+      await loadStatus();
+    }
+
+    document.getElementById("m-start").onclick = ()=>call("/api/admin/mempool/start");
+    document.getElementById("m-stop").onclick = ()=>call("/api/admin/mempool/stop");
+    document.getElementById("s-start").onclick = ()=>call("/api/admin/spv/start");
+    document.getElementById("s-stop").onclick = ()=>call("/api/admin/spv/stop");
+    document.getElementById("cp-save").onclick = ()=>call("/api/admin/checkpoint", {
+      height: Number(document.getElementById("cp-height").value || 0),
+      hash: String(document.getElementById("cp-hash").value || "").trim(),
+      timestamp: String(document.getElementById("cp-time").value || "").trim()
+    });
+
+    loadStatus();
+    setInterval(loadStatus, 4000);
+  </script>
+</body>
+</html>

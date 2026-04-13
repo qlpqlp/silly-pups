@@ -45,7 +45,7 @@
 </head>
 <body>
   <div class="wrap">
-    <div class="banner" id="spv-error-banner"></div>
+    <div class="banner" id="runtime-error-banner"></div>
     <div class="hero">
       <img src="/logo.png" alt="" />
       <div>
@@ -124,14 +124,18 @@
     function renderSPV(spv){
       const out=document.getElementById("spv-headers");
       const status=document.getElementById("spv-pq-status");
-      const banner=document.getElementById("spv-error-banner");
+      const banner=document.getElementById("runtime-error-banner");
       const headers = (spv && spv.latest_headers) || [];
       const pq = !!(spv && spv.pq_found_on_spv);
       status.textContent = `SPV running: ${spv && spv.running ? "yes":"no"} · PQ found on SPV: ${pq ? "yes":"no"}`;
       const spvErr = spv && spv.start_error ? String(spv.start_error) : "";
-      if (spvErr) {
+      const memErr = window.__mempoolErr || "";
+      const parts = [];
+      if (spvErr) parts.push(`<strong>SPV start error:</strong> ${esc(spvErr)}`);
+      if (memErr) parts.push(`<strong>Mempool start error:</strong> ${esc(memErr)}`);
+      if (parts.length) {
         banner.classList.add("show");
-        banner.innerHTML = `<strong>SPV start error:</strong> ${esc(spvErr)}. Configure <span class="mono">LIBDOGECOIN_SPVNODE</span> or run in the PUP (libdogecoin bundled).`;
+        banner.innerHTML = parts.join("<br>");
       } else {
         banner.classList.remove("show");
         banner.textContent = "";
@@ -151,6 +155,8 @@
       const r=await j("/api/public/status");
       if(!r.ok) return;
       const m=r.d.metrics||{};
+      const mp=r.d.mempool||{};
+      window.__mempoolErr = mp.start_error ? String(mp.start_error) : "";
       document.getElementById("k-mempool").textContent = m.mempool_live ?? 0;
       document.getElementById("k-pq").textContent = m.pq_seen ?? 0;
       document.getElementById("k-confirmed").textContent = m.confirmed ?? 0;

@@ -1,7 +1,42 @@
 { pkgs ? import <nixpkgs> {} }:
 
 let
-  libdogecoin = pkgs.callPackage ../pq-wallet/nix/libdogecoin.nix {};
+  libdogecoin = pkgs.stdenv.mkDerivation rec {
+    pname = "libdogecoin-bins";
+    version = "0.1.5-git-a120e03";
+
+    src = pkgs.fetchFromGitHub {
+      owner = "dogecoinfoundation";
+      repo = "libdogecoin";
+      rev = "a120e0377650f247398b8b76c5d74e5ed89ec437";
+      hash = "sha256-O0Km5jlSFFtXfN6aO2FsPzQfdo7YvI7LwFy4l3ldXkc=";
+    };
+
+    nativeBuildInputs = [ pkgs.cmake pkgs.pkg-config pkgs.ninja ];
+    buildInputs = [ pkgs.gmp pkgs.openssl ];
+    strictDeps = true;
+
+    cmakeFlags = [
+      "-GNinja"
+      "-DCMAKE_BUILD_TYPE=Release"
+      "-DBUILD_TESTING=OFF"
+      "-DUSE_LIBOQS=OFF"
+      "-DUSE_TPM2=OFF"
+      "-DWITH_BENCH=OFF"
+    ];
+
+    buildPhase = ''
+      runHook preBuild
+      cmake --build .
+      runHook postBuild
+    '';
+
+    installPhase = ''
+      runHook preInstall
+      cmake --install . --prefix "$out"
+      runHook postInstall
+    '';
+  };
 
   qe_bin = pkgs.buildGoModule {
     pname = "quantum-explorer";

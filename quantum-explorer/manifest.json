@@ -1,0 +1,101 @@
+{
+  "manifestVersion": 1,
+  "meta": {
+    "name": "Quantum Explorer",
+    "version": "0.1.1",
+    "logoPath": "logo.png",
+    "shortDescription": "Realtime Post-Quantum Dogecoin explorer",
+    "longDescription": "Quantum Explorer tracks Dogecoin post-quantum transaction signals in realtime from pure P2P mempool gossip and confirms transaction visibility through SPV logs. Public users can search by Dogecoin address, txid, block height/hash text, and see latest PQ activity with pending/confirmed + PQ-validity indicators. Admin controls (Basic Auth) run on a separate admin port for additional isolation: mempool/SPV start-stop and checkpoint metadata. Default checkpoint: block 6150000, hash 9e8f55907f17dc4870cdc9e6ea75236782190c13c10a8126baea3b1da94593c5, timestamp 2026-04-03T03:16:25Z.",
+    "upstreamVersions": {
+      "Go": "1.24",
+      "libdogecoin": "spvnode"
+    }
+  },
+  "config": {
+    "sections": [
+      {
+        "name": "Web",
+        "description": "Public explorer HTTP port/network and optional tx API used by strict PQ verifier.",
+        "fields": [
+          { "name": "PUBLIC_PORT", "label": "HTTP port", "type": "text", "default": "33666" },
+          { "name": "NETWORK", "label": "Network (mainnet/testnet)", "type": "text", "default": "mainnet" },
+          { "name": "QE_EXPLORER_TX_API", "label": "Tx API URL with {txid} returning tx hex (for strict PQ verification)", "type": "text", "default": "" }
+        ]
+      },
+      {
+        "name": "Backoffice Auth",
+        "description": "Basic Auth credentials for admin API and separate admin port.",
+        "fields": [
+          { "name": "QE_ADMIN_PORT", "label": "Admin HTTP port", "type": "text", "default": "33667" },
+          { "name": "QE_ADMIN_USER", "label": "Admin username", "type": "text", "default": "shibe" },
+          { "name": "QE_ADMIN_PASS", "label": "Admin password", "type": "password", "default": "suchpass" }
+        ]
+      }
+    ]
+  },
+  "container": {
+    "build": {
+      "nixFile": "pup.nix",
+      "nixFileSha256": "284f1d733bd7ae083a193132a5afb331b192114fa83d283a0d856f322b9ea865"
+    },
+    "services": [
+      {
+        "name": "quantum-explorer",
+        "command": { "exec": "/bin/run.sh", "cwd": "", "env": null }
+      }
+    ],
+    "exposes": [
+      {
+        "name": "public-port",
+        "type": "http",
+        "port": 33666,
+        "interfaces": [ "quantum-explorer-public" ],
+        "listenOnHost": true,
+        "webUI": true
+      },
+      {
+        "name": "admin-port",
+        "type": "http",
+        "port": 33667,
+        "interfaces": [ "quantum-explorer-admin" ],
+        "listenOnHost": true,
+        "webUI": false
+      }
+    ],
+    "requiresInternet": true
+  },
+  "interfaces": [
+    {
+      "name": "quantum-explorer-public",
+      "version": "0.1.1",
+      "permissionGroups": [
+        {
+          "name": "Quantum Explorer HTTP",
+          "description": "Public explorer UI and search API",
+          "severity": 2,
+          "routes": [ "/", "/logo.png", "/api/public/*" ],
+          "port": 33666
+        }
+      ]
+    },
+    {
+      "name": "quantum-explorer-admin",
+      "version": "0.1.1",
+      "permissionGroups": [
+        {
+          "name": "Quantum Explorer Admin API",
+          "description": "Protected admin API over dedicated port",
+          "severity": 3,
+          "routes": [ "/api/admin/*" ],
+          "port": 33667
+        }
+      ]
+    }
+  ],
+  "dependencies": [],
+  "metrics": [
+    { "name": "pq_seen", "label": "PQ seen", "type": "int", "history": 30 },
+    { "name": "pq_confirmed", "label": "PQ confirmed", "type": "int", "history": 30 },
+    { "name": "pq_invalid", "label": "PQ invalid", "type": "int", "history": 30 }
+  ]
+}

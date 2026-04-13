@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Quantum Explorer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@400" rel="stylesheet" />
+  <style>
+    :root { --bg:#0c121a; --card:#121c29; --txt:#eef5ff; --muted:#95a7c2; --doge:#f2cb2c; --line:#26384f; --ok:#41d18e; --warn:#ffb347; --bad:#ff7d7d; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:"Comic Neue","Segoe UI",sans-serif; background:radial-gradient(1000px 600px at 80% -10%,#1d2a3d 0,var(--bg) 60%); color:var(--txt); }
+    .wrap { max-width:1100px; margin:0 auto; padding:1rem; }
+    .hero { display:flex; align-items:center; gap:.75rem; margin:.2rem 0 1rem; }
+    .hero img { width:40px; height:40px; }
+    .hero h1 { margin:0; font-size:1.5rem; letter-spacing:-.02em; }
+    .sub { color:var(--muted); margin:.25rem 0 0; }
+    .grid { display:grid; grid-template-columns:2fr 1fr; gap:.8rem; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:.9rem; }
+    .card h2 { margin:0 0 .6rem; font-size:1.05rem; }
+    .row { display:flex; gap:.5rem; flex-wrap:wrap; }
+    input,select { background:#0d1622; color:var(--txt); border:1px solid var(--line); border-radius:10px; padding:.6rem .7rem; font:inherit; width:100%; }
+    .btn { border:1px solid var(--line); background:#162232; color:var(--txt); border-radius:10px; padding:.6rem .8rem; font:inherit; cursor:pointer; width:100%; }
+    .btn.primary { background:linear-gradient(135deg,var(--doge),#e6a317); color:#1a1408; border-color:transparent; font-weight:700; }
+    .kpi { display:grid; grid-template-columns:repeat(2,1fr); gap:.5rem; }
+    .pill { border:1px solid var(--line); border-radius:12px; padding:.55rem .65rem; background:#0f1824; }
+    .pill b { display:block; font-size:1.1rem; }
+    .muted { color:var(--muted); font-size:.86rem; }
+    .tx { border:1px solid var(--line); border-radius:12px; padding:.6rem; margin-bottom:.5rem; background:#0f1824; }
+    .headers { margin-top:.6rem; }
+    .head-row { border:1px solid var(--line); border-radius:10px; padding:.45rem .55rem; margin-bottom:.4rem; background:#0f1824; }
+    .mono { font-family:ui-monospace,Consolas,monospace; word-break:break-all; }
+    .badges { display:flex; gap:.35rem; flex-wrap:wrap; margin:.35rem 0; }
+    .badge { border:1px solid var(--line); border-radius:999px; padding:.12rem .5rem; font-size:.72rem; }
+    .pending { color:var(--warn); }
+    .confirmed { color:var(--ok); }
+    .pq-ok { color:#9fd6ff; }
+    .pq-bad { color:var(--bad); }
+    .banner { display:none; background:rgba(255,125,125,.12); border:1px solid rgba(255,125,125,.45); color:#ffc2c2; border-radius:12px; padding:.65rem .75rem; margin-bottom:.75rem; }
+    .banner.show { display:block; }
+    @media (max-width:900px){ .grid { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="banner" id="spv-error-banner"></div>
+    <div class="hero">
+      <img src="/logo.png" alt="" />
+      <div>
+        <h1>Quantum Explorer</h1>
+      </div>
+    </div>
+
+    <div class="grid">
+      <section class="card">
+        <h2>Search</h2>
+        <div class="row">
+          <input id="q" placeholder="Dogecoin address, txid, block hash, or height" />
+          <button class="btn primary" id="btn-search">Search</button>
+        </div>
+        <p class="muted">Quantum Explorer indexes only PQ-like transactions and exposes verification state.</p>
+        <div id="search-out"></div>
+      </section>
+
+      <aside class="card">
+        <h2>Metrics</h2>
+        <div class="kpi">
+          <div class="pill"><span class="muted">Mempool (live)</span><b id="k-mempool">0</b></div>
+          <div class="pill"><span class="muted">PQ seen</span><b id="k-pq">0</b></div>
+          <div class="pill"><span class="muted">Confirmed</span><b id="k-confirmed">0</b></div>
+          <div class="pill"><span class="muted">Invalid PQ</span><b id="k-invalid">0</b></div>
+        </div>
+      </aside>
+    </div>
+
+    <section class="card" style="margin-top:.8rem">
+      <h2>Latest Post-Quantum Transactions</h2>
+      <div id="tx-list"></div>
+      <button class="btn" id="btn-more" style="display:none;margin-top:.45rem">Show more</button>
+    </section>
+
+    <section class="card" style="margin-top:.8rem">
+      <h2>SPV Latest Headers (10)</h2>
+      <p class="muted" id="spv-pq-status">PQ on SPV: checking…</p>
+      <div id="spv-headers" class="headers"></div>
+    </section>
+
+  </div>
+
+  <script>
+    function esc(s){return String(s??"").replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));}
+    function badge(cls,txt){return `<span class="badge ${cls}">${esc(txt)}</span>`;}
+    async function j(url,opt){const r=await fetch(url,opt);return {ok:r.ok,s:r.status,d:await r.json().catch(()=>({}))};}
+
+    let showAll = false;
+    let latestRows = [];
+
+    function renderTx(rows){
+      const el=document.getElementById("tx-list");
+      const btnMore=document.getElementById("btn-more");
+      if(!rows.length){ el.innerHTML='<p class="muted">No post-quantum transactions indexed yet.</p>'; return; }
+      latestRows = rows.slice();
+      const visible = showAll ? rows : rows.slice(0,5);
+      el.innerHTML=visible.map(t=>`
+        <div class="tx">
+          <div class="mono">${esc(t.txid)}</div>
+          <div class="badges">
+            ${badge(t.confirmed ? "confirmed":"pending", t.confirmed ? "Confirmed":"Pending")}
+            ${badge(t.pq_valid ? "pq-ok":"pq-bad", t.pq_valid ? "PQ valid":"PQ invalid")}
+            ${badge("", t.pq_score + "% PQ")}
+          </div>
+          <div class="muted">Seen: ${esc(t.first_seen || "-")} · Addresses: ${esc((t.addresses||[]).length)} · Source: ${t.confirmed ? "SPV + mempool":"mempool"}</div>
+        </div>`).join("");
+      if (rows.length > 5) {
+        btnMore.style.display = "block";
+        btnMore.textContent = showAll ? "Show less" : `Show more (${rows.length - 5} more)`;
+      } else {
+        btnMore.style.display = "none";
+      }
+    }
+
+    function renderSPV(spv){
+      const out=document.getElementById("spv-headers");
+      const status=document.getElementById("spv-pq-status");
+      const banner=document.getElementById("spv-error-banner");
+      const headers = (spv && spv.latest_headers) || [];
+      const pq = !!(spv && spv.pq_found_on_spv);
+      status.textContent = `SPV running: ${spv && spv.running ? "yes":"no"} · PQ found on SPV: ${pq ? "yes":"no"}`;
+      const spvErr = spv && spv.start_error ? String(spv.start_error) : "";
+      if (spvErr) {
+        banner.classList.add("show");
+        banner.innerHTML = `<strong>SPV start error:</strong> ${esc(spvErr)}. Configure <span class="mono">LIBDOGECOIN_SPVNODE</span> or run in the PUP (libdogecoin bundled).`;
+      } else {
+        banner.classList.remove("show");
+        banner.textContent = "";
+      }
+      if(!headers.length){
+        out.innerHTML = '<p class="muted">No SPV headers parsed yet.</p>';
+        return;
+      }
+      out.innerHTML = headers.map(h => `
+        <div class="head-row">
+          <div><strong>Height:</strong> ${esc(h.height ?? "-")}</div>
+          <div class="mono"><strong>Hash:</strong> ${esc(h.hash || "-")}</div>
+        </div>`).join("");
+    }
+
+    async function load(){
+      const r=await j("/api/public/status");
+      if(!r.ok) return;
+      const m=r.d.metrics||{};
+      document.getElementById("k-mempool").textContent = m.mempool_live ?? 0;
+      document.getElementById("k-pq").textContent = m.pq_seen ?? 0;
+      document.getElementById("k-confirmed").textContent = m.confirmed ?? 0;
+      document.getElementById("k-invalid").textContent = m.invalid ?? 0;
+      renderTx(r.d.latest||[]);
+      renderSPV(r.d.spv||{});
+    }
+    document.getElementById("btn-more").onclick = () => {
+      showAll = !showAll;
+      renderTx(latestRows);
+    };
+
+
+    document.getElementById("btn-search").onclick = async () => {
+      const q=document.getElementById("q").value.trim();
+      if(!q) return;
+      const r=await j("/api/public/search?q="+encodeURIComponent(q));
+      document.getElementById("search-out").innerHTML = `<pre class="mono muted">${esc(JSON.stringify(r.d,null,2))}</pre>`;
+    };
+    load();
+    setInterval(load, 4000);
+  </script>
+</body>
+</html>

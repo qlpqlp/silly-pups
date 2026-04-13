@@ -2,10 +2,10 @@
   "manifestVersion": 1,
   "meta": {
     "name": "Quantum Explorer",
-    "version": "0.1.5",
+    "version": "0.1.6",
     "logoPath": "logo.png",
     "shortDescription": "Realtime Post-Quantum Dogecoin explorer",
-    "longDescription": "Quantum Explorer tracks Dogecoin post-quantum transaction signals in realtime from pure P2P mempool gossip and confirms transaction visibility through SPV logs. Public users can search by Dogecoin address, txid, block height/hash text, and see latest PQ activity with pending/confirmed + PQ-validity indicators. Admin controls are token-gated on the same web port via /admin/<TOKEN> and /api/admin/<TOKEN>/* for mempool/SPV start-stop and checkpoint metadata. Default checkpoint: block 6150000, hash 9e8f55907f17dc4870cdc9e6ea75236782190c13c10a8126baea3b1da94593c5, timestamp 2026-04-03T03:16:25Z.",
+    "longDescription": "Quantum Explorer tracks Dogecoin post-quantum transaction signals in realtime from pure P2P mempool gossip and confirms transaction visibility through SPV logs. Public users can search by Dogecoin address, txid, block height/hash text, and see latest PQ activity with pending/confirmed + PQ-validity indicators. Admin controls are token-gated on the same web port via /admin/<TOKEN> and /api/admin/<TOKEN>/* for mempool/SPV start-stop and checkpoint metadata. The admin checkpoint (height/hash/timestamp) is reference metadata for operators; libdogecoin spvnode is started like pq-wallet with -w/-h and -b scan last. Block hashes from explorers (SoChain, etc.) use the normal Dogecoin block ID hex — not a different endianness for the same height. Optional QE_SPV_WATCH_ADDRESS sets spvnode -a like pq-wallet. Default checkpoint example: block 6150000, hash 9e8f55907f17dc4870cdc9e6ea75236782190c13c10a8126baea3b1da94593c5, timestamp 2026-04-03T03:16:25Z.",
     "upstreamVersions": {
       "Go": "1.24",
       "libdogecoin": "spvnode"
@@ -20,6 +20,13 @@
           { "name": "PUBLIC_PORT", "label": "HTTP port", "type": "text", "default": "33666" },
           { "name": "NETWORK", "label": "Network (mainnet/testnet)", "type": "text", "default": "mainnet" },
           { "name": "QE_EXPLORER_TX_API", "label": "Optional: tx API URL with {txid} returning JSON containing raw tx hex (fallback if P2P did not deliver full tx)", "type": "text", "default": "" }
+        ]
+      },
+      {
+        "name": "SPV (libdogecoin)",
+        "description": "spvnode is invoked with -f 0 -c -l, wallet and headers under storage, then -b scan last. Set a mainnet/testnet P2PKH address if your build expects -a for full block scan (pq-wallet always passes -a).",
+        "fields": [
+          { "name": "QE_SPV_WATCH_ADDRESS", "label": "Optional: P2PKH address for spvnode -a (recommended)", "type": "text", "default": "" }
         ]
       },
       {
@@ -57,7 +64,7 @@
   "interfaces": [
     {
       "name": "quantum-explorer-public",
-      "version": "0.1.5",
+      "version": "0.1.6",
       "permissionGroups": [
         {
           "name": "Quantum Explorer HTTP",

@@ -474,7 +474,17 @@ func (a *app) startSPV() error {
 	if err != nil {
 		return err
 	}
-	args := []string{"-f", "0", "-c", "-l", "-b", "scan", "-w", filepath.Join(a.storageDir, "spv_wallet.db"), "-h", filepath.Join(a.storageDir, "headers.db")}
+	// Flag order must match libdogecoin spvnode expectations: subcommand "scan" via -b is last
+	// (same as pq-wallet: -f 0 -c -l [-a addr] -w -h -b scan). Putting -b scan before -w/-h breaks parsing → exit 1.
+	args := []string{"-f", "0", "-c", "-l"}
+	if w := strings.TrimSpace(env("QE_SPV_WATCH_ADDRESS", "")); w != "" {
+		args = append(args, "-a", w)
+	}
+	args = append(args,
+		"-w", filepath.Join(a.storageDir, "spv_wallet.db"),
+		"-h", filepath.Join(a.storageDir, "headers.db"),
+		"-b", "scan",
+	)
 	if strings.EqualFold(a.cfg.Network, "testnet") {
 		args = append([]string{"-t"}, args...)
 	}

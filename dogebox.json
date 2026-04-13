@@ -33,6 +33,9 @@
     },
     {
       "location": "https-proxy"
+    },
+    {
+      "location": "quantum-explorer"
     }
   ]
 }

@@ -23,8 +23,6 @@ let
       "-DUSE_LIBOQS=OFF"
       "-DUSE_TPM2=OFF"
       "-DWITH_BENCH=OFF"
-      "-DLIBEVENT_INCLUDE_DIR=${pkgs.libevent.dev}/include"
-      "-DLIBEVENT_LIBRARIES=${pkgs.libevent}/lib"
     ];
 
     buildPhase = ''

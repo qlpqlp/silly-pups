@@ -59,6 +59,15 @@ let
     src = ./service;
     vendorHash = null;
     go = pkgs.go_1_24;
+
+    buildPhase = ''
+      go build -trimpath -ldflags="-s -w" -o quantum-explorer .
+    '';
+
+    installPhase = ''
+      mkdir -p $out/bin
+      cp quantum-explorer $out/bin/
+    '';
   };
 
   quantum-explorer = pkgs.writeShellScriptBin "run.sh" ''

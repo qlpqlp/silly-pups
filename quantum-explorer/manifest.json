@@ -2,10 +2,10 @@
   "manifestVersion": 1,
   "meta": {
     "name": "Quantum Explorer",
-    "version": "0.1.6",
+    "version": "0.1.7",
     "logoPath": "logo.png",
     "shortDescription": "Realtime Post-Quantum Dogecoin explorer",
-    "longDescription": "Quantum Explorer tracks Dogecoin post-quantum transaction signals in realtime from pure P2P mempool gossip and confirms transaction visibility through SPV logs. Public users can search by Dogecoin address, txid, block height/hash text, and see latest PQ activity with pending/confirmed + PQ-validity indicators. Admin controls are token-gated on the same web port via /admin/<TOKEN> and /api/admin/<TOKEN>/* for mempool/SPV start-stop and checkpoint metadata. The admin checkpoint (height/hash/timestamp) is reference metadata for operators; libdogecoin spvnode is started like pq-wallet with -w/-h and -b scan last. Block hashes from explorers (SoChain, etc.) use the normal Dogecoin block ID hex — not a different endianness for the same height. Optional QE_SPV_WATCH_ADDRESS sets spvnode -a like pq-wallet. Default checkpoint example: block 6150000, hash 9e8f55907f17dc4870cdc9e6ea75236782190c13c10a8126baea3b1da94593c5, timestamp 2026-04-03T03:16:25Z.",
+    "longDescription": "Quantum Explorer tracks Dogecoin post-quantum transaction signals in realtime from pure P2P mempool gossip and confirms transaction visibility through SPV logs. Public users can search by Dogecoin address, txid, block height/hash text, and see latest PQ activity with pending/confirmed + PQ-validity indicators. Admin controls are token-gated on the same web port via /admin/<TOKEN> and /api/admin/<TOKEN>/* for mempool/SPV start-stop. The admin checkpoint form stores operator reference metadata only: libdogecoin spvnode does not read that JSON. Instead it uses its own embedded checkpoint table; this pup passes -p and -q (with -l) so a fresh headers.db starts from the latest embedded checkpoint instead of genesis. If an older run already built headers.db from height 0, delete headers.db (and restart SPV) to benefit. The bundled libdogecoin revision fixes the tallest mainnet embedded checkpoint (about 6,093,890); you cannot SPV-jump to a higher height until upstream adds checkpoints. Optional QE_SPV_WATCH_ADDRESS sets spvnode -a like pq-wallet. QE_SPV_AUTO_START=0 disables SPV on process boot.",
     "upstreamVersions": {
       "Go": "1.24",
       "libdogecoin": "spvnode"
@@ -24,9 +24,11 @@
       },
       {
         "name": "SPV (libdogecoin)",
-        "description": "spvnode is invoked with -f 0 -c -l, wallet and headers under storage, then -b scan last. Set a mainnet/testnet P2PKH address if your build expects -a for full block scan (pq-wallet always passes -a).",
+        "description": "spvnode: -f 0 -c -l, optional -p -q for embedded checkpoints (default on), optional -a, -w/-h, -b scan last. Admin checkpoint JSON is not passed to spvnode.",
         "fields": [
-          { "name": "QE_SPV_WATCH_ADDRESS", "label": "Optional: P2PKH address for spvnode -a (recommended)", "type": "text", "default": "" }
+          { "name": "QE_SPV_WATCH_ADDRESS", "label": "Optional: P2PKH address for spvnode -a (recommended)", "type": "text", "default": "" },
+          { "name": "QE_SPV_USE_CHECKPOINT", "label": "Use embedded checkpoints -p/-q (1=yes, 0=sync from genesis)", "type": "text", "default": "1" },
+          { "name": "QE_SPV_AUTO_START", "label": "Start spvnode when Quantum Explorer starts (1=yes, 0=no)", "type": "text", "default": "1" }
         ]
       },
       {
@@ -64,7 +66,7 @@
   "interfaces": [
     {
       "name": "quantum-explorer-public",
-      "version": "0.1.6",
+      "version": "0.1.7",
       "permissionGroups": [
         {
           "name": "Quantum Explorer HTTP",

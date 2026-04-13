@@ -4,6 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Quantum Explorer Admin</title>
+  <link rel="icon" href="/logo.png" type="image/png" sizes="any" />
+  <link rel="apple-touch-icon" href="/logo.png" />
   <style>
     :root { --bg:#0c121a; --card:#121c29; --txt:#eef5ff; --muted:#95a7c2; --line:#26384f; --ok:#41d18e; --bad:#ff7d7d; }
     * { box-sizing:border-box; }
@@ -75,13 +77,16 @@
       const el = document.getElementById("status");
       if(!r.ok){ el.textContent = `Error ${r.s}: ${JSON.stringify(r.d)}`; return; }
       const d = r.d || {};
+      const hint = (d.spv_checkpoint_help || "").replace(/</g, "");
       el.innerHTML = [
         `mempool_running: ${d.mempool_running ? "<span class='ok'>true</span>" : "<span class='bad'>false</span>"}`,
         `mempool_start_error: ${d.mempool_start_error ? d.mempool_start_error : "-"}`,
         `spv_running: ${d.spv_running ? "<span class='ok'>true</span>" : "<span class='bad'>false</span>"}`,
         `spv_start_error: ${d.spv_start_error ? d.spv_start_error : "-"}`,
+        `spv_embedded_checkpoints: ${d.spv_use_checkpoint ? "<span class='ok'>enabled (-p -q)</span>" : "<span class='bad'>disabled</span>"}`,
         `network: ${d.network || "-"}`,
-        `checkpoint: ${JSON.stringify(d.checkpoint || {})}`
+        `saved_checkpoint (reference only): ${JSON.stringify(d.checkpoint || {})}`,
+        hint ? `<br><span class="muted">${hint}</span>` : ""
       ].join("<br>");
       const cp = d.checkpoint || {};
       if (cp.height) document.getElementById("cp-height").value = cp.height;

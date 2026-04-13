@@ -101,10 +101,11 @@ func defaultConfig() Config {
 		Network:       env("NETWORK", "mainnet"),
 		AdminToken:    env("QE_ADMIN_TOKEN", "QUANTUM-TOKEN"),
 		ExplorerTxAPI: env("QE_EXPLORER_TX_API", ""),
+		// Matches tallest checkpoint baked into libdogecoin (rev a120e03 mainnet); spvnode cannot start above this until the library ships newer checkpoints.
 		Checkpoint: Checkpoint{
-			Height:    6150000,
-			Hash:      "9e8f55907f17dc4870cdc9e6ea75236782190c13c10a8126baea3b1da94593c5",
-			Timestamp: "2026-04-03T03:16:25Z",
+			Height:    6093890,
+			Hash:      "7ecb28519e0c144261e511fd8706f8b54a93620cac31c41b5bcb0135f0d86a2b",
+			Timestamp: "2026-02-20T21:59:00Z",
 		},
 	}
 }
@@ -474,9 +475,13 @@ func (a *app) startSPV() error {
 	if err != nil {
 		return err
 	}
-	// Flag order must match libdogecoin spvnode expectations: subcommand "scan" via -b is last
-	// (same as pq-wallet: -f 0 -c -l [-a addr] -w -h -b scan). Putting -b scan before -w/-h breaks parsing → exit 1.
+	// Flag order: -b scan last. -p enables use_checkpoints in libdogecoin; -q + -l picks the latest *embedded*
+	// checkpoint on a fresh headers DB (avoids syncing headers from genesis). Custom admin JSON checkpoint is
+	// not passed to spvnode — only this binary's dogecoin_mainnet_checkpoint_array / testnet array exists upstream.
 	args := []string{"-f", "0", "-c", "-l"}
+	if strings.TrimSpace(env("QE_SPV_USE_CHECKPOINT", "1")) != "0" {
+		args = append(args, "-p", "-q")
+	}
 	if w := strings.TrimSpace(env("QE_SPV_WATCH_ADDRESS", "")); w != "" {
 		args = append(args, "-a", w)
 	}
@@ -786,6 +791,7 @@ func (a *app) publicSearch(w http.ResponseWriter, r *http.Request) {
 func (a *app) adminStatus(w http.ResponseWriter, _ *http.Request) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
+	note := "Admin checkpoint is saved for your records. spvnode only uses libdogecoin embedded checkpoints (-p/-q); tallest mainnet in current upstream build is ~6093890. If headers.db already synced from genesis, delete it and restart SPV to jump to embedded checkpoint."
 	writeJSON(w, 200, map[string]any{
 		"mempool_running":     a.engRunning,
 		"mempool_start_error": a.mempoolStartErr,
@@ -794,6 +800,8 @@ func (a *app) adminStatus(w http.ResponseWriter, _ *http.Request) {
 		"checkpoint":          a.cfg.Checkpoint,
 		"network":             a.cfg.Network,
 		"last_spv_log_err":    a.lastSPVLogErr,
+		"spv_checkpoint_help": note,
+		"spv_use_checkpoint":  strings.TrimSpace(env("QE_SPV_USE_CHECKPOINT", "1")) != "0",
 	})
 }
 
@@ -842,8 +850,12 @@ func main() {
 	if err := a.startMempool(); err != nil {
 		log.Printf("[quantum-explorer] mempool autostart failed: %v", err)
 	}
-	if err := a.startSPV(); err != nil {
+	if strings.TrimSpace(os.Getenv("QE_SPV_AUTO_START")) == "0" {
+		log.Printf("[quantum-explorer] SPV autostart skipped (QE_SPV_AUTO_START=0)")
+	} else if err := a.startSPV(); err != nil {
 		log.Printf("[quantum-explorer] SPV autostart failed: %v (set LIBDOGECOIN_SPVNODE to your spvnode binary path)", err)
+	} else {
+		log.Printf("[quantum-explorer] SPV autostart invoked (QE_SPV_USE_CHECKPOINT=%q)", env("QE_SPV_USE_CHECKPOINT", "1"))
 	}
 	go a.refreshLoop()
 
@@ -897,7 +909,7 @@ func main() {
 				writeJSON(w, 500, map[string]string{"error": err.Error()})
 				return
 			}
-			writeJSON(w, 200, map[string]any{"ok": true, "note": "SPV started from configured checkpoint metadata."})
+			writeJSON(w, 200, map[string]any{"ok": true, "note": "SPV started; headers use libdogecoin embedded checkpoints when QE_SPV_USE_CHECKPOINT=1. Delete headers.db if a prior run synced from genesis."})
 		case "/spv/stop":
 			a.stopSPV()
 			writeJSON(w, 200, map[string]any{"ok": true})

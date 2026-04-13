@@ -336,14 +336,22 @@ func extractHexFromAny(v any, depth int) string {
 	return ""
 }
 
-func (a *app) fetchRawTxHex(txid string) string {
-	a.mu.RLock()
-	tpl := strings.TrimSpace(a.cfg.ExplorerTxAPI)
-	a.mu.RUnlock()
+// fetchRawTxHex must not be called while holding a.mu (write lock); it only reads eng and uses HTTP.
+func (a *app) fetchRawTxHex(txid string, eng *mempooltracker.Engine, explorerAPI string) string {
+	tpl := strings.TrimSpace(explorerAPI)
+	id := strings.ToLower(strings.TrimSpace(txid))
+	if id == "" {
+		return ""
+	}
+	if eng != nil {
+		if h := eng.RawTxHex(id); h != "" {
+			return h
+		}
+	}
 	if tpl == "" {
 		return ""
 	}
-	url := strings.ReplaceAll(tpl, "{txid}", txid)
+	url := strings.ReplaceAll(tpl, "{txid}", id)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -513,6 +521,7 @@ func (a *app) refreshLoop() {
 		a.mu.RLock()
 		eng := a.eng
 		running := a.engRunning
+		tpl := strings.TrimSpace(a.cfg.ExplorerTxAPI)
 		a.mu.RUnlock()
 		if running && eng != nil {
 			_, live, _, _ := eng.DashboardSnapshot()
@@ -545,11 +554,11 @@ func (a *app) refreshLoop() {
 					}
 				}
 				tx.PQValid, tx.PQScore = classifyPQ(txid, tracked, len(tx.Addresses))
-				rawHex := a.fetchRawTxHex(txid)
+				rawHex := a.fetchRawTxHex(txid, eng, tpl)
 				if rawHex == "" {
 					tx.PQValid = false
 					tx.PQScore = 0
-					tx.PQReason = "strict verifier: raw tx unavailable (configure QE_EXPLORER_TX_API)"
+					tx.PQReason = "strict verifier: no raw tx (waiting for P2P tx message or set QE_EXPLORER_TX_API as fallback)"
 					tx.PQEvidence = []string{"no_raw_tx"}
 					tx.Verifier = "strict-v1"
 				} else {

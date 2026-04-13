@@ -31,11 +31,15 @@ type liveMempoolTx struct {
 	LastSeen  time.Time
 }
 
+const maxRawTxCache = 1000
+
 type Engine struct {
 	mu       sync.RWMutex
 	stopCh   chan struct{}
 	stopped  chan struct{}
 	liveByID map[string]liveMempoolTx
+	rawByID  map[string]string
+	rawOrder []string
 }
 
 func Start(opts Options) (*Engine, error) {
@@ -46,6 +50,7 @@ func Start(opts Options) (*Engine, error) {
 		stopCh:   make(chan struct{}),
 		stopped:  make(chan struct{}),
 		liveByID: map[string]liveMempoolTx{},
+		rawByID:  map[string]string{},
 	}
 	network := strings.ToLower(strings.TrimSpace(opts.Network))
 	if network == "" {
@@ -100,19 +105,48 @@ func (e *Engine) DashboardSnapshot() (mempoolCount int, live []map[string]any, w
 	return len(e.liveByID), out, nil, 0
 }
 
+// RawTxHex returns full serialized tx hex seen on P2P "tx" messages (best-effort).
+func (e *Engine) RawTxHex(txid string) string {
+	id := strings.ToLower(strings.TrimSpace(txid))
+	if id == "" {
+		return ""
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.rawByID[id]
+}
+
 func (e *Engine) markSeen(txid string) {
+	e.markSeenMaybeRaw(txid, nil)
+}
+
+func (e *Engine) markSeenMaybeRaw(txid string, rawPayload []byte) {
 	if txid == "" {
 		return
 	}
+	id := strings.ToLower(txid)
 	now := time.Now().UTC()
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if row, ok := e.liveByID[txid]; ok {
+	if row, ok := e.liveByID[id]; ok {
 		row.LastSeen = now
-		e.liveByID[txid] = row
+		e.liveByID[id] = row
+	} else {
+		e.liveByID[id] = liveMempoolTx{Txid: id, FirstSeen: now, LastSeen: now}
+	}
+	if len(rawPayload) == 0 || len(rawPayload) > 4*1024*1024 {
 		return
 	}
-	e.liveByID[txid] = liveMempoolTx{Txid: txid, FirstSeen: now, LastSeen: now}
+	if _, ok := e.rawByID[id]; ok {
+		return
+	}
+	e.rawByID[id] = hex.EncodeToString(rawPayload)
+	e.rawOrder = append(e.rawOrder, id)
+	for len(e.rawOrder) > maxRawTxCache {
+		oldest := e.rawOrder[0]
+		e.rawOrder = e.rawOrder[1:]
+		delete(e.rawByID, oldest)
+	}
 }
 
 func (e *Engine) loop(network string) {
@@ -194,9 +228,12 @@ func (e *Engine) session(conn net.Conn, magic uint32) error {
 			for _, txid := range txids {
 				e.markSeen(txid)
 			}
+			if gd := buildGetDataTxPayload(payload, 48); len(gd) > 0 {
+				_ = writeMessage(conn, magic, "getdata", gd)
+			}
 		case "tx":
 			txid := txidHex(payload)
-			e.markSeen(txid)
+			e.markSeenMaybeRaw(txid, payload)
 		}
 	}
 }
@@ -224,6 +261,64 @@ func parseInvTxids(payload []byte) []string {
 		}
 		out = append(out, hex.EncodeToString(rev))
 	}
+	return out
+}
+
+func appendVarInt(buf []byte, v uint64) []byte {
+	switch {
+	case v < 0xfd:
+		return append(buf, byte(v))
+	case v <= 0xffff:
+		buf = append(buf, 0xfd)
+		b := make([]byte, 2)
+		binary.LittleEndian.PutUint16(b, uint16(v))
+		return append(buf, b...)
+	case v <= 0xffffffff:
+		buf = append(buf, 0xfe)
+		b := make([]byte, 4)
+		binary.LittleEndian.PutUint32(b, uint32(v))
+		return append(buf, b...)
+	default:
+		buf = append(buf, 0xff)
+		b := make([]byte, 8)
+		binary.LittleEndian.PutUint64(b, v)
+		return append(buf, b...)
+	}
+}
+
+// buildGetDataTxPayload builds a getdata payload asking for up to maxItems tx invs from an inv message.
+func buildGetDataTxPayload(invPayload []byte, maxItems int) []byte {
+	if maxItems < 1 {
+		return nil
+	}
+	off := 0
+	n, err := readVarInt(invPayload, &off)
+	if err != nil {
+		return nil
+	}
+	var blob []byte
+	count := 0
+	for i := 0; i < int(n) && count < maxItems; i++ {
+		if off+36 > len(invPayload) {
+			break
+		}
+		t := binary.LittleEndian.Uint32(invPayload[off:])
+		h := invPayload[off+4 : off+36]
+		off += 36
+		if (t & ^uint32(msgWitnessFlag)) != msgTx {
+			continue
+		}
+		vec := make([]byte, 36)
+		binary.LittleEndian.PutUint32(vec, t)
+		copy(vec[4:], h)
+		blob = append(blob, vec...)
+		count++
+	}
+	if count == 0 {
+		return nil
+	}
+	out := appendVarInt(nil, uint64(count))
+	out = append(out, blob...)
 	return out
 }
 

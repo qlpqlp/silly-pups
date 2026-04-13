@@ -4,13 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Quantum Explorer Admin</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&display=swap" rel="stylesheet" />
   <style>
     :root { --bg:#0c121a; --card:#121c29; --txt:#eef5ff; --muted:#95a7c2; --line:#26384f; --ok:#41d18e; --bad:#ff7d7d; }
     * { box-sizing:border-box; }
-    body { margin:0; font-family:"Comic Neue","Segoe UI",sans-serif; background:var(--bg); color:var(--txt); }
+    body { margin:0; font-family:ui-sans-serif,system-ui,"Segoe UI",sans-serif; background:var(--bg); color:var(--txt); }
     .wrap { max-width:920px; margin:0 auto; padding:1rem; }
     .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:.9rem; margin-bottom:.8rem; }
     h1,h2 { margin:.1rem 0 .6rem; }
@@ -57,7 +54,18 @@
   </div>
 
   <script>
-    async function j(url, opt){const r = await fetch(url, opt); return {ok:r.ok, s:r.status, d:await r.json().catch(()=>({}))};}
+    async function j(url, opt){
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 15000);
+      try {
+        const r = await fetch(url, { ...opt, signal: ctrl.signal });
+        return { ok: r.ok, s: r.status, d: await r.json().catch(() => ({})) };
+      } catch (e) {
+        return { ok: false, s: 0, d: { error: String(e && e.name === "AbortError" ? "timeout" : e) } };
+      } finally {
+        clearTimeout(t);
+      }
+    }
     function toast(msg){console.log(msg);}
     const ADMIN_TOKEN = (location.pathname.split("/").filter(Boolean).pop() || "").trim();
     const API_BASE = `/api/admin/${encodeURIComponent(ADMIN_TOKEN)}`;

@@ -7,58 +7,109 @@
   <link rel="icon" href="/logo.png" type="image/png" sizes="any" />
   <link rel="apple-touch-icon" href="/logo.png" />
   <style>
-    :root { --bg:#0c121a; --card:#121c29; --txt:#eef5ff; --muted:#95a7c2; --line:#26384f; --ok:#41d18e; --bad:#ff7d7d; }
+    :root { --bg:#0c121a; --card:#121c29; --txt:#eef5ff; --muted:#95a7c2; --line:#26384f; --ok:#41d18e; --bad:#ff7d7d; --doge:#f2cb2c; }
     * { box-sizing:border-box; }
     body { margin:0; font-family:ui-sans-serif,system-ui,"Segoe UI",sans-serif; background:var(--bg); color:var(--txt); }
-    .wrap { max-width:920px; margin:0 auto; padding:1rem; }
+    .wrap { max-width:980px; margin:0 auto; padding:1rem; }
     .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:.9rem; margin-bottom:.8rem; }
-    h1,h2 { margin:.1rem 0 .6rem; }
-    .row { display:flex; gap:.5rem; flex-wrap:wrap; }
+    h1,h2,h3 { margin:.1rem 0 .55rem; font-size:1.15rem; }
+    h3 { font-size:.95rem; color:var(--muted); font-weight:600; }
+    .row { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
     input,button { font:inherit; border-radius:10px; border:1px solid var(--line); padding:.55rem .7rem; }
-    input { background:#0d1622; color:var(--txt); min-width:220px; }
+    input { background:#0d1622; color:var(--txt); min-width:200px; }
     button { background:#162232; color:var(--txt); cursor:pointer; }
+    button.warn { border-color:#8b5a2b; background:#2a1f14; color:#ffd4a8; }
+    button.primary { border-color:transparent; background:linear-gradient(135deg,var(--doge),#c9a017); color:#1a1408; font-weight:700; }
     .ok { color:var(--ok); }
     .bad { color:var(--bad); }
     .mono { font-family:ui-monospace,Consolas,monospace; word-break:break-all; }
-    .muted { color:var(--muted); }
+    .muted { color:var(--muted); font-size:.88rem; }
+    .logbox { white-space:pre-wrap; max-height:22rem; overflow:auto; font-size:.76rem; line-height:1.35; background:#0d1622; border:1px solid var(--line); border-radius:10px; padding:.65rem .75rem; margin:.35rem 0 0; }
+    .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }
+    @media (max-width:720px){ .grid2 { grid-template-columns:1fr; } }
+    .pill { display:inline-block; padding:.2rem .5rem; border-radius:999px; border:1px solid var(--line); font-size:.78rem; margin-right:.35rem; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>Quantum Explorer Admin</h1>
-    <p class="muted">This page is protected by token in URL path.</p>
+    <p class="muted">Token-gated via URL path. Use this page to inspect services and <strong>spv.log</strong> / Postgres health.</p>
 
     <section class="card">
-      <h2>Runtime Status</h2>
+      <h2>Runtime status</h2>
       <div id="status" class="mono muted">Loading...</div>
     </section>
 
     <section class="card">
-      <h2>Controls</h2>
+      <h2>Service controls</h2>
+      <p class="muted" style="margin-top:0">Start/stop or <strong>restart</strong> (stop → brief delay → start). PostgreSQL is not managed here — only health checks.</p>
+      <h3>Mempool tracker (P2P)</h3>
+      <div class="row" style="margin-bottom:.65rem">
+        <button type="button" id="m-start">Start</button>
+        <button type="button" id="m-stop">Stop</button>
+        <button type="button" class="warn" id="m-restart">Restart</button>
+      </div>
+      <h3>SPV (libdogecoin spvnode)</h3>
       <div class="row">
-        <button id="m-start">Start Mempool</button>
-        <button id="m-stop">Stop Mempool</button>
-        <button id="s-start">Start SPV</button>
-        <button id="s-stop">Stop SPV</button>
+        <button type="button" id="s-start">Start</button>
+        <button type="button" id="s-stop">Stop</button>
+        <button type="button" class="warn" id="s-restart">Restart</button>
       </div>
     </section>
 
     <section class="card">
-      <h2>Checkpoint</h2>
+      <h2>Diagnostics bundle</h2>
+      <p class="muted" style="margin-top:0">JSON + <strong>tail of spv.log</strong> (last ~96KB). Refresh after changing env or restarting services.</p>
+      <div class="row" style="margin-bottom:.5rem">
+        <button type="button" class="primary" id="btn-diag-refresh">Refresh diagnostics</button>
+        <span class="muted" id="diag-time"></span>
+      </div>
+      <div id="diag-error" class="bad mono" style="display:none;margin:.35rem 0"></div>
+
+      <h3>Environment (sanitized)</h3>
+      <pre class="logbox" id="diag-env">…</pre>
+
+      <div class="grid2" style="margin-top:.75rem">
+        <div>
+          <h3>Mempool tracker</h3>
+          <pre class="logbox" id="diag-mem" style="max-height:14rem">…</pre>
+        </div>
+        <div>
+          <h3>Chain index / PostgreSQL</h3>
+          <pre class="logbox" id="diag-chain" style="max-height:14rem">…</pre>
+        </div>
+      </div>
+
+      <h3>SPV process + spv.log tail</h3>
+      <div id="diag-spv-meta" class="muted mono" style="margin:.25rem 0"></div>
+      <pre class="logbox" id="diag-spv-log" style="max-height:24rem">…</pre>
+
+      <h3>PQ tx store file</h3>
+      <pre class="logbox" id="diag-pqtx" style="max-height:8rem">…</pre>
+
+      <h3>Full JSON (copy-friendly)</h3>
+      <pre class="logbox" id="diag-full" style="max-height:16rem">…</pre>
+    </section>
+
+    <section class="card">
+      <h2>Checkpoint (reference only)</h2>
       <div class="row">
         <input id="cp-height" type="number" placeholder="Height" />
         <input id="cp-hash" placeholder="Block hash" />
         <input id="cp-time" placeholder="Timestamp RFC3339" />
-        <button id="cp-save">Save checkpoint</button>
+        <button type="button" id="cp-save">Save checkpoint</button>
       </div>
-      <p class="muted">Saving does not restart services automatically.</p>
+      <p class="muted">Saving does not restart services. spvnode uses embedded checkpoints (-p/-q), not this JSON.</p>
     </section>
   </div>
 
   <script>
+    function esc(s){
+      return String(s ?? "").replace(/[&<>"]/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+    }
     async function j(url, opt){
       const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 15000);
+      const t = setTimeout(() => ctrl.abort(), 60000);
       try {
         const r = await fetch(url, { ...opt, signal: ctrl.signal });
         return { ok: r.ok, s: r.status, d: await r.json().catch(() => ({})) };
@@ -68,30 +119,62 @@
         clearTimeout(t);
       }
     }
-    function toast(msg){console.log(msg);}
+    function toast(msg){ console.log(msg); }
     const ADMIN_TOKEN = (location.pathname.split("/").filter(Boolean).pop() || "").trim();
     const API_BASE = `/api/admin/${encodeURIComponent(ADMIN_TOKEN)}`;
 
     async function loadStatus(){
       const r = await j(`${API_BASE}/status`);
       const el = document.getElementById("status");
-      if(!r.ok){ el.textContent = `Error ${r.s}: ${JSON.stringify(r.d)}`; return; }
+      if(!r.ok){ el.innerHTML = `Error ${r.s}: ${esc(JSON.stringify(r.d))}`; return; }
       const d = r.d || {};
       const hint = (d.spv_checkpoint_help || "").replace(/</g, "");
       el.innerHTML = [
+        `<span class="pill">${d.chain_index_backend || "?"}</span> chain index backend`,
+        `storage_dir: ${esc(d.storage_dir || "")}`,
+        `spv_log_path: ${esc(d.spv_log_path || "")}`,
+        `libdogecoin_spvnode: ${esc(d.libdogecoin_spvnode || "")}`,
         `mempool_running: ${d.mempool_running ? "<span class='ok'>true</span>" : "<span class='bad'>false</span>"}`,
-        `mempool_start_error: ${d.mempool_start_error ? d.mempool_start_error : "-"}`,
+        `mempool_start_error: ${d.mempool_start_error ? esc(d.mempool_start_error) : "—"}`,
         `spv_running: ${d.spv_running ? "<span class='ok'>true</span>" : "<span class='bad'>false</span>"}`,
-        `spv_start_error: ${d.spv_start_error ? d.spv_start_error : "-"}`,
+        `spv_start_error: ${d.spv_start_error ? esc(d.spv_start_error) : "—"}`,
+        `last_spv_log_read_error: ${d.last_spv_log_err ? esc(d.last_spv_log_err) : "—"}`,
         `spv_embedded_checkpoints: ${d.spv_use_checkpoint ? "<span class='ok'>enabled (-p -q)</span>" : "<span class='bad'>disabled</span>"}`,
-        `network: ${d.network || "-"}`,
-        `saved_checkpoint (reference only): ${JSON.stringify(d.checkpoint || {})}`,
-        hint ? `<br><span class="muted">${hint}</span>` : ""
+        `network: ${esc(d.network || "—")}`,
+        `saved_checkpoint (reference): ${esc(JSON.stringify(d.checkpoint || {}))}`,
+        d.diagnostics_api ? `<br><span class="muted">Full bundle: <code>${esc(d.diagnostics_api)}</code></span>` : "",
+        hint ? `<br><span class="muted">${esc(hint)}</span>` : ""
       ].join("<br>");
       const cp = d.checkpoint || {};
       if (cp.height) document.getElementById("cp-height").value = cp.height;
       if (cp.hash) document.getElementById("cp-hash").value = cp.hash;
       if (cp.timestamp) document.getElementById("cp-time").value = cp.timestamp;
+    }
+
+    async function loadDiagnostics(){
+      const errEl = document.getElementById("diag-error");
+      errEl.style.display = "none";
+      const r = await j(`${API_BASE}/diagnostics`);
+      if (!r.ok) {
+        errEl.style.display = "block";
+        errEl.textContent = `diagnostics HTTP ${r.s}: ${JSON.stringify(r.d)}`;
+        return;
+      }
+      const d = r.d || {};
+      document.getElementById("diag-time").textContent = d.generated_at ? `generated ${d.generated_at}` : "";
+      document.getElementById("diag-env").textContent = JSON.stringify(d.env || {}, null, 2);
+      document.getElementById("diag-mem").textContent = JSON.stringify(d.mempool_tracker || {}, null, 2);
+      document.getElementById("diag-chain").textContent = JSON.stringify(d.chain_index || {}, null, 2);
+      const spv = d.spv || {};
+      const meta = [];
+      meta.push(`running: ${spv.running ? "yes" : "no"}`);
+      if (spv.log_path) meta.push(`log_path: ${spv.log_path}`);
+      if (spv.log_read_error) meta.push(`log_read_error: ${spv.log_read_error}`);
+      if (spv.start_error) meta.push(`start_error: ${spv.start_error}`);
+      document.getElementById("diag-spv-meta").textContent = meta.join(" · ");
+      document.getElementById("diag-spv-log").textContent = typeof spv.log_tail === "string" ? spv.log_tail : "(no tail)";
+      document.getElementById("diag-pqtx").textContent = JSON.stringify(d.pqtx_store || {}, null, 2);
+      document.getElementById("diag-full").textContent = JSON.stringify(d, null, 2);
     }
 
     async function call(path, body){
@@ -102,20 +185,26 @@
       });
       toast(JSON.stringify(r.d || {}));
       await loadStatus();
+      await loadDiagnostics();
     }
 
     document.getElementById("m-start").onclick = ()=>call(`${API_BASE}/mempool/start`);
     document.getElementById("m-stop").onclick = ()=>call(`${API_BASE}/mempool/stop`);
+    document.getElementById("m-restart").onclick = ()=>call(`${API_BASE}/mempool/restart`);
     document.getElementById("s-start").onclick = ()=>call(`${API_BASE}/spv/start`);
     document.getElementById("s-stop").onclick = ()=>call(`${API_BASE}/spv/stop`);
+    document.getElementById("s-restart").onclick = ()=>call(`${API_BASE}/spv/restart`);
     document.getElementById("cp-save").onclick = ()=>call(`${API_BASE}/checkpoint`, {
       height: Number(document.getElementById("cp-height").value || 0),
       hash: String(document.getElementById("cp-hash").value || "").trim(),
       timestamp: String(document.getElementById("cp-time").value || "").trim()
     });
+    document.getElementById("btn-diag-refresh").onclick = ()=>loadDiagnostics();
 
     loadStatus();
-    setInterval(loadStatus, 4000);
+    loadDiagnostics();
+    setInterval(loadStatus, 5000);
+    setInterval(loadDiagnostics, 15000);
   </script>
 </body>
 </html>

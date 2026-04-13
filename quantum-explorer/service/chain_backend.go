@@ -32,17 +32,19 @@ type chainBackend interface {
 	Summary() (headerCount, tipHeight, txLinkHeights int64, err error)
 	RecentHeaders(limit int) ([]IndexedBlockHeader, error)
 	Persist() error
+	// AdminDiagnostics returns backend-specific debug info (paths, DB ping, row counts).
+	AdminDiagnostics() map[string]any
 }
 
 // --- JSON file backend (single-writer friendly; mutex for concurrent reads) ---
 
 type jsonChainBackend struct {
-	mu         sync.RWMutex
-	path       string
-	byHeight   map[int]*IndexedBlockHeader
-	byHash     map[string]*IndexedBlockHeader
-	heightTxs  map[int][]string
-	dirty      bool
+	mu        sync.RWMutex
+	path      string
+	byHeight  map[int]*IndexedBlockHeader
+	byHash    map[string]*IndexedBlockHeader
+	heightTxs map[int][]string
+	dirty     bool
 }
 
 type chainIndexFile struct {
@@ -226,6 +228,30 @@ func (b *jsonChainBackend) Summary() (int64, int64, int64, error) {
 		}
 	}
 	return int64(len(b.byHeight)), int64(tip), int64(len(b.heightTxs)), nil
+}
+
+func (b *jsonChainBackend) AdminDiagnostics() map[string]any {
+	out := map[string]any{"backend": "json-file", "index_path": b.path}
+	st, err := os.Stat(b.path)
+	if err != nil {
+		out["index_stat_error"] = err.Error()
+	} else {
+		out["index_size_bytes"] = st.Size()
+		out["index_mod_time"] = st.ModTime().UTC().Format(time.RFC3339)
+	}
+	b.mu.RLock()
+	dirty := b.dirty
+	b.mu.RUnlock()
+	out["dirty_unsaved"] = dirty
+	hc, tip, txh, err := b.Summary()
+	if err != nil {
+		out["summary_error"] = err.Error()
+	} else {
+		out["header_count"] = hc
+		out["tip_height"] = tip
+		out["heights_with_tx_links"] = txh
+	}
+	return out
 }
 
 func (b *jsonChainBackend) RecentHeaders(limit int) ([]IndexedBlockHeader, error) {

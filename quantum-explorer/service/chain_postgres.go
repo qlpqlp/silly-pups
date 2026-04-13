@@ -278,3 +278,44 @@ func (p *postgresChainBackend) RecentHeaders(limit int) ([]IndexedBlockHeader, e
 	}
 	return out, rows.Err()
 }
+
+func (p *postgresChainBackend) AdminDiagnostics() map[string]any {
+	out := map[string]any{"backend": "postgres"}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	if err := p.db.PingContext(ctx); err != nil {
+		out["ping_ok"] = false
+		out["ping_error"] = err.Error()
+		return out
+	}
+	out["ping_ok"] = true
+	var ver string
+	if err := p.db.QueryRowContext(ctx, `SELECT version()`).Scan(&ver); err != nil {
+		out["version_query_error"] = err.Error()
+	} else {
+		out["server_version"] = ver
+	}
+	st := p.db.Stats()
+	out["pool"] = map[string]any{
+		"max_open_connections": st.MaxOpenConnections,
+		"open_connections":     st.OpenConnections,
+		"in_use":               st.InUse,
+		"idle":                 st.Idle,
+		"wait_count":           st.WaitCount,
+		"wait_duration_ms":     st.WaitDuration.Milliseconds(),
+	}
+	var nH, nL int64
+	_ = p.db.QueryRowContext(ctx, `SELECT COUNT(*)::bigint FROM qe_chain_headers`).Scan(&nH)
+	_ = p.db.QueryRowContext(ctx, `SELECT COUNT(*)::bigint FROM qe_block_tx_links`).Scan(&nL)
+	out["table_row_counts"] = map[string]any{
+		"qe_chain_headers":  nH,
+		"qe_block_tx_links": nL,
+	}
+	hc, tip, txh, err := p.Summary()
+	if err == nil {
+		out["summary"] = map[string]any{"header_count": hc, "tip_height": tip, "heights_with_tx_links": txh}
+	} else {
+		out["summary_error"] = err.Error()
+	}
+	return out
+}

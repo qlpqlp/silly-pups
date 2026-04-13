@@ -304,8 +304,21 @@
     }
 
     async function load(){
-      const r=await j("/api/public/status");
-      if(!r.ok) return;
+      let r;
+      try {
+        r = await j("/api/public/status");
+      } catch (e) {
+        const banner = document.getElementById("runtime-error-banner");
+        banner.classList.add("show");
+        banner.innerHTML = `<strong>Could not reach /api/public/status:</strong> ${esc(String(e && e.message != null ? e.message : e))}`;
+        return;
+      }
+      if (!r.ok) {
+        const banner = document.getElementById("runtime-error-banner");
+        banner.classList.add("show");
+        banner.innerHTML = `<strong>Status HTTP ${r.s}</strong> ${esc(JSON.stringify(r.d))}`;
+        return;
+      }
       const m=r.d.metrics||{};
       const mp=r.d.mempool||{};
       window.__mempoolErr = mp.start_error ? String(mp.start_error) : "";
@@ -333,9 +346,9 @@
       renderSPV(spv);
       const ci = r.d.chain_index || {};
       const sum = ci.summary || {};
-      const tip = sum.tip_height > 0 ? sum.tip_height : "—";
+      const chainTip = sum.tip_height > 0 ? sum.tip_height : "—";
       document.getElementById("chain-index-strip").textContent =
-        `SPV chain index: ${sum.header_count ?? 0} headers, tip height ${tip}. Search by block height, block hash, txid, or address.`;
+        `SPV chain index: ${sum.header_count ?? 0} headers, tip height ${chainTip}. Search by block height, block hash, txid, or address.`;
     }
 
     document.getElementById("btn-search").onclick = async () => {

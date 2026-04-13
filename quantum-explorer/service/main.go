@@ -66,12 +66,16 @@ type app struct {
 	spvCmd          *exec.Cmd
 	spvRunning      bool
 	spvStartErr     string
-	txs           map[string]*PQTx
-	addressIndex  map[string][]string
-	lastSPVLogErr string
+	txs             map[string]*PQTx
+	addressIndex    map[string][]string
+	lastSPVLogErr   string
 
 	// SPV-derived chain index: JSON file (default) or PostgreSQL when QE_POSTGRES_URL is set.
 	chain chainBackend
+
+	watchdogMu       sync.Mutex
+	lastSPVRetry     time.Time
+	lastMempoolRetry time.Time
 }
 
 type SPVHeader struct {
@@ -605,6 +609,64 @@ func (a *app) stopSPV() {
 	a.spvCmd = nil
 }
 
+const watchdogMinInterval = 25 * time.Second
+
+// subsystemWatchdog periodically restarts mempool and SPV if autostart is enabled and they are not running
+// (e.g. first launch failed, binary path appeared later, or the child process exited).
+func (a *app) subsystemWatchdog() {
+	tick := time.NewTicker(20 * time.Second)
+	defer tick.Stop()
+	for range tick.C {
+		a.maybeRestartMempool()
+		a.maybeRestartSPV()
+	}
+}
+
+func (a *app) maybeRestartMempool() {
+	a.mu.RLock()
+	ok := a.engRunning
+	a.mu.RUnlock()
+	if ok {
+		return
+	}
+	a.watchdogMu.Lock()
+	if time.Since(a.lastMempoolRetry) < watchdogMinInterval {
+		a.watchdogMu.Unlock()
+		return
+	}
+	a.lastMempoolRetry = time.Now()
+	a.watchdogMu.Unlock()
+	if err := a.startMempool(); err != nil {
+		log.Printf("[quantum-explorer] mempool watchdog: start failed: %v", err)
+	} else {
+		log.Printf("[quantum-explorer] mempool watchdog: tracker started")
+	}
+}
+
+func (a *app) maybeRestartSPV() {
+	if strings.TrimSpace(os.Getenv("QE_SPV_AUTO_START")) == "0" {
+		return
+	}
+	a.mu.RLock()
+	ok := a.spvRunning
+	a.mu.RUnlock()
+	if ok {
+		return
+	}
+	a.watchdogMu.Lock()
+	if time.Since(a.lastSPVRetry) < watchdogMinInterval {
+		a.watchdogMu.Unlock()
+		return
+	}
+	a.lastSPVRetry = time.Now()
+	a.watchdogMu.Unlock()
+	if err := a.startSPV(); err != nil {
+		log.Printf("[quantum-explorer] SPV watchdog: start failed: %v", err)
+	} else {
+		log.Printf("[quantum-explorer] SPV watchdog: spvnode started")
+	}
+}
+
 func (a *app) refreshLoop() {
 	reTxid := regexp.MustCompile(`\b[0-9a-fA-F]{64}\b`)
 	for {
@@ -786,26 +848,26 @@ func (a *app) publicStatus(w http.ResponseWriter, _ *http.Request) {
 	chainHdrs := a.recentChainHeaders(12)
 
 	writeJSON(w, 200, map[string]any{
-		"metrics":                 m,
-		"latest":                  rows,
-		"latest_pq_transactions":  latestPQ,
+		"metrics":                m,
+		"latest":                 rows,
+		"latest_pq_transactions": latestPQ,
 		"mempool": map[string]any{
 			"running":     a.engRunning,
 			"start_error": a.mempoolStartErr,
 		},
 		"spv": map[string]any{
-			"running":            a.spvRunning,
-			"start_error":        a.spvStartErr,
-			"latest_headers":     headers,
-			"pq_found_on_spv":    pqFoundOnSPV,
-			"headers_available":  len(headers),
-			"tip_height":         snap.TipHeight,
-			"tip_hash":           snap.TipHash,
-			"tip_time_from_log":  snap.LastTipTime,
-			"peer_count_hint":    snap.PeerCount,
-			"mempool_tx_hint":    snap.MempoolTxHint,
-			"indexed_tx_count":   len(rows),
-			"pq_confirmed_valid": pqConfirmedValid,
+			"running":              a.spvRunning,
+			"start_error":          a.spvStartErr,
+			"latest_headers":       headers,
+			"pq_found_on_spv":      pqFoundOnSPV,
+			"headers_available":    len(headers),
+			"tip_height":           snap.TipHeight,
+			"tip_hash":             snap.TipHash,
+			"tip_time_from_log":    snap.LastTipTime,
+			"peer_count_hint":      snap.PeerCount,
+			"mempool_tx_hint":      snap.MempoolTxHint,
+			"indexed_tx_count":     len(rows),
+			"pq_confirmed_valid":   pqConfirmedValid,
 			"pq_confirmed_invalid": pqConfirmedInvalid,
 		},
 		"chain_index": map[string]any{
@@ -885,7 +947,7 @@ func (a *app) publicBlock(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, 200, map[string]any{
-		"block": b,
+		"block":                   b,
 		"associated_transactions": txSummaries,
 		"notes": []string{
 			"Headers are inferred from libdogecoin spvnode logs (pipe rows and tip lines), not full blocks.",
@@ -975,10 +1037,10 @@ func (a *app) publicSearch(w http.ResponseWriter, r *http.Request) {
 		for _, t := range rows {
 			if strings.EqualFold(t.Txid, q) {
 				writeJSON(w, 200, map[string]any{
-					"query":      q,
-					"kind":       "txid",
-					"results":    []*PQTx{t},
-					"tx_detail":  "/api/public/tx?txid=" + q,
+					"query":     q,
+					"kind":      "txid",
+					"results":   []*PQTx{t},
+					"tx_detail": "/api/public/tx?txid=" + q,
 				})
 				return
 			}
@@ -1030,9 +1092,13 @@ func (a *app) adminStatus(w http.ResponseWriter, _ *http.Request) {
 		"checkpoint":          a.cfg.Checkpoint,
 		"network":             a.cfg.Network,
 		"last_spv_log_err":    a.lastSPVLogErr,
-		"spv_checkpoint_help":  note,
-		"spv_use_checkpoint":   strings.TrimSpace(env("QE_SPV_USE_CHECKPOINT", "1")) != "0",
-		"chain_index_backend":  a.chain.Kind(),
+		"spv_checkpoint_help": note,
+		"spv_use_checkpoint":  strings.TrimSpace(env("QE_SPV_USE_CHECKPOINT", "1")) != "0",
+		"chain_index_backend": a.chain.Kind(),
+		"storage_dir":         a.storageDir,
+		"spv_log_path":        filepath.Join(a.storageDir, "spv.log"),
+		"libdogecoin_spvnode": strings.TrimSpace(env("LIBDOGECOIN_SPVNODE", "spvnode")),
+		"diagnostics_api":     "GET /api/admin/<token>/diagnostics",
 	})
 }
 
@@ -1115,6 +1181,7 @@ func main() {
 	} else {
 		log.Printf("[quantum-explorer] SPV autostart invoked (QE_SPV_USE_CHECKPOINT=%q)", env("QE_SPV_USE_CHECKPOINT", "1"))
 	}
+	go a.subsystemWatchdog()
 	go a.refreshLoop()
 
 	publicMux := http.NewServeMux()
@@ -1153,6 +1220,8 @@ func main() {
 		switch action {
 		case "/status":
 			a.adminStatus(w, r)
+		case "/diagnostics":
+			a.adminDiagnostics(w, r)
 		case "/checkpoint":
 			a.adminCheckpoint(w, r)
 		case "/mempool/start":
@@ -1164,6 +1233,8 @@ func main() {
 		case "/mempool/stop":
 			a.stopMempool()
 			writeJSON(w, 200, map[string]any{"ok": true})
+		case "/mempool/restart":
+			a.adminRestartMempool(w)
 		case "/spv/start":
 			if err := a.startSPV(); err != nil && !errors.Is(err, os.ErrNotExist) {
 				writeJSON(w, 500, map[string]string{"error": err.Error()})
@@ -1173,6 +1244,8 @@ func main() {
 		case "/spv/stop":
 			a.stopSPV()
 			writeJSON(w, 200, map[string]any{"ok": true})
+		case "/spv/restart":
+			a.adminRestartSPV(w)
 		default:
 			http.NotFound(w, r)
 		}

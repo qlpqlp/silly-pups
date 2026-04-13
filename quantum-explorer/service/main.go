@@ -451,6 +451,7 @@ func (a *app) startMempool() error {
 	a.eng = eng
 	a.engRunning = true
 	a.mempoolStartErr = ""
+	log.Printf("[quantum-explorer] mempool tracker started (network=%s)", strings.ToLower(a.cfg.Network))
 	return nil
 }
 
@@ -491,10 +492,14 @@ func (a *app) startSPV() error {
 	a.spvCmd = cmd
 	a.spvRunning = true
 	a.spvStartErr = ""
+	log.Printf("[quantum-explorer] spvnode started pid=%d", cmd.Process.Pid)
 	go func(c *exec.Cmd, lf *os.File) {
-		_ = c.Wait()
+		err := c.Wait()
 		_ = lf.Close()
 		a.mu.Lock()
+		if err != nil && a.spvStartErr == "" {
+			a.spvStartErr = "spv process exited: " + err.Error()
+		}
 		a.spvRunning = false
 		a.spvCmd = nil
 		a.mu.Unlock()

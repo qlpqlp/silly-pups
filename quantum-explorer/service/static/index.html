@@ -84,6 +84,7 @@
     <section class="card" style="margin-top:.8rem">
       <h2>SPV Latest Headers (10)</h2>
       <p class="muted" id="spv-pq-status">PQ on SPV: checking…</p>
+      <p class="muted" id="mempool-status">Mempool: checking…</p>
       <div id="spv-headers" class="headers"></div>
     </section>
 
@@ -157,6 +158,7 @@
       const m=r.d.metrics||{};
       const mp=r.d.mempool||{};
       window.__mempoolErr = mp.start_error ? String(mp.start_error) : "";
+      document.getElementById("mempool-status").textContent = `Mempool running: ${mp.running ? "yes":"no"}`;
       document.getElementById("k-mempool").textContent = m.mempool_live ?? 0;
       document.getElementById("k-pq").textContent = m.pq_seen ?? 0;
       document.getElementById("k-confirmed").textContent = m.confirmed ?? 0;

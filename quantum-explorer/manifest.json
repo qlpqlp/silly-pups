@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "meta": {
     "name": "Quantum Explorer",
-    "version": "0.1.17",
+    "version": "0.1.18",
     "logoPath": "logo.png",
     "shortDescription": "Dogecoin blockchain explorer with Core RPC indexer and PQ transaction metrics",
     "longDescription": "Quantum Explorer runs PostgreSQL inside the pup (embedded when QE_POSTGRES_URL is unset), indexes every block and transaction from Dogecoin Core via RPC into local tables, and serves a Comic Neue + Material Icons web UI. Search supports address, txid, block height, and block hash. Post-quantum signals are classified from decoded raw transaction bytes (OP_RETURN markers). Optional libdogecoin SPV and P2P mempool tracking are off by default; set QE_SPV_AUTO_START=1 or QE_MEMPOOL_AUTO_START=1 to enable legacy paths. Configure Dogecoin Core RPC (QE_CORE_RPC_*) for indexing; link the core-rpc interface from the Dogecoin Core pup when available.",
@@ -73,7 +73,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "800c9722ae7d95bbb793010cbbadf1148d3846d1b70edf7777c5bf395a764949"
+      "nixFileSha256": "2817a101421217206522f48d0c1f8f21e34ab24963d6e2e475fd464483c6aede"
     },
     "services": [
       {
@@ -96,7 +96,7 @@
   "interfaces": [
     {
       "name": "quantum-explorer-public",
-      "version": "0.1.17",
+      "version": "0.1.18",
       "permissionGroups": [
         {
           "name": "Quantum Explorer HTTP",

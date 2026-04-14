@@ -97,6 +97,15 @@ let
       if [ ! -f "$PGDATA/PG_VERSION" ]; then
         initdb -D "$PGDATA" -U qeuser --locale=C -E UTF8 --auth-local=trust --auth-host=trust
       fi
+      # Containers often have a tiny /dev/shm (e.g. 64MB); default SysV shared memory fails to start.
+      if ! grep -q '^# quantum-explorer-tune' "$PGDATA/postgresql.conf" 2>/dev/null; then
+        cat >> "$PGDATA/postgresql.conf" <<'EOF'
+# quantum-explorer-tune (small /dev/shm in Docker / systemd-nspawn)
+shared_memory_type = mmap
+shared_buffers = 32MB
+dynamic_shared_memory_type = posix
+EOF
+      fi
       cleanup() {
         if pg_ctl -D "$PGDATA" status >/dev/null 2>&1; then
           pg_ctl -D "$PGDATA" -m fast stop || true
@@ -104,7 +113,11 @@ let
       }
       trap cleanup EXIT INT TERM
       if ! pg_ctl -D "$PGDATA" status >/dev/null 2>&1; then
-        pg_ctl -D "$PGDATA" -l "$PGDATA/postgres.log" -o "-p $PGPORT -h 127.0.0.1" start
+        if ! pg_ctl -D "$PGDATA" -l "$PGDATA/postgres.log" -o "-p $PGPORT -h 127.0.0.1" start; then
+          echo "[quantum-explorer] postgres failed to start; tail of $PGDATA/postgres.log:" >&2
+          tail -n 120 "$PGDATA/postgres.log" >&2 || true
+          exit 1
+        fi
         sleep 0.4
       fi
       for i in $(seq 1 80); do

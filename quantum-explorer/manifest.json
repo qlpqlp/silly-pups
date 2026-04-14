@@ -2,14 +2,13 @@
   "manifestVersion": 1,
   "meta": {
     "name": "Quantum Explorer",
-    "version": "0.1.20",
+    "version": "0.1.21",
     "logoPath": "logo.png",
     "shortDescription": "Dogecoin blockchain explorer with Core RPC indexer and PQ transaction metrics",
-    "longDescription": "Quantum Explorer runs PostgreSQL inside the pup (embedded when QE_POSTGRES_URL is unset), indexes every block and transaction from Dogecoin Core via RPC into local tables, and serves a Comic Neue + Material Icons web UI. Search supports address, txid, block height, and block hash. Post-quantum signals are classified from decoded raw transaction bytes (OP_RETURN markers). Optional libdogecoin SPV and P2P mempool tracking are off by default; set QE_SPV_AUTO_START=1 or QE_MEMPOOL_AUTO_START=1 to enable legacy paths. Configure Dogecoin Core RPC (QE_CORE_RPC_*) for indexing; link the core-rpc interface from the Dogecoin Core pup when available.",
+    "longDescription": "Quantum Explorer runs PostgreSQL inside the pup (embedded when QE_POSTGRES_URL is unset), indexes every block and transaction from Dogecoin Core via RPC into local tables, and serves a Comic Neue + Material Icons web UI. Search supports address, txid, block height, and block hash. Post-quantum signals are classified from decoded raw transaction bytes (OP_RETURN markers). Configure Dogecoin Core RPC (QE_CORE_RPC_*) for indexing; link the core-rpc interface from the Dogecoin Core pup when available.",
     "upstreamVersions": {
       "Go": "1.24",
-      "PostgreSQL": "16",
-      "libdogecoin": "spvnode (optional)"
+      "PostgreSQL": "16"
     }
   },
   "config": {
@@ -20,7 +19,7 @@
         "fields": [
           { "name": "PUBLIC_PORT", "label": "HTTP port", "type": "text", "default": "33666" },
           { "name": "NETWORK", "label": "Network (mainnet/testnet)", "type": "text", "default": "mainnet" },
-          { "name": "QE_EXPLORER_TX_API", "label": "Optional: tx API URL with {txid} (legacy mempool path only)", "type": "text", "default": "" }
+          { "name": "QE_EXPLORER_TX_API", "label": "Optional: tx API URL template with {txid} placeholder", "type": "text", "default": "" }
         ]
       },
       {
@@ -42,18 +41,8 @@
           { "name": "QE_CORE_RPC_TIMEOUT_MS", "label": "RPC timeout ms", "type": "text", "default": "8000" },
           { "name": "QE_CORE_INDEXER_AUTO_START", "label": "Start indexer with app (1=yes)", "type": "text", "default": "1" },
           { "name": "QE_CORE_BACKFILL_BATCH", "label": "Blocks per indexer batch", "type": "text", "default": "20" },
+          { "name": "QE_CORE_RAW_BACKFILL_BATCH", "label": "Txs per idle pass to store raw hex in Postgres (getrawtransaction)", "type": "text", "default": "40" },
           { "name": "QE_CORE_START_HEIGHT", "label": "Start height on fresh DB", "type": "text", "default": "0" }
-        ]
-      },
-      {
-        "name": "Optional SPV and mempool",
-        "description": "Legacy libdogecoin SPV and P2P mempool indexer; disabled by default.",
-        "fields": [
-          { "name": "QE_MEMPOOL_AUTO_START", "label": "Start mempool tracker (1=yes)", "type": "text", "default": "0" },
-          { "name": "QE_SPV_WATCH_ADDRESS", "label": "Optional: spvnode watch address", "type": "text", "default": "" },
-          { "name": "QE_SPV_USE_CHECKPOINT", "label": "Embedded checkpoints (1=yes)", "type": "text", "default": "1" },
-          { "name": "QE_SPV_AUTO_START", "label": "Start spvnode (1=yes)", "type": "text", "default": "0" },
-          { "name": "QE_LEGACY_REFRESH_LOOP", "label": "Legacy PQ refresh loop (1=yes)", "type": "text", "default": "0" }
         ]
       },
       {
@@ -74,7 +63,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "d472d82a65bca5b3bb9fdf54f01f5793d1567bb3a31bae6817d0c586aed930dc"
+      "nixFileSha256": "79faac9314446a0b749afed38ba13153c0fcddd001daa492855b9fcbc8e9b7d8"
     },
     "services": [
       {
@@ -97,7 +86,7 @@
   "interfaces": [
     {
       "name": "quantum-explorer-public",
-      "version": "0.1.20",
+      "version": "0.1.21",
       "permissionGroups": [
         {
           "name": "Quantum Explorer HTTP",

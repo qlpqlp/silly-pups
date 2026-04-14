@@ -118,6 +118,28 @@ func (c *coreRPCClient) call(ctx context.Context, method string, params any, out
 	return json.Unmarshal(rr.Result, out)
 }
 
+// getRawTransactionHex returns raw tx hex via getrawtransaction (verbosity false).
+// For confirmed txs, pass blockHash when the node has no -txindex so Core can locate the tx.
+func (c *coreRPCClient) getRawTransactionHex(ctx context.Context, txid, blockHash string) (string, error) {
+	if c == nil || !c.enabled() {
+		return "", errors.New("core rpc is not configured")
+	}
+	txid = strings.ToLower(strings.TrimSpace(txid))
+	blockHash = strings.ToLower(strings.TrimSpace(blockHash))
+	var hexStr string
+	if len(blockHash) == 64 && isHex64String(blockHash) {
+		if err := c.call(ctx, "getrawtransaction", []any{txid, false, blockHash}, &hexStr); err == nil {
+			if s := strings.TrimSpace(hexStr); s != "" {
+				return s, nil
+			}
+		}
+	}
+	if err := c.call(ctx, "getrawtransaction", []any{txid, false}, &hexStr); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(hexStr), nil
+}
+
 func (c *coreRPCClient) snapshot() map[string]any {
 	out := map[string]any{
 		"enabled":    c.enabled(),

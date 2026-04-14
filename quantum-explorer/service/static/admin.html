@@ -119,8 +119,7 @@
     <div class="row">
       <div class="pills" id="pill-wrap">
         <span class="pill" id="pill-backend">…</span>
-        <span class="pill" id="pill-mem">Mempool …</span>
-        <span class="pill" id="pill-spv">SPV …</span>
+        <span class="pill" id="pill-core">Core …</span>
       </div>
     </div>
   </header>
@@ -140,7 +139,7 @@
             <li>Set <span class="docs-kbd">QE_ADMIN_TOKEN</span> to a strong random value.</li>
             <li>Use <span class="docs-kbd">QE_ADMIN_ALLOWLIST</span> for office/VPN IP access.</li>
             <li>Set <span class="docs-kbd">NETWORK</span> and <span class="docs-kbd">PUBLIC_PORT</span> correctly.</li>
-            <li>Keep <span class="docs-kbd">QE_SPV_AUTO_START=1</span> for unattended boot.</li>
+            <li>Keep <span class="docs-kbd">QE_CORE_INDEXER_AUTO_START=1</span> for unattended indexing when Core RPC is set.</li>
           </ul>
         </article>
         <article class="docs-modern-card">
@@ -161,10 +160,8 @@
           </ul>
         </article>
         <article class="docs-modern-card">
-          <h3>Subsystem controls</h3>
+          <h3>Service controls</h3>
           <ul class="docs-modern-list">
-            <li>Mempool controls manage P2P capture lifecycle.</li>
-            <li>SPV controls manage <span class="docs-kbd">spvnode</span> process.</li>
             <li>Core indexer controls backfill/search ingestion.</li>
             <li>Validate after actions using Status + Diagnostics panels.</li>
           </ul>
@@ -173,7 +170,7 @@
           <h3>Troubleshooting flow</h3>
           <ul class="docs-modern-list">
             <li>Check <span class="docs-kbd">/healthz</span> and <span class="docs-kbd">/readyz</span>.</li>
-            <li>Inspect SPV log tail for connectivity/sync clues.</li>
+            <li>Inspect diagnostics JSON for Core RPC and indexer state.</li>
             <li>Review Core RPC and indexer diagnostics state.</li>
             <li>Verify Postgres and Core RPC credentials/network.</li>
           </ul>
@@ -184,19 +181,7 @@
     <section class="card panel active" id="panel-status">
       <h2><span class="material-symbols-outlined title-ico" aria-hidden="true">monitor_heart</span>Runtime status</h2>
       <div id="status" class="status-grid mono muted">Loading…</div>
-      <h2><span class="material-symbols-outlined title-ico" aria-hidden="true">terminal</span>Live — <span style="color:var(--accent)">spv.log</span></h2>
-      <p class="muted" style="margin-top:0">Tail (~96KB) from disk. If the tip height stops moving for a long time, see the SPV checkpoint note in status — libdogecoin only ships <em>finite</em> embedded checkpoints; after that, sync depends on peers and upstream releases.</p>
-      <div class="log-panel">
-        <div class="log-head">
-          <span id="log-meta">spv.log</span>
-          <div class="row">
-            <button type="button" class="ghost" id="btn-log-wrap"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">wrap_text</span>Toggle wrap</span></button>
-            <button type="button" class="ghost" id="btn-log-copy"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">content_copy</span>Copy log</span></button>
-            <button type="button" class="primary" id="btn-diag-refresh"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">refresh</span>Refresh now</span></button>
-          </div>
-        </div>
-        <pre class="log-body" id="diag-spv-log" role="log" aria-live="polite">Loading…</pre>
-      </div>
+      <p class="muted" style="margin:.75rem 0 0">Use <strong>Diagnostics</strong> for sanitized environment and chain/indexer JSON. Status refreshes every few seconds.</p>
       <p class="muted" id="diag-time" style="margin:.5rem 0 0;font-size:.78rem"></p>
       <div id="diag-error" class="bad mono" style="display:none;margin-top:.5rem"></div>
     </section>
@@ -204,18 +189,6 @@
     <section class="card panel" id="panel-controls">
       <h2><span class="material-symbols-outlined title-ico" aria-hidden="true">tune</span>Service controls</h2>
       <p class="muted" style="margin-top:0">PostgreSQL is external — only diagnostics here. Restart = stop → short delay → start.</p>
-      <h3>Mempool (P2P)</h3>
-      <div class="row" style="margin-bottom:.65rem">
-        <button type="button" id="m-start"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">play_arrow</span>Start</span></button>
-        <button type="button" id="m-stop"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">stop</span>Stop</span></button>
-        <button type="button" class="warn" id="m-restart"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">restart_alt</span>Restart</span></button>
-      </div>
-      <h3>SPV (spvnode)</h3>
-      <div class="row">
-        <button type="button" id="s-start"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">play_arrow</span>Start</span></button>
-        <button type="button" id="s-stop"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">stop</span>Stop</span></button>
-        <button type="button" class="warn" id="s-restart"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">restart_alt</span>Restart</span></button>
-      </div>
       <h3>Core backfill indexer</h3>
       <div class="row">
         <button type="button" id="c-start"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">play_arrow</span>Start</span></button>
@@ -228,12 +201,12 @@
       <h2><span class="material-symbols-outlined title-ico" aria-hidden="true">troubleshoot</span>Diagnostics</h2>
       <div class="grid2">
         <div>
-          <h3>Mempool</h3>
-          <pre class="diag-mini mono" id="diag-mem">…</pre>
+          <h3>Chain index</h3>
+          <pre class="diag-mini mono" id="diag-chain">…</pre>
         </div>
         <div>
-          <h3>Chain / Postgres</h3>
-          <pre class="diag-mini mono" id="diag-chain">…</pre>
+          <h3>Core indexer</h3>
+          <pre class="diag-mini mono" id="diag-cidx">…</pre>
         </div>
       </div>
       <details class="json-details"><summary>Environment (sanitized)</summary>
@@ -290,7 +263,7 @@
         <input id="cp-time" placeholder="Timestamp RFC3339" />
         <button type="button" id="cp-save"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">save</span>Save</span></button>
       </div>
-      <p class="muted">Not passed to spvnode. Embedded checkpoints are compiled into libdogecoin (-p/-q).</p>
+      <p class="muted">Reference checkpoint stored in config JSON for documentation; indexing uses Dogecoin Core RPC.</p>
     </section>
   </div>
   </main>
@@ -318,16 +291,12 @@
 
     function setPills(d){
       const b = document.getElementById("pill-backend");
-      const m = document.getElementById("pill-mem");
-      const s = document.getElementById("pill-spv");
+      const c = document.getElementById("pill-core");
       if (b) b.textContent = d.chain_index_backend || "chain ?";
-      if (m) {
-        m.textContent = d.mempool_running ? "Mempool on" : "Mempool off";
-        m.className = "pill " + (d.mempool_running ? "ok" : "bad");
-      }
-      if (s) {
-        s.textContent = d.spv_running ? "SPV on" : "SPV off";
-        s.className = "pill " + (d.spv_running ? "ok" : "bad");
+      const core = d.core_rpc || {};
+      if (c) {
+        c.textContent = core.connected ? "Core RPC ok" : (core.enabled ? "Core RPC offline" : "Core RPC unset");
+        c.className = "pill " + (core.connected ? "ok" : "bad");
       }
     }
 
@@ -338,22 +307,13 @@
       const d = r.d || {};
       const core = d.core_rpc || {};
       setPills(d);
-      const hint = (d.spv_checkpoint_help || "").replace(/</g, "");
       el.innerHTML = [
         kv("Chain backend", d.chain_index_backend),
         kv("Storage", d.storage_dir),
-        kv("spv.log", d.spv_log_path),
-        kv("spvnode binary", d.libdogecoin_spvnode),
-        kv("Mempool", d.mempool_running ? "running" : "stopped", d.mempool_running),
-        kv("Mempool err", d.mempool_start_error || "—"),
-        kv("SPV", d.spv_running ? "running" : "stopped", d.spv_running),
-        kv("SPV err", d.spv_start_error || "—"),
-        kv("Log ingest err", d.last_spv_log_err || "—"),
-        kv("Embedded -p/-q", d.spv_use_checkpoint ? "on" : "off", d.spv_use_checkpoint),
         kv("Core RPC", core.connected ? "connected" : (core.enabled ? "configured (offline)" : "disabled"), core.connected),
         kv("Core endpoint", core.rpc_url || "—"),
         kv("Network", d.network || "—"),
-      ].join("") + (hint ? `<div class="status-item" style="grid-column:1/-1"><strong>SPV sync note</strong>${esc(hint)}</div>` : "");
+      ].join("");
       const cp = d.checkpoint || {};
       if (cp.height) document.getElementById("cp-height").value = cp.height;
       if (cp.hash) document.getElementById("cp-hash").value = cp.hash;
@@ -376,20 +336,8 @@
       const d = r.d || {};
       document.getElementById("diag-time").textContent = d.generated_at ? `Last fetch: ${d.generated_at} · auto-refresh 15s` : "";
       document.getElementById("diag-env").textContent = JSON.stringify(d.env || {}, null, 2);
-      document.getElementById("diag-mem").textContent = JSON.stringify(d.mempool_tracker || {}, null, 2);
       document.getElementById("diag-chain").textContent = JSON.stringify(d.chain_index || {}, null, 2);
-      const cidx = d.core_indexer || {};
-      document.getElementById("diag-chain").textContent =
-        JSON.stringify({ chain_index: d.chain_index || {}, core_indexer: cidx }, null, 2);
-      const spv = d.spv || {};
-      const path = spv.log_path || "spv.log";
-      const tailLen = typeof spv.log_tail === "string" ? spv.log_tail.length : 0;
-      document.getElementById("log-meta").textContent = `${path} · ${tailLen} chars tail · max ${spv.tail_max || "—"}`;
-      document.getElementById("diag-spv-log").textContent = typeof spv.log_tail === "string" ? spv.log_tail : "(empty)";
-      if (spv.log_read_error) {
-        errEl.style.display = "block";
-        errEl.textContent = "Log read: " + spv.log_read_error;
-      }
+      document.getElementById("diag-cidx").textContent = JSON.stringify(d.core_indexer || {}, null, 2);
       document.getElementById("diag-pqtx").textContent = JSON.stringify(d.pqtx_store || {}, null, 2);
       document.getElementById("diag-full").textContent = JSON.stringify(d, null, 2);
     }
@@ -442,12 +390,6 @@
       await loadAccessControl();
     }
 
-    document.getElementById("m-start").onclick = ()=>call(`${API_BASE}/mempool/start`);
-    document.getElementById("m-stop").onclick = ()=>call(`${API_BASE}/mempool/stop`);
-    document.getElementById("m-restart").onclick = ()=>call(`${API_BASE}/mempool/restart`);
-    document.getElementById("s-start").onclick = ()=>call(`${API_BASE}/spv/start`);
-    document.getElementById("s-stop").onclick = ()=>call(`${API_BASE}/spv/stop`);
-    document.getElementById("s-restart").onclick = ()=>call(`${API_BASE}/spv/restart`);
     document.getElementById("c-start").onclick = ()=>call(`${API_BASE}/core-indexer/start`);
     document.getElementById("c-stop").onclick = ()=>call(`${API_BASE}/core-indexer/stop`);
     document.getElementById("c-status").onclick = ()=>j(`${API_BASE}/core-indexer/status`).then(r=>toast(JSON.stringify(r.d||{})));
@@ -456,20 +398,6 @@
       hash: String(document.getElementById("cp-hash").value || "").trim(),
       timestamp: String(document.getElementById("cp-time").value || "").trim()
     });
-    document.getElementById("btn-diag-refresh").onclick = ()=>loadDiagnostics();
-    document.getElementById("btn-log-wrap").onclick = ()=>{
-      const el = document.getElementById("diag-spv-log");
-      el.classList.toggle("wrap-off");
-    };
-    document.getElementById("btn-log-copy").onclick = async ()=>{
-      const t = document.getElementById("diag-spv-log").textContent || "";
-      try {
-        await navigator.clipboard.writeText(t);
-        toast("copied");
-      } catch(e) {
-        toast("copy failed");
-      }
-    };
     function activatePanel(id){
       document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
       const target = document.getElementById(id);

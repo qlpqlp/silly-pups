@@ -23,59 +23,6 @@ func parsePositiveInt(raw string, def, min, max int) int {
 	return n
 }
 
-func txMatchesMode(t *PQTx, mode string) bool {
-	switch mode {
-	case "quantum":
-		return t != nil && t.PQValid
-	case "non-quantum":
-		return t != nil && !t.PQValid
-	default:
-		return t != nil
-	}
-}
-
-func (a *app) publicMempool(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
-		return
-	}
-	mode := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("mode")))
-	if mode == "" {
-		mode = "all"
-	}
-	if mode != "all" && mode != "quantum" && mode != "non-quantum" {
-		writeJSON(w, 400, map[string]string{"error": "mode must be one of: all, quantum, non-quantum"})
-		return
-	}
-	limit := parsePositiveInt(r.URL.Query().Get("limit"), 10, 1, 200)
-	offset := parsePositiveInt(r.URL.Query().Get("offset"), 0, 0, 50000)
-
-	rows := a.latest(10000)
-	filtered := make([]*PQTx, 0, len(rows))
-	for _, t := range rows {
-		if txMatchesMode(t, mode) {
-			filtered = append(filtered, t)
-		}
-	}
-
-	total := len(filtered)
-	if offset > total {
-		offset = total
-	}
-	end := offset + limit
-	if end > total {
-		end = total
-	}
-	page := filtered[offset:end]
-	writeJSON(w, 200, map[string]any{
-		"mode":   mode,
-		"limit":  limit,
-		"offset": offset,
-		"total":  total,
-		"rows":   page,
-	})
-}
-
 func (a *app) publicMetrics(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
@@ -149,7 +96,7 @@ func (a *app) publicMetrics(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, 200, map[string]any{
 		"hours":   hours,
-		"source":  "in_memory_tracker",
+		"source":  "pq_json_store",
 		"buckets": buckets,
 	})
 }

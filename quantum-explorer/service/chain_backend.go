@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// IndexedBlockHeader is a block header learned from spvnode logs (not a full block).
+// IndexedBlockHeader is a block header stored in the local chain index (not a full block).
 type IndexedBlockHeader struct {
 	Height    int    `json:"height"`
 	Hash      string `json:"hash"`
@@ -19,7 +19,7 @@ type IndexedBlockHeader struct {
 	RawSource string `json:"raw_source,omitempty"`
 }
 
-// chainBackend stores SPV-derived headers and heuristic block→tx links.
+// chainBackend stores indexed headers and heuristic block→tx links.
 // PostgreSQL implementations support concurrent HTTP readers + writer; JSON backend uses RWMutex.
 type chainBackend interface {
 	Kind() string

@@ -67,6 +67,7 @@ func (ix *coreIndexer) ensureSchema(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS qe_core_txs_block_height ON qe_core_txs (block_height DESC)`,
 		`CREATE INDEX IF NOT EXISTS qe_core_txs_quantum_state ON qe_core_txs (quantum_state)`,
 		`CREATE INDEX IF NOT EXISTS qe_core_txs_time_unix ON qe_core_txs (time_unix DESC)`,
+		`CREATE INDEX IF NOT EXISTS qe_core_txs_missing_raw ON qe_core_txs (block_height ASC) WHERE LENGTH(TRIM(COALESCE(raw_hex,'')))=0`,
 		`CREATE TABLE IF NOT EXISTS qe_core_addresses (
 			address TEXT NOT NULL,
 			txid TEXT NOT NULL,
@@ -203,6 +204,13 @@ func (ix *coreIndexer) loop() {
 
 		if cur >= tip {
 			_ = ix.persistState()
+			bfCtx, bfCancel := context.WithTimeout(context.Background(), 90*time.Second)
+			filled := ix.backfillMissingRawHexBatch(bfCtx)
+			bfCancel()
+			if filled > 0 {
+				_ = ix.refreshHourlyMetrics(72)
+				log.Printf("[quantum-explorer] stored raw tx backfill: %d txs (postgres)", filled)
+			}
 			time.Sleep(3 * time.Second)
 			continue
 		}
@@ -271,6 +279,19 @@ func (ix *coreIndexer) indexHeight(height int64) error {
 			continue
 		}
 		rawHex := strings.TrimSpace(anyString(tm["hex"]))
+		if rawHex == "" && ix.rpc != nil && ix.rpc.enabled() {
+			for attempt := 0; attempt < 2; attempt++ {
+				if attempt > 0 {
+					time.Sleep(100 * time.Millisecond)
+				}
+				if h, err := ix.rpc.getRawTransactionHex(ctx, txid, bhash); err == nil {
+					rawHex = strings.TrimSpace(h)
+					if rawHex != "" {
+						break
+					}
+				}
+			}
+		}
 		state := "non-quantum"
 		reason := ""
 		if rawHex != "" {
@@ -309,7 +330,10 @@ func (ix *coreIndexer) indexHeight(height int64) error {
 		_, err = tx.ExecContext(ctx, `INSERT INTO qe_core_txs (txid, block_height, block_hash, time_unix, quantum_state, pq_reason, value_out_sats, raw_hex, created_at)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
 			ON CONFLICT (txid) DO UPDATE SET block_height=EXCLUDED.block_height, block_hash=EXCLUDED.block_hash, time_unix=EXCLUDED.time_unix,
-			quantum_state=EXCLUDED.quantum_state, pq_reason=EXCLUDED.pq_reason, value_out_sats=EXCLUDED.value_out_sats, raw_hex=EXCLUDED.raw_hex`,
+			value_out_sats=EXCLUDED.value_out_sats,
+			quantum_state=(CASE WHEN LENGTH(TRIM(COALESCE(EXCLUDED.raw_hex,'')))>0 THEN EXCLUDED.quantum_state ELSE qe_core_txs.quantum_state END),
+			pq_reason=(CASE WHEN LENGTH(TRIM(COALESCE(EXCLUDED.raw_hex,'')))>0 THEN EXCLUDED.pq_reason ELSE qe_core_txs.pq_reason END),
+			raw_hex=(CASE WHEN LENGTH(TRIM(COALESCE(EXCLUDED.raw_hex,'')))>0 THEN EXCLUDED.raw_hex ELSE qe_core_txs.raw_hex END)`,
 			txid, height, bhash, btime, state, reason, totalOut, rawHex, time.Now().Unix())
 		if err != nil {
 			return err
@@ -592,6 +616,12 @@ func (ix *coreIndexer) search(ctx context.Context, q string, limit int) (map[str
 		var hash string
 		if err := ix.db.QueryRowContext(ctx, `SELECT height, hash, time_unix FROM qe_core_blocks WHERE height=$1`, n).Scan(&h, &hash, &t); err == nil {
 			row = map[string]any{"height": h, "hash": hash, "time_unix": t}
+			return map[string]any{
+				"kind":        "block_height",
+				"query":       q,
+				"block":       row,
+				"block_query": "/api/public/block?height=" + strconv.FormatInt(h, 10),
+			}, nil
 		}
 		return map[string]any{"kind": "block_height", "query": q, "block": row}, nil
 	}
@@ -602,17 +632,25 @@ func (ix *coreIndexer) search(ctx context.Context, q string, limit int) (map[str
 		err := ix.db.QueryRowContext(ctx, `SELECT txid, block_height, time_unix, quantum_state, pq_reason, value_out_sats FROM qe_core_txs WHERE txid=$1`, q).
 			Scan(&txid, &h, &tm, &state, &reason, &outSats)
 		if err == nil {
-			return map[string]any{"kind": "txid", "query": q, "tx": map[string]any{
-				"txid": txid, "block_height": h, "time_unix": tm, "quantum_state": state, "pq_reason": reason, "value_out_sats": outSats,
-			}}, nil
+			return map[string]any{
+				"kind":      "txid",
+				"query":     q,
+				"tx_detail": "/api/public/tx?txid=" + q,
+				"tx": map[string]any{
+					"txid": txid, "block_height": h, "time_unix": tm, "quantum_state": state, "pq_reason": reason, "value_out_sats": outSats,
+				},
+			}, nil
 		}
 		var bh int64
 		var bHash string
 		var bTime int64
 		if err := ix.db.QueryRowContext(ctx, `SELECT height, hash, time_unix FROM qe_core_blocks WHERE hash=$1`, q).Scan(&bh, &bHash, &bTime); err == nil {
-			return map[string]any{"kind": "block_hash", "query": q, "block": map[string]any{
-				"height": bh, "hash": bHash, "time_unix": bTime,
-			}}, nil
+			return map[string]any{
+				"kind":        "block_hash",
+				"query":       q,
+				"block":       map[string]any{"height": bh, "hash": bHash, "time_unix": bTime},
+				"block_query": "/api/public/block?hash=" + q,
+			}, nil
 		}
 		// Not a known txid or block hash; do not treat as a Dogecoin address.
 		return map[string]any{
@@ -749,20 +787,78 @@ func min(a, b int) int {
 	return b
 }
 
-func (ix *coreIndexer) txRowByID(ctx context.Context, txid string) (rawHex, quantumState, pqReason string, blockH, timeUnix, valueOut int64, ok bool, err error) {
+// backfillMissingRawHexBatch fetches getrawtransaction for rows with empty raw_hex while Core RPC is up,
+// so /api/public/tx and block decodes work from Postgres alone when Core is offline later.
+func (ix *coreIndexer) backfillMissingRawHexBatch(ctx context.Context) int {
+	if ix == nil || ix.db == nil || ix.rpc == nil || !ix.rpc.enabled() {
+		return 0
+	}
+	limit := envIntBounded("QE_CORE_RAW_BACKFILL_BATCH", 40, 1, 200)
+	rows, err := ix.db.QueryContext(ctx, `
+		SELECT txid, block_hash FROM qe_core_txs
+		WHERE LENGTH(TRIM(COALESCE(raw_hex,'')))=0
+		ORDER BY block_height ASC
+		LIMIT $1`, limit)
+	if err != nil {
+		return 0
+	}
+	defer rows.Close()
+	n := 0
+	for rows.Next() {
+		var txid, bhash string
+		if err := rows.Scan(&txid, &bhash); err != nil {
+			continue
+		}
+		txid = strings.ToLower(strings.TrimSpace(txid))
+		bhash = strings.ToLower(strings.TrimSpace(bhash))
+		rctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		h, err := ix.rpc.getRawTransactionHex(rctx, txid, bhash)
+		cancel()
+		if err != nil || strings.TrimSpace(h) == "" {
+			continue
+		}
+		bfCtx, bfDone := context.WithTimeout(context.Background(), 12*time.Second)
+		err = ix.backfillRawHex(bfCtx, txid, strings.TrimSpace(h))
+		bfDone()
+		if err == nil {
+			n++
+		}
+	}
+	return n
+}
+
+func (ix *coreIndexer) txRowByID(ctx context.Context, txid string) (rawHex, quantumState, pqReason string, blockH, timeUnix, valueOut int64, blockHash string, ok bool, err error) {
 	if ix == nil || ix.db == nil {
-		return "", "", "", 0, 0, 0, false, nil
+		return "", "", "", 0, 0, 0, "", false, nil
 	}
 	txid = strings.ToLower(strings.TrimSpace(txid))
-	err = ix.db.QueryRowContext(ctx, `SELECT raw_hex, quantum_state, pq_reason, block_height, time_unix, value_out_sats FROM qe_core_txs WHERE txid=$1`, txid).
-		Scan(&rawHex, &quantumState, &pqReason, &blockH, &timeUnix, &valueOut)
+	err = ix.db.QueryRowContext(ctx, `SELECT raw_hex, quantum_state, pq_reason, block_height, time_unix, value_out_sats, block_hash FROM qe_core_txs WHERE txid=$1`, txid).
+		Scan(&rawHex, &quantumState, &pqReason, &blockH, &timeUnix, &valueOut, &blockHash)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", "", "", 0, 0, 0, false, nil
+		return "", "", "", 0, 0, 0, "", false, nil
 	}
 	if err != nil {
-		return "", "", "", 0, 0, 0, false, err
+		return "", "", "", 0, 0, 0, "", false, err
 	}
-	return rawHex, quantumState, pqReason, blockH, timeUnix, valueOut, true, nil
+	return rawHex, quantumState, pqReason, blockH, timeUnix, valueOut, strings.ToLower(strings.TrimSpace(blockHash)), true, nil
+}
+
+func (ix *coreIndexer) backfillRawHex(ctx context.Context, txid, rawHex string) error {
+	if ix == nil || ix.db == nil || strings.TrimSpace(rawHex) == "" {
+		return nil
+	}
+	txid = strings.ToLower(strings.TrimSpace(txid))
+	state := "non-quantum"
+	reason := ""
+	if ok, why, _, _ := verifyPQStrict(rawHex); ok {
+		state = "quantum"
+	} else {
+		state = "invalid-quantum"
+		reason = why
+	}
+	_, err := ix.db.ExecContext(ctx, `UPDATE qe_core_txs SET raw_hex=$1, quantum_state=$2, pq_reason=$3 WHERE txid=$4 AND (raw_hex='' OR LENGTH(TRIM(COALESCE(raw_hex,'')))=0)`,
+		rawHex, state, reason, txid)
+	return err
 }
 
 func (ix *coreIndexer) autoStartIfEnabled() {

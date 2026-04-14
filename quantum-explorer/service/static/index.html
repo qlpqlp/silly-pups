@@ -118,6 +118,41 @@
     .tx-tab-pane.active { display:block; }
     @media (max-width:900px){ .docs-grid { grid-template-columns:1fr; } }
     @media (max-width:900px){ .grid { grid-template-columns:1fr; } }
+    .search-hero-label { font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:0 0 .35rem; }
+    .search-hints { font-size:.8rem; color:var(--muted); margin:.45rem 0 0; line-height:1.5; }
+    .search-hints code { background:#0d1622; padding:.1rem .35rem; border-radius:6px; font-size:.78rem; border:1px solid var(--line); }
+    .result-card { border:1px solid var(--line); border-radius:14px; padding:.85rem 1rem; margin-top:.65rem; background:linear-gradient(180deg,#131c2a 0%,#0f1824 100%); }
+    .result-card h3 { margin:0 0 .5rem; font-size:.95rem; font-weight:700; display:flex; align-items:center; gap:.4rem; }
+    .result-actions { display:flex; flex-wrap:wrap; gap:.45rem; margin-top:.65rem; }
+    .btn-inline { width:auto; padding:.45rem .75rem; font-size:.86rem; }
+    .addr-table-wrap { overflow-x:auto; margin-top:.45rem; border-radius:12px; border:1px solid var(--line); }
+    .addr-table { width:100%; border-collapse:collapse; font-size:.82rem; }
+    .addr-table th, .addr-table td { padding:.45rem .55rem; text-align:left; border-bottom:1px solid var(--line); }
+    .addr-table th { color:var(--muted); font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; background:#0d1520; }
+    .addr-table tr:last-child td { border-bottom:none; }
+    .addr-table tr:hover td { background:rgba(242,203,44,.06); }
+    .link-tx { background:none; border:none; color:#9fd6ff; font:inherit; cursor:pointer; text-decoration:underline; padding:0; font-size:inherit; }
+    .modal-card.modal-wide { max-width:960px; }
+    .pq-hero { border-radius:14px; padding:.85rem 1rem; margin:0 0 1rem; display:flex; align-items:flex-start; gap:.75rem; border:1px solid var(--line); }
+    .pq-hero .material-symbols-outlined { font-size:28px; margin-top:.1rem; }
+    .pq-hero.quantum { background:linear-gradient(135deg,rgba(99,199,255,.18),rgba(15,24,36,.9)); border-color:rgba(99,199,255,.45); }
+    .pq-hero.invalid { background:linear-gradient(135deg,rgba(255,143,143,.14),rgba(15,24,36,.9)); border-color:rgba(255,143,143,.4); }
+    .pq-hero.standard { background:linear-gradient(135deg,rgba(149,167,194,.12),rgba(15,24,36,.9)); }
+    .pq-hero h3 { margin:0 0 .2rem; font-size:1.05rem; }
+    .pq-hero p { margin:0; font-size:.84rem; color:var(--muted); line-height:1.45; }
+    .tx-kv-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:.5rem; margin:.65rem 0; font-size:.84rem; }
+    .tx-kv-grid > div { padding:.45rem .5rem; border-radius:10px; border:1px solid var(--line); background:#0f1824; }
+    .tx-kv-grid strong { display:block; font-size:.68rem; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin-bottom:.15rem; }
+    .block-tx-table-wrap { overflow-x:auto; margin-top:.65rem; border-radius:12px; border:1px solid var(--line); }
+    .block-tx-table { width:100%; border-collapse:collapse; font-size:.8rem; }
+    .block-tx-table th, .block-tx-table td { padding:.42rem .5rem; text-align:left; border-bottom:1px solid var(--line); vertical-align:middle; }
+    .block-tx-table th { color:var(--muted); font-weight:600; font-size:.68rem; text-transform:uppercase; letter-spacing:.04em; background:#0d1520; white-space:nowrap; }
+    .block-tx-table tr:last-child td { border-bottom:none; }
+    .block-tx-table tr:hover td { background:rgba(242,203,44,.05); }
+    .block-tx-table tr.row-pq td { box-shadow:inset 3px 0 0 rgba(99,199,255,.75); }
+    .block-tx-table .mono { font-size:.74rem; }
+    .json-details-search { margin-top:.55rem; }
+    .json-details-search summary { cursor:pointer; color:var(--muted); font-size:.82rem; }
   </style>
 </head>
 <body>
@@ -140,12 +175,13 @@
 
     <div class="grid">
       <section class="card">
-        <h2><span class="material-symbols-outlined title-icon" aria-hidden="true">search</span>Search</h2>
+        <p class="search-hero-label">Explorer search</p>
+        <h2 style="margin:.1rem 0 .5rem"><span class="material-symbols-outlined title-icon" aria-hidden="true">travel_explore</span>Search the chain</h2>
         <div class="search-wrap">
-          <input id="q" placeholder="Dogecoin address, txid, block hash, or height" />
+          <input id="q" placeholder="Address · transaction id · block hash · block height" autocomplete="off" />
           <button class="search-inside-btn" id="btn-search" title="Search" aria-label="Search"><span class="material-symbols-outlined" aria-hidden="true">search</span></button>
         </div>
-        <p class="muted">Search the indexed chain: address, txid, block height, or block hash (Sochain-style, live JSON).</p>
+        <p class="search-hints">Same idea as <strong>SoChain</strong>-style explorers: paste a <code>D…</code> address, a <code>64</code>-char txid or block hash, or a block <code>height</code>. Results open detailed block and transaction views below.</p>
         <p class="muted" id="chain-index-strip" style="font-size:.82rem;margin:.35rem 0">Indexer: …</p>
         <div id="search-out"></div>
       </section>
@@ -160,8 +196,6 @@
           <div class="kpi-card"><span class="kpi-label">Indexed blocks</span><b class="kpi-value" id="k-ix-blocks">—</b></div>
           <div class="kpi-card"><span class="kpi-label">PQ markers (quantum)</span><b class="kpi-value kpi-tone-ok" id="k-pqvalid">0</b></div>
           <div class="kpi-card"><span class="kpi-label">Invalid PQ payload</span><b class="kpi-value kpi-tone-bad" id="k-invalid">0</b></div>
-          <div class="kpi-card"><span class="kpi-label">Mempool (legacy)</span><b class="kpi-value kpi-tone-warn" id="k-mempool">0</b></div>
-          <div class="kpi-card"><span class="kpi-label">SPV tip (legacy)</span><b class="kpi-value" id="k-spv-tip">—</b></div>
         </div>
       </aside>
     </div>
@@ -170,8 +204,8 @@
       <div class="pq-block" id="pq-block">
         <div class="pq-block-head">
           <div>
-            <h2><span class="material-symbols-outlined title-icon" aria-hidden="true">token</span>PQ-related transactions (legacy mempool index)</h2>
-            <div class="pq-block-meta" id="pq-block-context">When mempool/SPV are off, this list may be empty — use Core-indexed search for on-chain txs.</div>
+            <h2><span class="material-symbols-outlined title-icon" aria-hidden="true">token</span>PQ-related transactions (local store)</h2>
+            <div class="pq-block-meta" id="pq-block-context">Latest entries from the on-disk PQ list. For live chain data, use search and the Core-indexed blocks below.</div>
           </div>
           <div>
             <div class="row" style="margin-bottom:.45rem">
@@ -191,12 +225,12 @@
     <section class="card" style="margin-top:.8rem">
       <h2><span class="material-symbols-outlined title-icon" aria-hidden="true">query_stats</span>24h transaction activity</h2>
       <p class="muted">Bars compare indexed quantum vs non-quantum transactions by hour (latest 24h).</p>
-      <p class="muted" id="metrics-source" title="Shows whether data comes from pre-aggregated Core DB buckets or in-memory tracker fallback." style="font-size:.78rem">Source: …</p>
+      <p class="muted" id="metrics-source" title="Core DB hourly buckets when the indexer is on; otherwise counts from the local PQ JSON store." style="font-size:.78rem">Source: …</p>
       <div id="metrics-bars" class="headers"></div>
     </section>
 
     <div class="modal-backdrop" id="tx-modal" role="dialog" aria-modal="true" aria-labelledby="tx-modal-title">
-      <div class="modal-card">
+      <div class="modal-card modal-wide">
         <button type="button" class="modal-close" id="tx-modal-close" aria-label="Close"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">close</span>Close</span></button>
         <h2 id="tx-modal-title">Transaction</h2>
         <div id="tx-modal-body" class="muted">Loading…</div>
@@ -204,7 +238,7 @@
     </div>
 
     <div class="modal-backdrop" id="block-modal" role="dialog" aria-modal="true" aria-labelledby="block-modal-title">
-      <div class="modal-card" style="max-width:760px">
+      <div class="modal-card modal-wide">
         <button type="button" class="modal-close" id="block-modal-close" aria-label="Close"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">close</span>Close</span></button>
         <h2 id="block-modal-title">Block header</h2>
         <div id="block-modal-body" class="muted">Loading…</div>
@@ -230,7 +264,7 @@
                 <p><strong>Step 2:</strong> Attach a post-quantum commitment payload (commonly in <code>OP_RETURN</code>) that references PQ signature/artifact metadata.</p>
               </div>
               <div class="docs-step">
-                <p><strong>Step 3:</strong> Broadcast to network. The tx is first seen in mempool (pending), later linked to blocks (confirmed).</p>
+                <p><strong>Step 3:</strong> Broadcast to network. Confirmation and inclusion are visible once the transaction is mined.</p>
               </div>
               <p>This explorer classifies PQ state from raw transaction bytes and marker evidence. It is designed for transparent education, so evidence/reason fields are always exposed.</p>
             </div>
@@ -249,7 +283,7 @@
                 <li>Fetch raw tx hex (from node RPC or explorer APIs).</li>
                 <li>Decode outputs and inspect <code>scriptPubKey</code> + <code>OP_RETURN</code> payload bytes.</li>
                 <li>Check recognized PQ commitment markers and parser result.</li>
-                <li>Check block inclusion/confirmations via chain/SPV context.</li>
+                <li>Check block inclusion/confirmations via your node or this explorer’s indexed chain.</li>
               </ul>
               <p>In this UI, open a tx detail to see decode + strict PQ evidence. External verifiers can reproduce the same parsing from raw bytes.</p>
             </div>
@@ -269,7 +303,7 @@
               <ul>
                 <li><code>/api/public/tx?txid=...</code> — decode + strict evidence</li>
                 <li><code>/api/public/block?height=...</code> — block context</li>
-                <li><code>/api/public/status</code> — runtime/SPV context</li>
+                <li><code>/api/public/status</code> — indexer and runtime snapshot</li>
                 <li><code>/api/public/metrics</code> — aggregate activity</li>
               </ul>
               <p>Auditors can export JSON from these endpoints and independently replay parsing/verification logic.</p>
@@ -277,7 +311,7 @@
             <div class="docs-card">
               <h3>Important limits and transparency notes</h3>
               <ul>
-                <li>Mempool visibility can vary by peers and network conditions.</li>
+                <li>Indexer and RPC availability affect how quickly new blocks and txs appear.</li>
                 <li>No raw hex = no strict marker validation.</li>
                 <li>PQ labeling depends on protocol marker conventions configured by implementation.</li>
               </ul>
@@ -293,7 +327,6 @@
       <div class="badges" id="spv-badges" style="margin:.35rem 0 .6rem"></div>
       <div id="spv-tip-card" class="head-row" style="margin-bottom:.65rem"></div>
       <p class="muted" id="spv-pq-status">Indexer: checking…</p>
-      <p class="muted" id="mempool-status">Mempool tracker (optional): checking…</p>
       <h3 class="muted" style="font-size:.95rem;margin:.75rem 0 .4rem">Latest blocks in <span class="mono">qe_core_blocks</span></h3>
       <p class="muted" style="font-size:.78rem;margin:-.2rem 0 .5rem">Tap a row for full block detail and decoded transactions (RPC indexer).</p>
       <div id="spv-headers" class="headers"></div>
@@ -319,32 +352,135 @@
     }
     async function j(url,opt){const r=await fetch(url,opt);return {ok:r.ok,s:r.status,d:await r.json().catch(()=>({}))};}
 
-    let latestPQ10 = [];
-    let mempoolMode = "all";
-    let lastSPV = {};
+    function satsToDoge(sats){
+      if (sats == null || sats === "") return "—";
+      const n = Number(sats);
+      if (Number.isNaN(n)) return "—";
+      return (n / 1e8).toFixed(8) + " DOGE";
+    }
 
-    function renderPQBlock(spv, rows){
+    function quantumVisual(state){
+      const s = String(state || "");
+      if (s === "quantum") return { cls: "quantum", title: "Post-quantum transaction", sub: "OP_RETURN markers match the explorer’s PQ commitment rules.", icon: "verified" };
+      if (s === "invalid-quantum") return { cls: "invalid", title: "Post-quantum payload flagged", sub: "Commitment data present but markers did not validate as expected.", icon: "warning" };
+      return { cls: "standard", title: "Standard transaction", sub: "No post-quantum markers detected in decoded raw bytes.", icon: "receipt_long" };
+    }
+
+    function quantumShortLabel(state){
+      const s = String(state || "");
+      if (s === "quantum") return "PQ";
+      if (s === "invalid-quantum") return "PQ invalid";
+      return "Standard";
+    }
+
+    function renderSearchResults(d){
+      const src = d.source || "";
+      const isCore = src === "core_index";
+      let body = "";
+      if (d.kind === "block_height" || d.kind === "block_hash"){
+        const b = d.block;
+        if (!b || b.height == null){
+          body = `<div class="result-card"><h3><span class="material-symbols-outlined title-icon" aria-hidden="true">cube</span>Block</h3><p class="muted">No indexed block matches this ${d.kind === "block_height" ? "height" : "hash"} yet. The Core indexer may still be catching up.</p></div>`;
+        } else {
+          const t = b.time_unix ? new Date(b.time_unix*1000).toISOString() : "—";
+          body = `<div class="result-card">
+            <h3><span class="material-symbols-outlined title-icon" aria-hidden="true">cube</span>Block <span class="muted" style="font-weight:600">#${esc(b.height)}</span></h3>
+            <div class="detail-kv mono" style="font-size:.8rem"><strong>Hash</strong> ${esc(b.hash||"—")}</div>
+            <div class="detail-kv"><strong>Time (UTC)</strong> ${esc(t)}</div>
+            <div class="result-actions">
+              <button type="button" class="btn primary btn-inline" id="search-open-block">Open block — all transactions</button>
+            </div>
+          </div>`;
+        }
+      } else if (d.kind === "txid" && d.tx){
+        const tx = d.tx;
+        const vis = quantumVisual(tx.quantum_state);
+        body = `<div class="result-card">
+          <h3><span class="material-symbols-outlined title-icon" aria-hidden="true">paid</span>Transaction</h3>
+          <div class="pq-hero ${vis.cls}" style="margin:.5rem 0">
+            <span class="material-symbols-outlined" aria-hidden="true">${esc(vis.icon)}</span>
+            <div><h3 style="margin:0;font-size:1rem">${esc(vis.title)}</h3><p>${esc(vis.sub)}</p></div>
+          </div>
+          <div class="mono" style="font-size:.82rem;margin:.35rem 0">${esc(tx.txid)}</div>
+          <div class="detail-kv"><strong>Block</strong> ${esc(String(tx.block_height ?? "—"))} · <strong>Outputs (indexed)</strong> ${esc(satsToDoge(tx.value_out_sats))}</div>
+          ${tx.pq_reason ? `<div class="detail-kv muted" style="font-size:.8rem">${esc(tx.pq_reason)}</div>` : ""}
+          <div class="result-actions">
+            <button type="button" class="btn primary btn-inline" id="search-open-tx">Open full transaction — inputs &amp; outputs</button>
+          </div>
+        </div>`;
+      } else if (d.kind === "address" && Array.isArray(d.results)){
+        const rows = d.results.map(r => `<tr>
+          <td class="mono"><button type="button" class="link-tx search-addr-tx" data-txid="${esc(r.txid)}">${esc(r.txid)}</button></td>
+          <td>${esc(String(r.vout_n))}</td>
+          <td>${esc(satsToDoge(r.value_sats))}</td>
+          <td>${esc(String(r.block_height))}</td>
+        </tr>`).join("");
+        body = `<div class="result-card">
+          <h3><span class="material-symbols-outlined title-icon" aria-hidden="true">account_balance_wallet</span>Address activity</h3>
+          <p class="muted" style="margin:.2rem 0 .45rem">Indexed outputs for <span class="mono">${esc(d.query)}</span> · ${d.results.length} row(s)</p>
+          <div class="addr-table-wrap"><table class="addr-table">
+            <thead><tr><th>Transaction</th><th>Vout</th><th>Value</th><th>Block</th></tr></thead>
+            <tbody>${rows || "<tr><td colspan='4' class='muted'>No rows</td></tr>"}</tbody>
+          </table></div>
+          <p class="muted" style="font-size:.78rem;margin:.5rem 0 0">Tap a transaction to open inputs, outputs, and PQ analysis.</p>
+        </div>`;
+      } else if (d.kind === "unknown_hex64"){
+        body = `<div class="result-card"><h3><span class="material-symbols-outlined title-icon" aria-hidden="true">help</span>No match</h3><p class="muted">${esc(d.note || "Unknown 64-character hex.")}</p></div>`;
+      } else if (Array.isArray(d.results) && d.results.length && d.results[0] && d.results[0].txid){
+        const rows = d.results.map(t => `<tr><td class="mono"><button type="button" class="link-tx search-addr-tx" data-txid="${esc(t.txid)}">${esc(t.txid)}</button></td><td>${badge(t.pq_valid ? "pq-ok":"pq-bad", t.pq_valid ? "PQ":"—")}</td></tr>`).join("");
+        body = `<div class="result-card"><h3><span class="material-symbols-outlined title-icon" aria-hidden="true">search</span>Matching transactions</h3>
+          <p class="muted" style="margin:.25rem 0 .45rem">Text search in local PQ list · ${d.results.length} hit(s)</p>
+          <div class="addr-table-wrap"><table class="addr-table"><thead><tr><th>Txid</th><th>PQ</th></tr></thead><tbody>${rows}</tbody></table></div>
+        </div>`;
+      } else {
+        body = `<div class="result-card"><h3><span class="material-symbols-outlined title-icon" aria-hidden="true">manage_search</span>Search result</h3>
+          <p class="muted" style="margin:.25rem 0 .35rem">Kind: <strong>${esc(d.kind||"?")}</strong>${isCore ? " · indexed data (PostgreSQL)" : ""}</p></div>`;
+      }
+      const raw = `<details class="json-details-search"><summary>Technical JSON</summary><pre class="mono muted" style="margin:.5rem 0 0;font-size:.72rem;overflow:auto;max-height:12rem">${esc(JSON.stringify(d,null,2))}</pre></details>`;
+      return body + raw;
+    }
+
+    function bindSearchResultActions(d){
+      const bOpen = document.getElementById("search-open-block");
+      if (bOpen && d.block && d.block.height != null){
+        bOpen.onclick = () => openBlockByHeightOrHash(d.block.height, null);
+      }
+      const tOpen = document.getElementById("search-open-tx");
+      if (tOpen && d.query && d.kind === "txid"){
+        tOpen.onclick = () => openTxDetail(d.query);
+      }
+      document.querySelectorAll(".search-addr-tx").forEach(btn => {
+        btn.onclick = () => openTxDetail(btn.getAttribute("data-txid"));
+      });
+    }
+
+    let latestPQRows = [];
+
+    function filterPQRows(rows, mode){
+      if (!Array.isArray(rows)) return [];
+      if (mode === "quantum") return rows.filter(t => t && t.pq_valid);
+      if (mode === "non-quantum") return rows.filter(t => t && !t.pq_valid);
+      return rows;
+    }
+
+    function renderPQBlock(rows){
+      const mode = String(document.getElementById("pq-mode").value || "all");
+      const filtered = filterPQRows(rows, mode);
       const rowsEl = document.getElementById("pq-block-rows");
       const ctx = document.getElementById("pq-block-context");
       const bb = document.getElementById("pq-block-badges");
-      const tipH = spv && spv.tip_height > 0 ? spv.tip_height : null;
-      const tipHash = spv && spv.tip_hash ? String(spv.tip_hash).slice(0, 18) + "…" : "";
-      if (tipH != null) {
-        ctx.textContent = `SPV tip height ${tipH}${tipHash ? " · " + tipHash : ""} — showing latest ${rows.length} indexed PQ-related txs (not necessarily in that block).`;
-      } else {
-        ctx.textContent = `No SPV tip yet — latest ${rows.length} indexed PQ-related transactions from mempool / tracker.`;
-      }
-      const showing = Math.min(rows.length, 10);
+      ctx.textContent = `Filtered ${filtered.length} tx (${mode}) from ${rows.length} in local store — showing up to 10.`;
+      const showing = Math.min(filtered.length, 10);
       bb.innerHTML = [
-        badge(rows.length > 0 ? "pq-ok" : "pending", `${rows.length} in feed`),
+        badge(filtered.length > 0 ? "pq-ok" : "pending", `${filtered.length} match`),
         badge("", `showing ${showing}`),
-        badge(spv && spv.running ? "confirmed" : "pending", spv && spv.running ? "SPV sync" : "SPV off")
+        badge("muted", "local PQ file")
       ].join("");
-      if (!rows.length) {
-        rowsEl.innerHTML = '<p class="muted" style="padding:.75rem 1rem;margin:0">No post-quantum transactions indexed yet.</p>';
+      if (!filtered.length) {
+        rowsEl.innerHTML = '<p class="muted" style="padding:.75rem 1rem;margin:0">No matching transactions in the local PQ list.</p>';
         return;
       }
-      const visibleRows = rows.slice(0, 10);
+      const visibleRows = filtered.slice(0, 10);
       rowsEl.innerHTML = visibleRows.map(t => `
         <button type="button" class="pq-tx-row" data-txid="${esc(t.txid)}">
           <div class="mono"><span class="material-symbols-outlined tx-type-ico" title="${esc(txTypeLabel(t))}" aria-hidden="true">${txTypeIcon(t)}</span>${esc(t.txid)}</div>
@@ -359,13 +495,6 @@
       rowsEl.querySelectorAll(".pq-tx-row").forEach(btn => {
         btn.onclick = () => openTxDetail(btn.getAttribute("data-txid"));
       });
-    }
-
-    async function loadMempoolRows(){
-      const limit = 10;
-      const r = await j(`/api/public/mempool?mode=${encodeURIComponent(mempoolMode)}&limit=${limit}&offset=0`);
-      if (!r.ok) return [];
-      return Array.isArray(r.d.rows) ? r.d.rows : [];
     }
 
     function renderMetricsBars(buckets){
@@ -493,34 +622,47 @@
       const dec = pq.decode || {};
       const strict = pq.strict || {};
       const core = r.d.core || {};
-      const src = r.d.source === "core_index" ? "Core-indexed block tx" : "Legacy PQ index";
-      title.textContent = "Transaction detail";
+      const fromCore = r.d.source === "core_index";
+      const src = fromCore ? "Indexed from Dogecoin Core (PostgreSQL)" : "Local PQ tracker";
+      const qState = core.quantum_state || (tx.pq_valid ? "quantum" : "non-quantum");
+      const vis = fromCore ? quantumVisual(qState) : (tx.pq_valid
+        ? { cls: "quantum", title: "Post-quantum (local classifier)", sub: "PQ valid flag from local index.", icon: "verified" }
+        : { cls: "standard", title: "Transaction", sub: "From local PQ store.", icon: "receipt_long" });
+      title.textContent = "Transaction";
       body.innerHTML = `
         <div class="detail-section" style="border-top:none;padding-top:0">
           <div class="badges" style="margin:0 0 .5rem"><span class="badge">${esc(src)}</span></div>
-          <div class="mono" style="font-size:.85rem">${esc(tx.txid)}</div>
-          ${core.block_height != null ? `<div class="detail-kv"><strong>Block height</strong> ${esc(String(core.block_height))}</div>` : ""}
-          ${core.quantum_state ? `<div class="detail-kv"><strong>Quantum state</strong> ${esc(String(core.quantum_state))}</div>` : ""}
-          <div class="badges" style="margin:.5rem 0">
-            ${badge(tx.confirmed ? "confirmed":"pending", tx.confirmed ? "Confirmed on-chain":"Pending")}
-            ${badge(tx.pq_valid ? "pq-ok":"pq-bad", tx.pq_valid ? "PQ markers OK":"PQ markers not satisfied")}
-            ${badge("", esc(tx.verifier || "—"))}
+          <div class="pq-hero ${esc(vis.cls)}">
+            <span class="material-symbols-outlined" aria-hidden="true">${esc(vis.icon)}</span>
+            <div>
+              <h3 style="margin:0 0 .25rem;font-size:1.1rem">${esc(vis.title)}</h3>
+              <p>${esc(vis.sub)}</p>
+            </div>
           </div>
-          <div class="detail-kv"><strong>First seen</strong> ${esc(tx.first_seen||"—")}</div>
-          <div class="detail-kv"><strong>Last seen</strong> ${esc(tx.last_seen||"—")}</div>
-          <div class="detail-kv"><strong>PQ score</strong> ${esc(String(tx.pq_score ?? "—"))}</div>
+          <div class="mono" style="font-size:.84rem;word-break:break-all">${esc(tx.txid)}</div>
+          <div class="tx-kv-grid">
+            ${core.block_height != null ? `<div><strong>Block height</strong>${esc(String(core.block_height))}</div>` : ""}
+            ${core.block_hash ? `<div style="grid-column:span 2"><strong>Block hash</strong><span class="mono" style="font-size:.76rem">${esc(String(core.block_hash))}</span></div>` : ""}
+            ${core.value_out_sats != null && core.value_out_sats !== undefined ? `<div><strong>Total outputs</strong>${esc(satsToDoge(core.value_out_sats))}</div>` : ""}
+            ${fromCore && core.quantum_state ? `<div><strong>Index state</strong>${esc(String(core.quantum_state))}</div>` : ""}
+            <div><strong>Confirmations</strong>${tx.confirmed ? "Included in block" : "Not confirmed (local)"}</div>
+            ${!fromCore ? `<div><strong>PQ score</strong>${esc(String(tx.pq_score ?? "—"))}</div>` : ""}
+          </div>
+          ${!fromCore ? `<div class="detail-kv" style="margin-top:.35rem"><strong>First / last seen</strong> ${esc(tx.first_seen||"—")} · ${esc(tx.last_seen||"—")}</div>` : ""}
         </div>
         <div class="detail-section">
-          <h3>On-chain decode (P2P raw tx)</h3>
-          ${pq.note ? `<p class="muted">${esc(pq.note)}</p>` : ""}
-          <div class="detail-kv"><strong>Raw hex available</strong> ${pq.raw_tx_hex_available ? "yes" : "no"}</div>
+          <h3><span class="material-symbols-outlined title-icon" aria-hidden="true">hub</span>Inputs &amp; outputs</h3>
+          <p class="muted" style="font-size:.82rem;margin:.2rem 0 .5rem">Decoded from raw transaction bytes stored or fetched when the block was indexed. Inspect each input and output; <strong>OP_RETURN</strong> lines highlight PQ-related payloads.</p>
+          ${pq.note ? `<p class="muted" style="font-size:.82rem">${esc(pq.note)}</p>` : ""}
+          <div class="detail-kv" style="margin-bottom:.45rem"><strong>Raw hex in database</strong> ${pq.raw_tx_hex_available ? "yes" : "no"}</div>
           ${renderDecodeSection(dec)}
         </div>
         <div class="detail-section">
-          <h3>PQ strict check (OP_RETURN markers)</h3>
-          <div class="badges" style="margin:.35rem 0">${badge(strict.valid ? "pq-ok" : "pq-bad", strict.valid ? "PQ markers OK" : "PQ markers missing/invalid")}</div>
+          <h3><span class="material-symbols-outlined title-icon" aria-hidden="true">shield_lock</span>Post-quantum marker check</h3>
+          <p class="muted" style="font-size:.8rem;margin:.2rem 0 .45rem">Strict scan of decoded bytes for OP_RETURN commitment markers (educational verifier).</p>
+          <div class="badges" style="margin:.35rem 0">${badge(strict.valid ? "pq-ok" : "pq-bad", strict.valid ? "Markers OK" : "Markers missing or invalid")}</div>
           <div class="detail-kv"><strong>Reason</strong> ${esc(strict.reason||"—")}</div>
-          <div class="detail-kv muted" style="font-size:.8rem">${esc(JSON.stringify(strict.evidence||[]))}</div>
+          <div class="detail-kv muted" style="font-size:.78rem">${esc(JSON.stringify(strict.evidence||[]))}</div>
         </div>`;
       initTxTabs(body);
     }
@@ -544,26 +686,60 @@
       }
       const b = r.d.block || {};
       const txs = r.d.associated_transactions || [];
+      const src = r.d.source || "";
+      const isCore = src === "core_index";
+      const txCount = r.d.tx_count != null ? Number(r.d.tx_count) : txs.length;
+      const decLim = r.d.decode_limit != null ? Number(r.d.decode_limit) : null;
       title.textContent = "Block " + (b.height != null ? "#" + b.height : "");
       const notes = (r.d.notes || []).map(n => `<li>${esc(n)}</li>`).join("");
-      const txHtml = txs.map(x => {
-        const dec = x.decode || {};
-        const hasDec = dec && !dec.error && (dec.inputs || dec.outputs);
-        return `<div class="tx-io-card" style="margin-bottom:.5rem">
-          <div class="mono" style="font-size:.78rem">${esc(x.txid)}</div>
-          ${x.decode_note ? `<p class="muted" style="font-size:.78rem;margin:.35rem 0">${esc(x.decode_note)}</p>` : ""}
-          ${hasDec ? `<div class="muted" style="font-size:.75rem;margin:.25rem 0">≈ ${esc(String(dec.output_total_doge||"?"))} DOGE outputs · ${esc(String((dec.outputs||[]).length))} outs</div>` : ""}
-          <button type="button" class="btn" style="width:auto;margin-top:.35rem;padding:.4rem .65rem" data-txid="${esc(x.txid)}"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">open_in_new</span>Open full tx</span></button>
-        </div>`;
-      }).join("");
+      let txSection = "";
+      if (isCore && txs.length){
+        const rows = txs.map((x, i) => {
+          const st = x.quantum_state || "";
+          const vis = quantumVisual(st);
+          const rowCls = st === "quantum" ? "row-pq" : "";
+          const dec = x.decode || {};
+          const hasDec = dec && !dec.error && (dec.inputs || dec.outputs);
+          const shortReason = (x.pq_reason && String(x.pq_reason).length > 48) ? String(x.pq_reason).slice(0,46) + "…" : (x.pq_reason || "—");
+          return `<tr class="${rowCls}">
+            <td>${i}</td>
+            <td class="mono"><button type="button" class="link-tx blk-tx-open" data-txid="${esc(x.txid)}">${esc(x.txid)}</button></td>
+            <td><span class="badge ${vis.cls === "quantum" ? "pq-ok" : vis.cls === "invalid" ? "pq-bad" : ""}" title="${esc(vis.title)}">${esc(quantumShortLabel(st))}</span></td>
+            <td class="mono" style="font-size:.72rem;max-width:12rem">${esc(shortReason)}</td>
+            <td>${esc(satsToDoge(x.value_out_sats))}</td>
+            <td>${hasDec ? `<span class="badge confirmed">Decoded</span>` : `<span class="badge pending">No decode</span>`}</td>
+            <td><button type="button" class="btn btn-inline blk-tx-open" data-txid="${esc(x.txid)}">View tx</button></td>
+          </tr>`;
+        }).join("");
+        txSection = `
+          <h3 style="margin:0 0 .35rem;font-size:1rem"><span class="material-symbols-outlined title-icon" aria-hidden="true">reorder</span>Transactions in this block <span class="muted" style="font-weight:600">(${txCount} total)</span></h3>
+          ${decLim != null ? `<p class="muted" style="font-size:.78rem;margin:0 0 .5rem">Optional decode (inputs/outputs) for the first ${decLim} txs when raw hex is stored — open any row for full IO detail.</p>` : ""}
+          <div class="block-tx-table-wrap"><table class="block-tx-table">
+            <thead><tr><th>#</th><th>Transaction id</th><th>Post-quantum</th><th>Notes</th><th>Output sum</th><th>Decode</th><th></th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table></div>`;
+      } else {
+        const txHtml = txs.map(x => {
+          const dec = x.decode || {};
+          const hasDec = dec && !dec.error && (dec.inputs || dec.outputs);
+          return `<div class="tx-io-card" style="margin-bottom:.5rem">
+            <div class="mono" style="font-size:.78rem">${esc(x.txid)}</div>
+            ${x.decode_note ? `<p class="muted" style="font-size:.78rem;margin:.35rem 0">${esc(x.decode_note)}</p>` : ""}
+            ${hasDec ? `<div class="muted" style="font-size:.75rem;margin:.25rem 0">≈ ${esc(String(dec.output_total_doge||"?"))} DOGE · ${esc(String((dec.outputs||[]).length))} outs</div>` : ""}
+            <button type="button" class="btn btn-inline" style="margin-top:.35rem" data-txid="${esc(x.txid)}">Open transaction</button>
+          </div>`;
+        }).join("");
+        txSection = `<h3 style="margin:.75rem 0 .35rem">Transactions</h3>${txHtml || "<p class='muted'>None</p>"}`;
+      }
       body.innerHTML = `
         <div class="detail-section" style="border-top:none;padding-top:0">
+          <div class="badges" style="margin:0 0 .5rem">${isCore ? badge("confirmed","Core indexer") : badge("pending","Chain index")}</div>
           <div class="detail-kv"><strong>Height</strong> ${esc(String(b.height ?? "—"))}</div>
-          <div class="mono"><strong>Hash</strong> ${esc(b.hash||"—")}</div>
+          <div class="mono" style="font-size:.82rem;margin:.35rem 0"><strong>Hash</strong> ${esc(b.hash||"—")}</div>
           <div class="detail-kv muted">${esc(b.timestamp||"—")}</div>
-          <ul class="muted" style="font-size:.78rem;padding-left:1.1rem">${notes || ""}</ul>
+          <ul class="muted" style="font-size:.78rem;padding-left:1.1rem;margin:.35rem 0">${notes || ""}</ul>
         </div>
-        <div class="detail-section"><h3>Transactions (heuristic list)</h3>${txHtml || "<p class='muted'>None</p>"}</div>`;
+        <div class="detail-section">${txSection}</div>`;
       body.querySelectorAll("button[data-txid]").forEach(btn => {
         btn.onclick = () => { closeBlockModal(); openTxDetail(btn.getAttribute("data-txid")); };
       });
@@ -612,53 +788,23 @@
       });
     }
 
-    function renderSPV(spv){
+    function renderChainIndexFallback(ci){
       const out=document.getElementById("spv-headers");
       const status=document.getElementById("spv-pq-status");
-      const banner=document.getElementById("runtime-error-banner");
       const tipCard=document.getElementById("spv-tip-card");
       const spvBadges=document.getElementById("spv-badges");
-      const headers = (spv && spv.latest_headers) || [];
-      const pq = !!(spv && spv.pq_found_on_spv);
-      const vOk = Number(spv && spv.pq_confirmed_valid) || 0;
-      const vBad = Number(spv && spv.pq_confirmed_invalid) || 0;
-      status.textContent = `SPV process: ${spv && spv.running ? "running":"stopped"} · Indexed txs seen in SPV log (confirmed): ${pq ? "yes":"no"} · Confirmed PQ valid/invalid: ${vOk} / ${vBad}`;
-      spvBadges.innerHTML = [
-        badge(spv && spv.running ? "confirmed" : "pending", spv && spv.running ? "SPV running" : "SPV stopped"),
-        badge(pq ? "pq-ok" : "pq-bad", pq ? "Has confirmed txs (log)" : "No confirmed match in log yet"),
-        badge(vOk > 0 ? "pq-ok" : "", `PQ valid (confirmed) ${vOk}`),
-        badge(vBad > 0 ? "pq-bad" : "", `PQ invalid (confirmed) ${vBad}`)
-      ].join("");
-      const tipH = spv && spv.tip_height != null && spv.tip_height > 0 ? spv.tip_height : null;
-      const tipHash = spv && spv.tip_hash ? String(spv.tip_hash) : "";
-      const tipTime = spv && spv.tip_time_from_log ? String(spv.tip_time_from_log) : "";
-      if (tipH != null || tipHash) {
-        tipCard.innerHTML = `<div><strong>Tip height (from log)</strong> ${esc(tipH ?? "—")}</div>
-          <div class="mono"><strong>Tip hash</strong> ${esc(tipHash || "—")}</div>
-          <div class="muted" style="margin-top:.35rem"><strong>Block time (log)</strong> ${esc(tipTime || "—")}</div>`;
-      } else {
-        tipCard.innerHTML = '<p class="muted">No SPV tip parsed yet — wait for sync or check spv.log if the process is running.</p>';
-      }
-      const spvErr = spv && spv.start_error ? String(spv.start_error) : "";
-      const memErr = window.__mempoolErr || "";
-      const parts = [];
-      if (spvErr) parts.push(`<strong>SPV start error:</strong> ${esc(spvErr)}`);
-      if (memErr) parts.push(`<strong>Mempool start error:</strong> ${esc(memErr)}`);
-      if (parts.length) {
-        banner.classList.add("show");
-        banner.innerHTML = parts.join("<br>");
-      } else {
-        banner.classList.remove("show");
-        banner.textContent = "";
-      }
+      const sum = (ci && ci.summary) || {};
+      const headers = (ci && ci.recent_headers) || [];
+      status.textContent = `Local chain index: ${sum.header_count ?? 0} headers, tip height ${sum.tip_height ?? "—"}. Set Postgres + Core RPC for full explorer.`;
+      spvBadges.innerHTML = [badge("muted", "Chain index (legacy)")].join("");
+      tipCard.innerHTML = '<p class="muted">Core indexer not enabled — showing headers from the local chain store only.</p>';
       if(!headers.length){
-        out.innerHTML = '<p class="muted">No headers in the chain index yet — SPV is still syncing or ingestion has not written rows.</p>';
+        out.innerHTML = '<p class="muted">No headers in the local chain index yet.</p>';
         return;
       }
       out.innerHTML = headers.map(h => {
-        const src = h.source ? ` <span class="muted" style="font-size:.72rem">(${esc(h.source)})</span>` : "";
         return `<button type="button" class="head-row clickable" style="width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer" data-height="${esc(String(h.height??""))}" data-hash="${esc(h.hash||"")}">
-          <div><strong>Height</strong> ${esc(h.height ?? "-")}${src}</div>
+          <div><strong>Height</strong> ${esc(h.height ?? "-")}</div>
           <div class="mono"><strong>Hash</strong> ${esc(h.hash || "—")}</div>
           <div class="muted" style="margin-top:.3rem"><strong>Timestamp</strong> ${esc(h.timestamp || "—")}</div>
         </button>`;
@@ -690,18 +836,10 @@
         return;
       }
       const m=r.d.metrics||{};
-      const mp=r.d.mempool||{};
       const core = r.d.core || {};
-      window.__mempoolErr = mp.start_error ? String(mp.start_error) : "";
       window.__coreTip = (core.blockcount != null && core.blockcount !== "") ? core.blockcount : null;
-      document.getElementById("mempool-status").textContent = `Mempool tracker (optional): ${mp.running ? "yes":"no"}`;
-      document.getElementById("k-mempool").textContent = m.mempool_live ?? 0;
       document.getElementById("k-pqvalid").textContent = m.pq_valid ?? 0;
       document.getElementById("k-invalid").textContent = m.invalid ?? 0;
-      const spv = r.d.spv || {};
-      lastSPV = spv;
-      const tip = spv.tip_height > 0 ? String(spv.tip_height) : "—";
-      document.getElementById("k-spv-tip").textContent = tip;
       const ex = r.d.explorer || {};
       if (ex.enabled) {
         const s = ex.summary || {};
@@ -734,15 +872,15 @@
           badge(pqV > 0 ? "pq-ok" : "muted", `legacy PQ ${pqV}`),
           badge(pqI > 0 ? "pq-bad" : "muted", `invalid ${pqI}`)
         ].join("");
-        renderSPV(spv);
+        renderChainIndexFallback(r.d.chain_index || {});
         const ci = r.d.chain_index || {};
         const sum = ci.summary || {};
         const chainTip = sum.tip_height > 0 ? sum.tip_height : "—";
         document.getElementById("chain-index-strip").textContent =
           `Chain index: ${sum.header_count ?? 0} headers, tip ${chainTip}. Set Postgres + Core RPC for full explorer.`;
       }
-      latestPQ10 = await loadMempoolRows();
-      renderPQBlock(spv, latestPQ10);
+      latestPQRows = Array.isArray(r.d.latest) ? r.d.latest : [];
+      renderPQBlock(latestPQRows);
       const mr = await j("/api/public/metrics?hours=24");
       if (mr.ok) {
         renderMetricsBars(mr.d.buckets || []);
@@ -756,39 +894,18 @@
       const q=document.getElementById("q").value.trim();
       if(!q) return;
       const out = document.getElementById("search-out");
+      out.innerHTML = "<p class=\"muted\">Searching…</p>";
       const r=await j("/api/public/search?q="+encodeURIComponent(q));
       if (!r.ok) {
         out.innerHTML = `<p class="bad">Search failed ${r.s}</p><pre class="mono muted">${esc(JSON.stringify(r.d,null,2))}</pre>`;
         return;
       }
       const d = r.d;
-      let extra = "";
-      if ((d.kind === "block_hash" || d.kind === "block_height") && d.block_query) {
-        const br = await j(d.block_query);
-        if (br.ok && br.d && br.d.block) {
-          const b = br.d.block;
-          const txs = (br.d.associated_transactions || []).map(x => {
-            const id = x.txid || "";
-            const has = x.pq_tx;
-            return `<li class="mono" style="margin:.35rem 0">${esc(id)} ${has ? `<button type="button" class="btn" style="width:auto;padding:.25rem .5rem;margin-left:.35rem" data-txid="${esc(id)}">PQ details</button>` : `<span class="muted">${esc(x.note || "")}</span>`}</li>`;
-          }).join("");
-          extra = `<div class="card" style="margin-top:.65rem;padding:.75rem;background:#0f1824">
-            <strong>Block</strong> height ${esc(b.height)} · <span class="mono">${esc(b.hash || "—")}</span>
-            <div class="muted" style="margin:.35rem 0">${esc(b.timestamp || "—")}</div>
-            <strong>Associated tx ids (from SPV log)</strong>
-            <ul style="margin:.35rem 0;padding-left:1.1rem">${txs || "<li class='muted'>None linked</li>"}</ul>
-          </div>`;
-        }
-      }
-      out.innerHTML = extra + `<pre class="mono muted" style="margin-top:.55rem">${esc(JSON.stringify(d,null,2))}</pre>`;
-      out.querySelectorAll("button[data-txid]").forEach(btn => {
-        btn.onclick = () => openTxDetail(btn.getAttribute("data-txid"));
-      });
+      out.innerHTML = renderSearchResults(d);
+      bindSearchResultActions(d);
     };
-    document.getElementById("pq-mode").onchange = async (e) => {
-      mempoolMode = String(e.target.value || "all");
-      latestPQ10 = await loadMempoolRows();
-      renderPQBlock(lastSPV, latestPQ10);
+    document.getElementById("pq-mode").onchange = () => {
+      renderPQBlock(latestPQRows);
     };
     document.getElementById("q").addEventListener("keydown", (e) => {
       if (e.key === "Enter") document.getElementById("btn-search").click();

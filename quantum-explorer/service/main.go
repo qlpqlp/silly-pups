@@ -12,7 +12,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -20,8 +19,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/inevitable360/silly-pups/quantum-explorer/service/mempooltracker"
 )
 
 //go:embed static/*
@@ -74,36 +71,19 @@ type app struct {
 	storePath  string
 	storageDir string
 
-	eng             *mempooltracker.Engine
-	engRunning      bool
-	mempoolStartErr string
-	spvCmd          *exec.Cmd
-	spvRunning      bool
-	spvStartErr     string
-	txs             map[string]*PQTx
-	addressIndex    map[string][]string
-	lastSPVLogErr   string
+	txs          map[string]*PQTx
+	addressIndex map[string][]string
 
-	// SPV-derived chain index: JSON file (default) or PostgreSQL when QE_POSTGRES_URL is set.
+	// Local chain index: JSON file (default) or PostgreSQL when QE_POSTGRES_URL is set.
 	chain chainBackend
 	core  *coreRPCClient
 	cidx  *coreIndexer
 
-	watchdogMu           sync.Mutex
-	lastSPVRetry         time.Time
-	lastMempoolRetry     time.Time
 	adminAllowlist       map[string]struct{}
 	publicAllowlist      map[string]struct{}
 	publicToken          string
 	publicProtectedPaths map[string]struct{}
 	rl                   *ipRateLimiter
-}
-
-type SPVHeader struct {
-	Height    int    `json:"height"`
-	Hash      string `json:"hash"`
-	Raw       string `json:"raw"`
-	Timestamp string `json:"timestamp,omitempty"` // RFC3339 or raw from log (e.g. ctime)
 }
 
 func env(key, def string) string {
@@ -128,7 +108,6 @@ func defaultConfig() Config {
 		Network:       env("NETWORK", "mainnet"),
 		AdminToken:    env("QE_ADMIN_TOKEN", "QUANTUM-TOKEN"),
 		ExplorerTxAPI: env("QE_EXPLORER_TX_API", ""),
-		// Matches tallest checkpoint baked into libdogecoin (rev a120e03 mainnet); spvnode cannot start above this until the library ships newer checkpoints.
 		Checkpoint: Checkpoint{
 			Height:    6093890,
 			Hash:      "7ecb28519e0c144261e511fd8706f8b54a93620cac31c41b5bcb0135f0d86a2b",
@@ -423,17 +402,12 @@ func extractHexFromAny(v any, depth int) string {
 	return ""
 }
 
-// fetchRawTxHex must not be called while holding a.mu (write lock); it only reads eng and uses HTTP.
-func (a *app) fetchRawTxHex(txid string, eng *mempooltracker.Engine, explorerAPI string) string {
+// fetchRawTxHex fetches raw tx hex via optional QE_EXPLORER_TX_API template ({txid}).
+func (a *app) fetchRawTxHex(txid string, explorerAPI string) string {
 	tpl := strings.TrimSpace(explorerAPI)
 	id := strings.ToLower(strings.TrimSpace(txid))
 	if id == "" {
 		return ""
-	}
-	if eng != nil {
-		if h := eng.RawTxHex(id); h != "" {
-			return h
-		}
 	}
 	if tpl == "" {
 		return ""
@@ -513,7 +487,7 @@ func buildPQVerificationDetail(rawHex string, network string) map[string]any {
 		"strict":               nil,
 	}
 	if h == "" {
-		out["note"] = "No raw transaction hex (need P2P full tx in mempool cache or QE_EXPLORER_TX_API)."
+		out["note"] = "No raw transaction hex (set QE_EXPLORER_TX_API or use Core-indexed tx detail)."
 		out["decode"] = DecodeTxJSON("", network)
 		return out
 	}
@@ -556,270 +530,6 @@ func (a *app) reindexUnsafe() {
 	}
 }
 
-func (a *app) startMempool() error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.engRunning {
-		return nil
-	}
-	eng, err := mempooltracker.Start(mempooltracker.Options{
-		StorageDir: filepath.Join(a.storageDir, "mempool"),
-		Network:    strings.ToLower(a.cfg.Network),
-	})
-	if err != nil {
-		a.mempoolStartErr = err.Error()
-		return err
-	}
-	a.eng = eng
-	a.engRunning = true
-	a.mempoolStartErr = ""
-	log.Printf("[quantum-explorer] mempool tracker started (network=%s)", strings.ToLower(a.cfg.Network))
-	return nil
-}
-
-func (a *app) stopMempool() {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.eng != nil {
-		a.eng.Stop()
-	}
-	a.eng = nil
-	a.engRunning = false
-}
-
-func (a *app) startSPV() error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.spvRunning {
-		return nil
-	}
-	spv := strings.TrimSpace(env("LIBDOGECOIN_SPVNODE", "spvnode"))
-	logPath := filepath.Join(a.storageDir, "spv.log")
-	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return err
-	}
-	// Flag order: -b scan last. -p enables use_checkpoints in libdogecoin; -q + -l picks the latest *embedded*
-	// checkpoint on a fresh headers DB (avoids syncing headers from genesis). Custom admin JSON checkpoint is
-	// not passed to spvnode — only this binary's dogecoin_mainnet_checkpoint_array / testnet array exists upstream.
-	args := []string{"-f", "0", "-c", "-l"}
-	if strings.TrimSpace(env("QE_SPV_USE_CHECKPOINT", "1")) != "0" {
-		args = append(args, "-p", "-q")
-	}
-	if w := strings.TrimSpace(env("QE_SPV_WATCH_ADDRESS", "")); w != "" {
-		args = append(args, "-a", w)
-	}
-	args = append(args,
-		"-w", filepath.Join(a.storageDir, "spv_wallet.db"),
-		"-h", filepath.Join(a.storageDir, "headers.db"),
-		"-b", "scan",
-	)
-	if strings.EqualFold(a.cfg.Network, "testnet") {
-		args = append([]string{"-t"}, args...)
-	}
-	cmd := exec.Command(spv, args...)
-	cmd.Stdout = f
-	cmd.Stderr = f
-	if err := cmd.Start(); err != nil {
-		_ = f.Close()
-		a.spvStartErr = err.Error()
-		return err
-	}
-	a.spvCmd = cmd
-	a.spvRunning = true
-	a.spvStartErr = ""
-	log.Printf("[quantum-explorer] spvnode started pid=%d", cmd.Process.Pid)
-	go func(c *exec.Cmd, lf *os.File) {
-		err := c.Wait()
-		_ = lf.Close()
-		a.mu.Lock()
-		if err != nil && a.spvStartErr == "" {
-			a.spvStartErr = "spv process exited: " + err.Error()
-		}
-		a.spvRunning = false
-		a.spvCmd = nil
-		a.mu.Unlock()
-	}(cmd, f)
-	return nil
-}
-
-func (a *app) stopSPV() {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.spvCmd != nil && a.spvCmd.Process != nil {
-		_ = a.spvCmd.Process.Kill()
-	}
-	a.spvRunning = false
-	a.spvCmd = nil
-}
-
-const watchdogMinInterval = 25 * time.Second
-
-// subsystemWatchdog periodically restarts mempool and SPV if autostart is enabled and they are not running
-// (e.g. first launch failed, binary path appeared later, or the child process exited).
-func (a *app) subsystemWatchdog() {
-	tick := time.NewTicker(20 * time.Second)
-	defer tick.Stop()
-	for range tick.C {
-		a.maybeRestartMempool()
-		a.maybeRestartSPV()
-	}
-}
-
-func (a *app) maybeRestartMempool() {
-	a.mu.RLock()
-	ok := a.engRunning
-	a.mu.RUnlock()
-	if ok {
-		return
-	}
-	a.watchdogMu.Lock()
-	if time.Since(a.lastMempoolRetry) < watchdogMinInterval {
-		a.watchdogMu.Unlock()
-		return
-	}
-	a.lastMempoolRetry = time.Now()
-	a.watchdogMu.Unlock()
-	if err := a.startMempool(); err != nil {
-		log.Printf("[quantum-explorer] mempool watchdog: start failed: %v", err)
-	} else {
-		log.Printf("[quantum-explorer] mempool watchdog: tracker started")
-	}
-}
-
-func (a *app) maybeRestartSPV() {
-	if strings.TrimSpace(os.Getenv("QE_SPV_AUTO_START")) == "0" {
-		return
-	}
-	a.mu.RLock()
-	ok := a.spvRunning
-	a.mu.RUnlock()
-	if ok {
-		return
-	}
-	a.watchdogMu.Lock()
-	if time.Since(a.lastSPVRetry) < watchdogMinInterval {
-		a.watchdogMu.Unlock()
-		return
-	}
-	a.lastSPVRetry = time.Now()
-	a.watchdogMu.Unlock()
-	if err := a.startSPV(); err != nil {
-		log.Printf("[quantum-explorer] SPV watchdog: start failed: %v", err)
-	} else {
-		log.Printf("[quantum-explorer] SPV watchdog: spvnode started")
-	}
-}
-
-func (a *app) refreshLoop() {
-	reTxid := regexp.MustCompile(`\b[0-9a-fA-F]{64}\b`)
-	for {
-		time.Sleep(3 * time.Second)
-		a.mu.RLock()
-		eng := a.eng
-		running := a.engRunning
-		tpl := strings.TrimSpace(a.cfg.ExplorerTxAPI)
-		a.mu.RUnlock()
-		if running && eng != nil {
-			_, live, _, _ := eng.DashboardSnapshot()
-			a.mu.Lock()
-			for _, row := range live {
-				txid, _ := row["txid"].(string)
-				if txid == "" {
-					continue
-				}
-				seen := time.Now().UTC().Format(time.RFC3339)
-				tx := a.txs[txid]
-				if tx == nil {
-					tx = &PQTx{Txid: txid, FirstSeen: seen}
-					a.txs[txid] = tx
-				}
-				tx.LastSeen = seen
-				tx.Confirmed = false
-				tracked, _ := row["tracked_match"].(bool)
-				addr, _ := row["address"].(string)
-				if strings.TrimSpace(addr) != "" {
-					found := false
-					for _, cur := range tx.Addresses {
-						if cur == addr {
-							found = true
-							break
-						}
-					}
-					if !found {
-						tx.Addresses = append(tx.Addresses, addr)
-					}
-				}
-				tx.PQValid, tx.PQScore = classifyPQ(txid, tracked, len(tx.Addresses))
-				rawHex := a.fetchRawTxHex(txid, eng, tpl)
-				if rawHex == "" {
-					tx.PQValid = false
-					tx.PQScore = 0
-					tx.PQReason = "strict verifier: no raw tx (waiting for P2P tx message or set QE_EXPLORER_TX_API as fallback)"
-					tx.PQEvidence = []string{"no_raw_tx"}
-					tx.Verifier = "strict-v1"
-				} else {
-					ok, reason, ev, tags := verifyPQStrict(rawHex)
-					tx.PQValid = ok
-					if ok {
-						tx.PQScore = 100
-					} else {
-						tx.PQScore = 0
-					}
-					tx.PQReason = reason
-					tx.PQEvidence = ev
-					tx.Verifier = "strict-v1"
-					if len(tx.Addresses) == 0 && len(tags) > 0 {
-						tx.Addresses = append(tx.Addresses, tags...)
-					}
-				}
-			}
-			a.reindexUnsafe()
-			a.mu.Unlock()
-			a.persistTxs()
-		}
-
-		// SPV log: ingest header chain index + mark confirmed txids.
-		logPath := filepath.Join(a.storageDir, "spv.log")
-		logBytes, err := os.ReadFile(logPath)
-		logStr := string(logBytes)
-		if len(logStr) > 1<<22 {
-			logStr = logStr[len(logStr)-(1<<22):]
-		}
-		a.mu.Lock()
-		if err != nil {
-			a.lastSPVLogErr = err.Error()
-			a.mu.Unlock()
-			continue
-		}
-		a.lastSPVLogErr = ""
-		a.mu.Unlock()
-
-		chg, ingErr := a.ingestSPVLogChain(logStr)
-		if ingErr != nil {
-			log.Printf("[quantum-explorer] chain ingest: %v", ingErr)
-		} else if chg {
-			if err := a.chain.Persist(); err != nil {
-				log.Printf("[quantum-explorer] chain persist: %v", err)
-			}
-		}
-
-		a.mu.Lock()
-		found := map[string]struct{}{}
-		for _, m := range reTxid.FindAllString(logStr, -1) {
-			found[strings.ToLower(m)] = struct{}{}
-		}
-		for txid, tx := range a.txs {
-			if _, ok := found[strings.ToLower(txid)]; ok {
-				tx.Confirmed = true
-			}
-		}
-		a.reindexUnsafe()
-		a.mu.Unlock()
-		a.persistTxs()
-	}
-}
-
 func (a *app) adminTokenValid(token string) bool {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -849,7 +559,7 @@ func (a *app) latest(limit int) []*PQTx {
 
 func (a *app) publicStatus(w http.ResponseWriter, r *http.Request) {
 	rows := a.latest(100)
-	m := map[string]int{"mempool_live": 0, "pq_seen": len(rows), "confirmed": 0, "invalid": 0, "pq_valid": 0, "non_quantum": 0}
+	m := map[string]int{"pq_seen": len(rows), "confirmed": 0, "invalid": 0, "pq_valid": 0, "non_quantum": 0}
 	for _, t := range rows {
 		if t.Confirmed {
 			m["confirmed"]++
@@ -859,46 +569,6 @@ func (a *app) publicStatus(w http.ResponseWriter, r *http.Request) {
 			m["non_quantum"]++
 		} else {
 			m["pq_valid"]++
-		}
-	}
-	m["mempool_live"] = len(rows) - m["confirmed"]
-	logPath := filepath.Join(a.storageDir, "spv.log")
-	logBytes, _ := os.ReadFile(logPath)
-	logStr := string(logBytes)
-	snap := parseSPVLogSnapshot(logStr)
-	headerRows := make([]map[string]any, 0, 16)
-	for _, h := range a.recentChainHeaders(15) {
-		headerRows = append(headerRows, map[string]any{
-			"height": h.Height, "hash": h.Hash, "timestamp": h.Timestamp,
-			"raw": h.RawSource, "source": "chain_index",
-		})
-	}
-	if len(headerRows) == 0 {
-		for _, row := range snap.HeaderRows {
-			if len(headerRows) >= 15 {
-				break
-			}
-			headerRows = append(headerRows, map[string]any{
-				"height": row.Height, "hash": row.Hash, "timestamp": row.Timestamp,
-				"raw": row.Raw, "source": "spv_log_fallback",
-			})
-		}
-	}
-	if len(headerRows) > 15 {
-		headerRows = headerRows[:15]
-	}
-	headers := headerRows
-	pqFoundOnSPV := false
-	pqConfirmedValid := 0
-	pqConfirmedInvalid := 0
-	for _, t := range rows {
-		if t.Confirmed {
-			pqFoundOnSPV = true
-			if t.PQValid {
-				pqConfirmedValid++
-			} else {
-				pqConfirmedInvalid++
-			}
 		}
 	}
 	latestPQ := rows
@@ -914,25 +584,6 @@ func (a *app) publicStatus(w http.ResponseWriter, r *http.Request) {
 		"metrics":                m,
 		"latest":                 rows,
 		"latest_pq_transactions": latestPQ,
-		"mempool": map[string]any{
-			"running":     a.engRunning,
-			"start_error": a.mempoolStartErr,
-		},
-		"spv": map[string]any{
-			"running":              a.spvRunning,
-			"start_error":          a.spvStartErr,
-			"latest_headers":       headers,
-			"pq_found_on_spv":      pqFoundOnSPV,
-			"headers_available":    len(headers),
-			"tip_height":           snap.TipHeight,
-			"tip_hash":             snap.TipHash,
-			"tip_time_from_log":    snap.LastTipTime,
-			"peer_count_hint":      snap.PeerCount,
-			"mempool_tx_hint":      snap.MempoolTxHint,
-			"indexed_tx_count":     len(rows),
-			"pq_confirmed_valid":   pqConfirmedValid,
-			"pq_confirmed_invalid": pqConfirmedInvalid,
-		},
 		"chain_index": map[string]any{
 			"summary":         chainSum,
 			"recent_headers":  chainHdrs,
@@ -1012,9 +663,11 @@ func (a *app) publicBlock(w http.ResponseWriter, r *http.Request) {
 					"source":                  "core_index",
 					"block":                   b,
 					"associated_transactions": detail["transactions"],
+					"tx_count":                bm["tx_count"],
+					"decode_limit":            decodeLimit,
 					"notes": []string{
 						"Dogecoin Core RPC indexer (local PostgreSQL).",
-						fmt.Sprintf("Decode included for the first %d transactions (decode_limit).", decodeLimit),
+						fmt.Sprintf("Full transaction list below; optional decode for the first %d txs (decode_limit) when raw hex is stored.", decodeLimit),
 					},
 				})
 				return
@@ -1047,7 +700,7 @@ func (a *app) publicBlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if b == nil {
-		writeJSON(w, 404, map[string]string{"error": "block header not in SPV chain index yet"})
+		writeJSON(w, 404, map[string]string{"error": "block header not in local chain index yet"})
 		return
 	}
 	txids, err := a.chain.ListTxidsForHeight(b.Height)
@@ -1057,14 +710,13 @@ func (a *app) publicBlock(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.mu.RLock()
-	eng := a.eng
 	tpl := strings.TrimSpace(a.cfg.ExplorerTxAPI)
 	net := strings.ToLower(strings.TrimSpace(a.cfg.Network))
 	a.mu.RUnlock()
 	txSummaries := make([]map[string]any, 0, len(txids))
 	for _, id := range txids {
 		id = strings.ToLower(id)
-		rawHex := a.fetchRawTxHex(id, eng, tpl)
+		rawHex := a.fetchRawTxHex(id, tpl)
 		var dec map[string]any
 		if rawHex != "" {
 			dec = DecodeTxJSON(rawHex, net)
@@ -1082,10 +734,10 @@ func (a *app) publicBlock(w http.ResponseWriter, r *http.Request) {
 			row["pq_tx"] = &cp
 		} else {
 			row["pq_tx"] = nil
-			row["note"] = "Heuristic link from SPV log; not in PQ index. Decode works if raw tx was relayed."
+			row["note"] = "Heuristic link from chain index; not in PQ store. Decode works if raw tx is available."
 		}
 		if rawHex == "" {
-			row["decode_note"] = "No raw tx bytes yet — keep mempool running or set QE_EXPLORER_TX_API."
+			row["decode_note"] = "No raw tx bytes yet — set QE_EXPLORER_TX_API or open tx via Core indexer."
 		}
 		txSummaries = append(txSummaries, row)
 	}
@@ -1094,9 +746,9 @@ func (a *app) publicBlock(w http.ResponseWriter, r *http.Request) {
 		"block":                   b,
 		"associated_transactions": txSummaries,
 		"notes": []string{
-			"Block headers are indexed in the chain database (from SPV ingestion), not read from the full spv.log for UI.",
-			"Transactions listed here are heuristic 64-hex links from SPV log lines; full decoding requires raw tx (P2P or API).",
-			"A future full indexer can store every relayed tx and UTXO set for exact fees.",
+			"Block headers come from the local chain index (legacy JSON/Postgres store).",
+			"Transactions listed here are heuristic height↔txid links when present; full decoding needs raw tx (Core RPC or QE_EXPLORER_TX_API).",
+			"Prefer Core-indexed block detail when PostgreSQL + indexer are enabled.",
 		},
 	})
 }
@@ -1115,17 +767,36 @@ func (a *app) publicTxDetail(w http.ResponseWriter, r *http.Request) {
 	if a.cidx != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 		defer cancel()
-		rawHex, qState, pqReas, blkH, tm, vOut, okRow, err := a.cidx.txRowByID(ctx, q)
+		rawHex, qState, pqReas, blkH, tm, vOut, blkHash, okRow, err := a.cidx.txRowByID(ctx, q)
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": err.Error()})
 			return
 		}
 		if okRow {
-			pqValid := qState == "quantum"
-			score := 0
-			if pqValid {
-				score = 100
+			if strings.TrimSpace(rawHex) == "" && a.core != nil && a.core.enabled() {
+				if h, err := a.core.getRawTransactionHex(ctx, q, blkHash); err == nil && strings.TrimSpace(h) != "" {
+					rawHex = strings.TrimSpace(h)
+					_ = a.cidx.backfillRawHex(ctx, q, rawHex)
+					r2, qs2, pr2, bh2, tm2, vo2, bkh2, ok2, err2 := a.cidx.txRowByID(ctx, q)
+					if err2 == nil && ok2 {
+						rawHex, qState, pqReas, blkH, tm, vOut, blkHash = r2, qs2, pr2, bh2, tm2, vo2, bkh2
+					}
+				}
 			}
+			pqValid := false
+			pqScore := 0
+			if strings.TrimSpace(rawHex) != "" {
+				if ok, _, _, _ := verifyPQStrict(rawHex); ok {
+					pqValid = true
+					pqScore = 100
+				}
+			} else {
+				pqValid = qState == "quantum"
+				if pqValid {
+					pqScore = 100
+				}
+			}
+			score := pqScore
 			seen := time.Unix(tm, 0).UTC().Format(time.RFC3339)
 			cp := PQTx{
 				Txid:      q,
@@ -1142,7 +813,7 @@ func (a *app) publicTxDetail(w http.ResponseWriter, r *http.Request) {
 				"tx":              &cp,
 				"pq_verification": buildPQVerificationDetail(rawHex, net),
 				"core": map[string]any{
-					"block_height": blkH, "quantum_state": qState, "value_out_sats": vOut,
+					"block_height": blkH, "block_hash": blkHash, "quantum_state": qState, "value_out_sats": vOut,
 				},
 			})
 			return
@@ -1165,10 +836,9 @@ func (a *app) publicTxDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.mu.RLock()
-	eng := a.eng
 	tpl := strings.TrimSpace(a.cfg.ExplorerTxAPI)
 	a.mu.RUnlock()
-	rawHex := a.fetchRawTxHex(q, eng, tpl)
+	rawHex := a.fetchRawTxHex(q, tpl)
 	cp := *tx
 	writeJSON(w, 200, map[string]any{
 		"tx":              &cp,
@@ -1243,7 +913,7 @@ func (a *app) publicSearch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{
 			"query": q,
 			"kind":  "unknown_hex64",
-			"note":  "Not a known block hash in the SPV chain index or a PQ-indexed txid",
+			"note":  "Not a known block hash in the local chain index or a PQ-indexed txid",
 		})
 		return
 	}
@@ -1278,21 +948,11 @@ func (a *app) publicSearch(w http.ResponseWriter, r *http.Request) {
 func (a *app) adminStatus(w http.ResponseWriter, _ *http.Request) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	note := "spvnode ignores admin JSON; it uses libdogecoin's embedded checkpoints (-p/-q). This pup's default reference height (~6093890) matches an older libdogecoin rev — your spvnode binary may embed a higher checkpoint (e.g. ~6.16M). If the header tip seems stuck: peers may be slow or absent; the library may need a newer release for fresher checkpoints; or headers.db may need reset (backup, delete headers.db, restart SPV) so -q picks the latest embedded anchor. This is an upstream libdogecoin/network limit, not Quantum Explorer."
 	writeJSON(w, 200, map[string]any{
-		"mempool_running":     a.engRunning,
-		"mempool_start_error": a.mempoolStartErr,
-		"spv_running":         a.spvRunning,
-		"spv_start_error":     a.spvStartErr,
 		"checkpoint":          a.cfg.Checkpoint,
 		"network":             a.cfg.Network,
-		"last_spv_log_err":    a.lastSPVLogErr,
-		"spv_checkpoint_help": note,
-		"spv_use_checkpoint":  strings.TrimSpace(env("QE_SPV_USE_CHECKPOINT", "1")) != "0",
 		"chain_index_backend": a.chain.Kind(),
 		"storage_dir":         a.storageDir,
-		"spv_log_path":        filepath.Join(a.storageDir, "spv.log"),
-		"libdogecoin_spvnode": strings.TrimSpace(env("LIBDOGECOIN_SPVNODE", "spvnode")),
 		"diagnostics_api":     "GET /api/admin/<token>/diagnostics",
 		"core_rpc":            a.core.snapshot(),
 		"core_indexer":        a.coreIndexerStatus(),
@@ -1381,25 +1041,6 @@ func main() {
 	log.Printf("[quantum-explorer] chain index backend=%s", cb.Kind())
 	a.reindexUnsafe()
 	_ = saveJSON(a.cfgPath, a.cfg)
-	if strings.TrimSpace(env("QE_MEMPOOL_AUTO_START", "0")) == "1" {
-		if err := a.startMempool(); err != nil {
-			log.Printf("[quantum-explorer] mempool autostart failed: %v", err)
-		}
-	} else {
-		log.Printf("[quantum-explorer] mempool autostart skipped (QE_MEMPOOL_AUTO_START!=1)")
-	}
-	if strings.TrimSpace(env("QE_SPV_AUTO_START", "0")) == "0" {
-		log.Printf("[quantum-explorer] SPV autostart skipped (QE_SPV_AUTO_START=0)")
-	} else if err := a.startSPV(); err != nil {
-		log.Printf("[quantum-explorer] SPV autostart failed: %v (set LIBDOGECOIN_SPVNODE to your spvnode binary path)", err)
-	} else {
-		log.Printf("[quantum-explorer] SPV autostart invoked (QE_SPV_USE_CHECKPOINT=%q)", env("QE_SPV_USE_CHECKPOINT", "1"))
-	}
-	go a.subsystemWatchdog()
-	if strings.TrimSpace(env("QE_LEGACY_REFRESH_LOOP", "0")) == "1" {
-		go a.refreshLoop()
-		log.Printf("[quantum-explorer] legacy refresh loop enabled (QE_LEGACY_REFRESH_LOOP=1)")
-	}
 	if a.cidx != nil {
 		a.cidx.autoStartIfEnabled()
 	}
@@ -1411,7 +1052,6 @@ func main() {
 	publicMux.HandleFunc("/api/public/block", a.withRateLimit(a.publicBlock))
 	publicMux.HandleFunc("/api/public/tx", a.withRateLimit(a.publicTxDetail))
 	publicMux.HandleFunc("/api/public/search", a.withRateLimit(a.publicSearch))
-	publicMux.HandleFunc("/api/public/mempool", a.withRateLimit(a.publicMempool))
 	publicMux.HandleFunc("/api/public/metrics", a.withRateLimit(a.publicMetrics))
 	publicMux.HandleFunc("/api/public/core/search", a.withRateLimit(a.withPublicAccess(a.publicCoreSearch)))
 	publicMux.HandleFunc("/api/public/core/summary", a.withRateLimit(a.withPublicAccess(a.publicCoreSummary)))
@@ -1464,28 +1104,6 @@ func main() {
 				return
 			}
 			a.adminAccessSet(w, r)
-		case "/mempool/start":
-			if err := a.startMempool(); err != nil {
-				writeJSON(w, 500, map[string]string{"error": err.Error()})
-				return
-			}
-			writeJSON(w, 200, map[string]any{"ok": true})
-		case "/mempool/stop":
-			a.stopMempool()
-			writeJSON(w, 200, map[string]any{"ok": true})
-		case "/mempool/restart":
-			a.adminRestartMempool(w)
-		case "/spv/start":
-			if err := a.startSPV(); err != nil && !errors.Is(err, os.ErrNotExist) {
-				writeJSON(w, 500, map[string]string{"error": err.Error()})
-				return
-			}
-			writeJSON(w, 200, map[string]any{"ok": true, "note": "SPV started; headers use libdogecoin embedded checkpoints when QE_SPV_USE_CHECKPOINT=1. Delete headers.db if a prior run synced from genesis."})
-		case "/spv/stop":
-			a.stopSPV()
-			writeJSON(w, 200, map[string]any{"ok": true})
-		case "/spv/restart":
-			a.adminRestartSPV(w)
 		case "/core-indexer/start":
 			a.adminStartCoreIndexer(w)
 		case "/core-indexer/stop":

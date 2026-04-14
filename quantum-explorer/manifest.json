@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "meta": {
     "name": "Quantum Explorer",
-    "version": "0.1.18",
+    "version": "0.1.20",
     "logoPath": "logo.png",
     "shortDescription": "Dogecoin blockchain explorer with Core RPC indexer and PQ transaction metrics",
     "longDescription": "Quantum Explorer runs PostgreSQL inside the pup (embedded when QE_POSTGRES_URL is unset), indexes every block and transaction from Dogecoin Core via RPC into local tables, and serves a Comic Neue + Material Icons web UI. Search supports address, txid, block height, and block hash. Post-quantum signals are classified from decoded raw transaction bytes (OP_RETURN markers). Optional libdogecoin SPV and P2P mempool tracking are off by default; set QE_SPV_AUTO_START=1 or QE_MEMPOOL_AUTO_START=1 to enable legacy paths. Configure Dogecoin Core RPC (QE_CORE_RPC_*) for indexing; link the core-rpc interface from the Dogecoin Core pup when available.",
@@ -25,8 +25,9 @@
       },
       {
         "name": "Embedded PostgreSQL",
-        "description": "If QE_POSTGRES_URL is empty, the pup starts PostgreSQL under the storage dir and creates database quantum_explorer. Set PGPORT to change the local TCP port (default 55432).",
+        "description": "Persistent data lives under QE_STORAGE_DIR (same pattern as pq-wallet’s PQ_STORAGE_DIR). If QE_POSTGRES_URL is empty, PostgreSQL data and sockets are created there and database quantum_explorer is created.",
         "fields": [
+          { "name": "QE_STORAGE_DIR", "label": "Storage directory (default /storage/quantum-explorer)", "type": "text", "default": "/storage/quantum-explorer" },
           { "name": "QE_POSTGRES_URL", "label": "Optional: override Postgres URL (leave empty for embedded)", "type": "text", "default": "" },
           { "name": "PGPORT", "label": "Embedded Postgres TCP port", "type": "text", "default": "55432" }
         ]
@@ -73,7 +74,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "2817a101421217206522f48d0c1f8f21e34ab24963d6e2e475fd464483c6aede"
+      "nixFileSha256": "d472d82a65bca5b3bb9fdf54f01f5793d1567bb3a31bae6817d0c586aed930dc"
     },
     "services": [
       {
@@ -96,7 +97,7 @@
   "interfaces": [
     {
       "name": "quantum-explorer-public",
-      "version": "0.1.18",
+      "version": "0.1.20",
       "permissionGroups": [
         {
           "name": "Quantum Explorer HTTP",

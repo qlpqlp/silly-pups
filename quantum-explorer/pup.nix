@@ -1,6 +1,8 @@
 { pkgs ? import <nixpkgs> {} }:
 
 let
+  postgresql = pkgs.postgresql_16;
+
   libdogecoin = pkgs.stdenv.mkDerivation rec {
     pname = "libdogecoin-bins";
     version = "0.1.5-git-a120e03";
@@ -71,24 +73,54 @@ let
   };
 
   quantum-explorer = pkgs.writeShellScriptBin "run.sh" ''
-    set -e
+    set -euo pipefail
     STORAGE_DIR="/storage/quantum-explorer"
     mkdir -p "$STORAGE_DIR"
+    PGDATA="$STORAGE_DIR/pgdata"
+    PGPORT="''${PGPORT:-55432}"
 
-    export PATH="${libdogecoin}/bin:${pkgs.coreutils}/bin:$PATH"
+    export PATH="${postgresql}/bin:${libdogecoin}/bin:${pkgs.coreutils}/bin:${pkgs.gnugrep}/bin:$PATH"
     export QE_STORAGE_DIR="$STORAGE_DIR"
     export PUBLIC_PORT="''${PUBLIC_PORT:-33666}"
     export QE_ADMIN_PORT="''${QE_ADMIN_PORT:-33667}"
     export NETWORK="''${NETWORK:-mainnet}"
     export QE_EXPLORER_TX_API="''${QE_EXPLORER_TX_API:-}"
-    export QE_POSTGRES_URL="''${QE_POSTGRES_URL:-}"
     export QE_ADMIN_USER="''${QE_ADMIN_USER:-shibe}"
     export QE_ADMIN_PASS="''${QE_ADMIN_PASS:-suchpass}"
     export QE_SPV_USE_CHECKPOINT="''${QE_SPV_USE_CHECKPOINT:-1}"
-    export QE_SPV_AUTO_START="''${QE_SPV_AUTO_START:-1}"
+    export QE_MEMPOOL_AUTO_START="''${QE_MEMPOOL_AUTO_START:-0}"
+    export QE_SPV_AUTO_START="''${QE_SPV_AUTO_START:-0}"
+    export QE_LEGACY_REFRESH_LOOP="''${QE_LEGACY_REFRESH_LOOP:-0}"
     export LIBDOGECOIN_SPVNODE="''${LIBDOGECOIN_SPVNODE:-${libdogecoin}/bin/spvnode}"
 
-    exec ${qe_bin}/bin/quantum-explorer
+    if [ -z "''${QE_POSTGRES_URL:-}" ]; then
+      if [ ! -f "$PGDATA/PG_VERSION" ]; then
+        initdb -D "$PGDATA" -U qeuser --locale=C -E UTF8 --auth-local=trust --auth-host=trust
+      fi
+      cleanup() {
+        if pg_ctl -D "$PGDATA" status >/dev/null 2>&1; then
+          pg_ctl -D "$PGDATA" -m fast stop || true
+        fi
+      }
+      trap cleanup EXIT INT TERM
+      if ! pg_ctl -D "$PGDATA" status >/dev/null 2>&1; then
+        pg_ctl -D "$PGDATA" -l "$PGDATA/postgres.log" -o "-p $PGPORT -h 127.0.0.1" start
+        sleep 0.4
+      fi
+      for i in $(seq 1 80); do
+        if pg_isready -h 127.0.0.1 -p "$PGPORT" >/dev/null 2>&1; then
+          break
+        fi
+        sleep 0.2
+      done
+      if ! psql -h 127.0.0.1 -p "$PGPORT" -U qeuser -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='quantum_explorer'" | grep -q 1; then
+        createdb -h 127.0.0.1 -p "$PGPORT" -U qeuser quantum_explorer || true
+      fi
+      export QE_POSTGRES_URL="postgres://qeuser@127.0.0.1:$PGPORT/quantum_explorer?sslmode=disable"
+    fi
+
+    ${qe_bin}/bin/quantum-explorer
+    exit $?
   '';
 in
 {

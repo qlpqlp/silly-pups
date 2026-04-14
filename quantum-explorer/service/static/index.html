@@ -126,7 +126,8 @@
     <div class="hero">
       <img src="/logo.png" alt="" />
       <div>
-        <h1>Quantum Explorer</h1>
+        <h1><span class="material-symbols-outlined title-icon" aria-hidden="true">pets</span>Dogecoin Quantum Explorer</h1>
+        <p class="sub">Full chain in embedded PostgreSQL · indexed from Dogecoin Core RPC · PQ signals from decoded txs</p>
       </div>
       <div class="hero-actions">
         <button type="button" class="btn docs-btn" id="btn-user-docs" title="Open educational documentation">
@@ -144,8 +145,8 @@
           <input id="q" placeholder="Dogecoin address, txid, block hash, or height" />
           <button class="search-inside-btn" id="btn-search" title="Search" aria-label="Search"><span class="material-symbols-outlined" aria-hidden="true">search</span></button>
         </div>
-        <p class="muted">Quantum Explorer indexes only PQ-like transactions and exposes verification state.</p>
-        <p class="muted" id="chain-index-strip" style="font-size:.82rem;margin:.35rem 0">Chain index: …</p>
+        <p class="muted">Search the indexed chain: address, txid, block height, or block hash (Sochain-style, live JSON).</p>
+        <p class="muted" id="chain-index-strip" style="font-size:.82rem;margin:.35rem 0">Indexer: …</p>
         <div id="search-out"></div>
       </section>
 
@@ -153,14 +154,14 @@
         <h2><span class="material-symbols-outlined title-icon" aria-hidden="true">monitoring</span>Metrics</h2>
         <div class="badges" id="metric-badges" style="margin-bottom:.7rem"></div>
         <div class="kpi">
-          <div class="kpi-card"><span class="kpi-label">Mempool Live</span><b class="kpi-value kpi-tone-info" id="k-mempool">0</b></div>
-          <div class="kpi-card"><span class="kpi-label">PQ Seen</span><b class="kpi-value" id="k-pq">0</b></div>
-          <div class="kpi-card"><span class="kpi-label">PQ Valid</span><b class="kpi-value kpi-tone-ok" id="k-pqvalid">0</b></div>
-          <div class="kpi-card"><span class="kpi-label">Confirmed (SPV)</span><b class="kpi-value kpi-tone-info" id="k-confirmed">0</b></div>
-          <div class="kpi-card"><span class="kpi-label">Invalid PQ</span><b class="kpi-value kpi-tone-bad" id="k-invalid">0</b></div>
-          <div class="kpi-card"><span class="kpi-label">SPV Tip Height</span><b class="kpi-value" id="k-spv-tip">—</b></div>
-          <div class="kpi-card"><span class="kpi-label">SPV Peers (log)</span><b class="kpi-value kpi-tone-warn" id="k-spv-peers">—</b></div>
-          <div class="kpi-card"><span class="kpi-label">SPV Mempool (log)</span><b class="kpi-value kpi-tone-warn" id="k-spv-mempool">—</b></div>
+          <div class="kpi-card"><span class="kpi-label">Core tip (RPC)</span><b class="kpi-value kpi-tone-info" id="k-core-tip">—</b></div>
+          <div class="kpi-card"><span class="kpi-label">Indexed height</span><b class="kpi-value" id="k-ix-height">—</b></div>
+          <div class="kpi-card"><span class="kpi-label">Indexed txs</span><b class="kpi-value" id="k-ix-txs">—</b></div>
+          <div class="kpi-card"><span class="kpi-label">Indexed blocks</span><b class="kpi-value" id="k-ix-blocks">—</b></div>
+          <div class="kpi-card"><span class="kpi-label">PQ markers (quantum)</span><b class="kpi-value kpi-tone-ok" id="k-pqvalid">0</b></div>
+          <div class="kpi-card"><span class="kpi-label">Invalid PQ payload</span><b class="kpi-value kpi-tone-bad" id="k-invalid">0</b></div>
+          <div class="kpi-card"><span class="kpi-label">Mempool (legacy)</span><b class="kpi-value kpi-tone-warn" id="k-mempool">0</b></div>
+          <div class="kpi-card"><span class="kpi-label">SPV tip (legacy)</span><b class="kpi-value" id="k-spv-tip">—</b></div>
         </div>
       </aside>
     </div>
@@ -169,8 +170,8 @@
       <div class="pq-block" id="pq-block">
         <div class="pq-block-head">
           <div>
-            <h2><span class="material-symbols-outlined title-icon" aria-hidden="true">token</span>PQ transactions — latest block</h2>
-            <div class="pq-block-meta" id="pq-block-context">Correlates with SPV chain tip when available.</div>
+            <h2><span class="material-symbols-outlined title-icon" aria-hidden="true">token</span>PQ-related transactions (legacy mempool index)</h2>
+            <div class="pq-block-meta" id="pq-block-context">When mempool/SPV are off, this list may be empty — use Core-indexed search for on-chain txs.</div>
           </div>
           <div>
             <div class="row" style="margin-bottom:.45rem">
@@ -288,13 +289,13 @@
     </div>
 
     <section class="card" style="margin-top:.8rem">
-      <h2><span class="material-symbols-outlined title-icon" aria-hidden="true">lan</span>SPV chain &amp; headers</h2>
+      <h2><span class="material-symbols-outlined title-icon" aria-hidden="true">database</span>Recent indexed blocks (Core → Postgres)</h2>
       <div class="badges" id="spv-badges" style="margin:.35rem 0 .6rem"></div>
       <div id="spv-tip-card" class="head-row" style="margin-bottom:.65rem"></div>
-      <p class="muted" id="spv-pq-status">SPV: checking…</p>
-      <p class="muted" id="mempool-status">Mempool tracker: checking…</p>
-      <h3 class="muted" style="font-size:.95rem;margin:.75rem 0 .4rem">Indexed headers (chain database)</h3>
-      <p class="muted" style="font-size:.78rem;margin:-.2rem 0 .5rem">Tap a row for block detail and decoded transactions when raw hex is available (P2P / API).</p>
+      <p class="muted" id="spv-pq-status">Indexer: checking…</p>
+      <p class="muted" id="mempool-status">Mempool tracker (optional): checking…</p>
+      <h3 class="muted" style="font-size:.95rem;margin:.75rem 0 .4rem">Latest blocks in <span class="mono">qe_core_blocks</span></h3>
+      <p class="muted" style="font-size:.78rem;margin:-.2rem 0 .5rem">Tap a row for full block detail and decoded transactions (RPC indexer).</p>
       <div id="spv-headers" class="headers"></div>
     </section>
 
@@ -491,13 +492,18 @@
       const pq = r.d.pq_verification || {};
       const dec = pq.decode || {};
       const strict = pq.strict || {};
+      const core = r.d.core || {};
+      const src = r.d.source === "core_index" ? "Core-indexed block tx" : "Legacy PQ index";
       title.textContent = "Transaction detail";
       body.innerHTML = `
         <div class="detail-section" style="border-top:none;padding-top:0">
+          <div class="badges" style="margin:0 0 .5rem"><span class="badge">${esc(src)}</span></div>
           <div class="mono" style="font-size:.85rem">${esc(tx.txid)}</div>
+          ${core.block_height != null ? `<div class="detail-kv"><strong>Block height</strong> ${esc(String(core.block_height))}</div>` : ""}
+          ${core.quantum_state ? `<div class="detail-kv"><strong>Quantum state</strong> ${esc(String(core.quantum_state))}</div>` : ""}
           <div class="badges" style="margin:.5rem 0">
-            ${badge(tx.confirmed ? "confirmed":"pending", tx.confirmed ? "Confirmed (SPV log)":"Pending")}
-            ${badge(tx.pq_valid ? "pq-ok":"pq-bad", tx.pq_valid ? "Indexed PQ valid":"Indexed PQ invalid")}
+            ${badge(tx.confirmed ? "confirmed":"pending", tx.confirmed ? "Confirmed on-chain":"Pending")}
+            ${badge(tx.pq_valid ? "pq-ok":"pq-bad", tx.pq_valid ? "PQ markers OK":"PQ markers not satisfied")}
             ${badge("", esc(tx.verifier || "—"))}
           </div>
           <div class="detail-kv"><strong>First seen</strong> ${esc(tx.first_seen||"—")}</div>
@@ -523,7 +529,7 @@
     function openBlockModal(){ document.getElementById("block-modal").classList.add("show"); }
 
     async function openBlockByHeightOrHash(height, hash){
-      const q = height != null && height > 0
+      const q = height != null && height >= 0
         ? "height=" + encodeURIComponent(String(height))
         : "hash=" + encodeURIComponent(hash || "");
       openBlockModal();
@@ -567,6 +573,44 @@
     document.getElementById("tx-modal").addEventListener("click", (e) => { if (e.target.id === "tx-modal") closeTxModal(); });
     document.getElementById("block-modal-close").onclick = closeBlockModal;
     document.getElementById("block-modal").addEventListener("click", (e) => { if (e.target.id === "block-modal") closeBlockModal(); });
+
+    function renderExplorerBlocks(ex){
+      const out=document.getElementById("spv-headers");
+      const status=document.getElementById("spv-pq-status");
+      const tipCard=document.getElementById("spv-tip-card");
+      const spvBadges=document.getElementById("spv-badges");
+      const rows = (ex && ex.recent_blocks) || [];
+      const sum = (ex && ex.summary) || {};
+      const rrows = (sum && sum.rows) || {};
+      const pq = (ex && ex.pq) || {};
+      status.textContent = `Indexed blocks ${rrows.blocks ?? "—"} · txs ${rrows.txs ?? "—"} · addresses ${rrows.addresses ?? "—"} · PQ quantum ${pq.quantum ?? 0} / invalid ${pq.invalid_quantum ?? 0}`;
+      spvBadges.innerHTML = [
+        badge("confirmed", "Postgres + Core"),
+        badge((pq.quantum||0) > 0 ? "pq-ok" : "muted", `PQ ${pq.quantum ?? 0}`)
+      ].join("");
+      tipCard.innerHTML = `<div><strong>Indexer progress</strong> height ${esc(String(sum.last_height ?? "—"))} / tip ${esc(String(sum.tip_height ?? "—"))}</div>
+        <div class="muted" style="margin-top:.35rem"><strong>Core RPC tip</strong> ${esc(String(window.__coreTip ?? "—"))}</div>`;
+      if (!rows.length) {
+        out.innerHTML = '<p class="muted">No blocks indexed yet — ensure Core RPC is configured and the indexer is running.</p>';
+        return;
+      }
+      out.innerHTML = rows.map(b => {
+        const t = b.time_unix ? new Date(b.time_unix*1000).toISOString() : "";
+        return `<button type="button" class="head-row clickable" style="width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer" data-height="${esc(String(b.height??""))}" data-hash="${esc(b.hash||"")}">
+          <div><strong>Height</strong> ${esc(b.height ?? "-")} · <span class="muted">${esc(String(b.tx_count ?? "?"))} txs</span></div>
+          <div class="mono"><strong>Hash</strong> ${esc(b.hash || "—")}</div>
+          <div class="muted" style="margin-top:.3rem"><strong>Time</strong> ${esc(t)}</div>
+        </button>`;
+      }).join("");
+      out.querySelectorAll(".head-row.clickable").forEach(btn => {
+        btn.onclick = () => {
+          const ht = parseInt(btn.getAttribute("data-height") || "0", 10);
+          const hx = (btn.getAttribute("data-hash") || "").trim();
+          if (!isNaN(ht) && ht >= 0) openBlockByHeightOrHash(ht, null);
+          else if (hx.length === 64) openBlockByHeightOrHash(null, hx);
+        };
+      });
+    }
 
     function renderSPV(spv){
       const out=document.getElementById("spv-headers");
@@ -623,7 +667,7 @@
         btn.onclick = () => {
           const ht = parseInt(btn.getAttribute("data-height") || "0", 10);
           const hx = (btn.getAttribute("data-hash") || "").trim();
-          if (ht > 0) openBlockByHeightOrHash(ht, null);
+          if (!isNaN(ht) && ht >= 0) openBlockByHeightOrHash(ht, null);
           else if (hx.length === 64) openBlockByHeightOrHash(null, hx);
         };
       });
@@ -647,35 +691,58 @@
       }
       const m=r.d.metrics||{};
       const mp=r.d.mempool||{};
+      const core = r.d.core || {};
       window.__mempoolErr = mp.start_error ? String(mp.start_error) : "";
-      document.getElementById("mempool-status").textContent = `Mempool tracker running: ${mp.running ? "yes":"no"}`;
+      window.__coreTip = (core.blockcount != null && core.blockcount !== "") ? core.blockcount : null;
+      document.getElementById("mempool-status").textContent = `Mempool tracker (optional): ${mp.running ? "yes":"no"}`;
       document.getElementById("k-mempool").textContent = m.mempool_live ?? 0;
-      document.getElementById("k-pq").textContent = m.pq_seen ?? 0;
       document.getElementById("k-pqvalid").textContent = m.pq_valid ?? 0;
-      document.getElementById("k-confirmed").textContent = m.confirmed ?? 0;
       document.getElementById("k-invalid").textContent = m.invalid ?? 0;
       const spv = r.d.spv || {};
       lastSPV = spv;
       const tip = spv.tip_height > 0 ? String(spv.tip_height) : "—";
       document.getElementById("k-spv-tip").textContent = tip;
-      document.getElementById("k-spv-peers").textContent = spv.peer_count_hint > 0 ? String(spv.peer_count_hint) : "—";
-      document.getElementById("k-spv-mempool").textContent = spv.mempool_tx_hint > 0 ? String(spv.mempool_tx_hint) : "—";
-      const mb = document.getElementById("metric-badges");
-      const pqV = m.pq_valid ?? 0;
-      const pqI = m.invalid ?? 0;
-      mb.innerHTML = [
-        badge(pqV > 0 ? "pq-ok" : "muted", `PQ valid ${pqV}`),
-        badge(pqI > 0 ? "pq-bad" : "muted", `PQ invalid ${pqI}`),
-        badge((m.confirmed ?? 0) > 0 ? "confirmed" : "pending", `SPV-confirmed ${m.confirmed ?? 0}`)
-      ].join("");
+      const ex = r.d.explorer || {};
+      if (ex.enabled) {
+        const s = ex.summary || {};
+        const rw = (s.rows) || {};
+        document.getElementById("k-core-tip").textContent = (core.blockcount != null) ? String(core.blockcount) : "—";
+        document.getElementById("k-ix-height").textContent = (s.last_height != null) ? String(s.last_height) : "—";
+        document.getElementById("k-ix-txs").textContent = (rw.txs != null) ? String(rw.txs) : "—";
+        document.getElementById("k-ix-blocks").textContent = (rw.blocks != null) ? String(rw.blocks) : "—";
+        const pqdb = ex.pq || {};
+        document.getElementById("k-pqvalid").textContent = pqdb.quantum != null ? String(pqdb.quantum) : "0";
+        document.getElementById("k-invalid").textContent = pqdb.invalid_quantum != null ? String(pqdb.invalid_quantum) : "0";
+        const mb = document.getElementById("metric-badges");
+        mb.innerHTML = [
+          badge(core.connected ? "confirmed" : "pending", core.connected ? "Core RPC" : "Core offline"),
+          badge((s.running ? "pq-ok" : "pending"), s.running ? "Indexer running" : "Indexer stopped"),
+          badge("muted", `batch ${s.batch ?? "—"}`)
+        ].join("");
+        renderExplorerBlocks(ex);
+        document.getElementById("chain-index-strip").textContent =
+          `Core indexer: last height ${s.last_height ?? "—"}, tip ${s.tip_height ?? "—"} · Search uses indexed PostgreSQL tables.`;
+      } else {
+        document.getElementById("k-core-tip").textContent = (core.blockcount != null) ? String(core.blockcount) : "—";
+        document.getElementById("k-ix-height").textContent = "—";
+        document.getElementById("k-ix-txs").textContent = "—";
+        document.getElementById("k-ix-blocks").textContent = "—";
+        const mb = document.getElementById("metric-badges");
+        const pqV = m.pq_valid ?? 0;
+        const pqI = m.invalid ?? 0;
+        mb.innerHTML = [
+          badge(pqV > 0 ? "pq-ok" : "muted", `legacy PQ ${pqV}`),
+          badge(pqI > 0 ? "pq-bad" : "muted", `invalid ${pqI}`)
+        ].join("");
+        renderSPV(spv);
+        const ci = r.d.chain_index || {};
+        const sum = ci.summary || {};
+        const chainTip = sum.tip_height > 0 ? sum.tip_height : "—";
+        document.getElementById("chain-index-strip").textContent =
+          `Chain index: ${sum.header_count ?? 0} headers, tip ${chainTip}. Set Postgres + Core RPC for full explorer.`;
+      }
       latestPQ10 = await loadMempoolRows();
       renderPQBlock(spv, latestPQ10);
-      renderSPV(spv);
-      const ci = r.d.chain_index || {};
-      const sum = ci.summary || {};
-      const chainTip = sum.tip_height > 0 ? sum.tip_height : "—";
-      document.getElementById("chain-index-strip").textContent =
-        `SPV chain index: ${sum.header_count ?? 0} headers, tip height ${chainTip}. Search by block height, block hash, txid, or address.`;
       const mr = await j("/api/public/metrics?hours=24");
       if (mr.ok) {
         renderMetricsBars(mr.d.buckets || []);

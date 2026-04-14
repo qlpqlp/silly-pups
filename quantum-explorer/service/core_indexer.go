@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strconv"
@@ -613,6 +614,12 @@ func (ix *coreIndexer) search(ctx context.Context, q string, limit int) (map[str
 				"height": bh, "hash": bHash, "time_unix": bTime,
 			}}, nil
 		}
+		// Not a known txid or block hash; do not treat as a Dogecoin address.
+		return map[string]any{
+			"kind":  "unknown_hex64",
+			"query": q,
+			"note":  "No indexed block or transaction with this hash yet (Core indexer may still be catching up).",
+		}, nil
 	}
 	rows, err := ix.db.QueryContext(ctx, `SELECT address, txid, vout_n, value_sats, block_height
 		FROM qe_core_addresses WHERE address=$1 ORDER BY block_height DESC LIMIT $2`, q, limit)
@@ -631,6 +638,131 @@ func (ix *coreIndexer) search(ctx context.Context, q string, limit int) (map[str
 		list = append(list, map[string]any{"address": ad, "txid": txid, "vout_n": n, "value_sats": sats, "block_height": h})
 	}
 	return map[string]any{"kind": "address", "query": q, "results": list}, nil
+}
+
+func (ix *coreIndexer) recentBlocks(ctx context.Context, limit int) ([]map[string]any, error) {
+	if ix == nil || ix.db == nil {
+		return nil, nil
+	}
+	if limit < 1 || limit > 200 {
+		limit = 15
+	}
+	rows, err := ix.db.QueryContext(ctx, `SELECT height, hash, time_unix, tx_count FROM qe_core_blocks ORDER BY height DESC LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []map[string]any
+	for rows.Next() {
+		var h, t int64
+		var hash string
+		var tc int
+		if err := rows.Scan(&h, &hash, &t, &tc); err != nil {
+			return nil, err
+		}
+		out = append(out, map[string]any{"height": h, "hash": hash, "time_unix": t, "tx_count": tc})
+	}
+	return out, rows.Err()
+}
+
+func (ix *coreIndexer) pqAggregates(ctx context.Context) map[string]int64 {
+	out := map[string]int64{"quantum": 0, "non_quantum": 0, "invalid_quantum": 0, "all": 0}
+	if ix == nil || ix.db == nil {
+		return out
+	}
+	var all, q, nq, iq int64
+	_ = ix.db.QueryRowContext(ctx, `SELECT COUNT(*)::bigint FROM qe_core_txs`).Scan(&all)
+	_ = ix.db.QueryRowContext(ctx, `SELECT COUNT(*)::bigint FROM qe_core_txs WHERE quantum_state='quantum'`).Scan(&q)
+	_ = ix.db.QueryRowContext(ctx, `SELECT COUNT(*)::bigint FROM qe_core_txs WHERE quantum_state='non-quantum'`).Scan(&nq)
+	_ = ix.db.QueryRowContext(ctx, `SELECT COUNT(*)::bigint FROM qe_core_txs WHERE quantum_state='invalid-quantum'`).Scan(&iq)
+	out["all"], out["quantum"], out["non_quantum"], out["invalid_quantum"] = all, q, nq, iq
+	return out
+}
+
+// blockDetail returns indexed block metadata and txs from qe_core_txs (decode for first decodeLimit txs).
+func (ix *coreIndexer) blockDetail(ctx context.Context, height *int64, hash *string, decodeLimit int) (map[string]any, error) {
+	if ix == nil || ix.db == nil {
+		return nil, fmt.Errorf("core indexer unavailable")
+	}
+	if decodeLimit < 1 || decodeLimit > 200 {
+		decodeLimit = 50
+	}
+	var bH, bT int64
+	var bHash string
+	var txc int
+	var err error
+	if height != nil && *height >= 0 {
+		err = ix.db.QueryRowContext(ctx, `SELECT height, hash, time_unix, tx_count FROM qe_core_blocks WHERE height=$1`, *height).
+			Scan(&bH, &bHash, &bT, &txc)
+	} else if hash != nil && strings.TrimSpace(*hash) != "" {
+		h := strings.ToLower(strings.TrimSpace(*hash))
+		err = ix.db.QueryRowContext(ctx, `SELECT height, hash, time_unix, tx_count FROM qe_core_blocks WHERE hash=$1`, h).
+			Scan(&bH, &bHash, &bT, &txc)
+	} else {
+		return nil, fmt.Errorf("height or hash required")
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return map[string]any{"found": false}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	net := ix.network
+	rows, err := ix.db.QueryContext(ctx, `SELECT txid, quantum_state, pq_reason, value_out_sats, raw_hex FROM qe_core_txs WHERE block_height=$1 ORDER BY txid`, bH)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	txs := []map[string]any{}
+	n := 0
+	for rows.Next() {
+		var txid, state, reason, raw string
+		var vs int64
+		if err := rows.Scan(&txid, &state, &reason, &vs, &raw); err != nil {
+			return nil, err
+		}
+		row := map[string]any{
+			"txid": txid, "quantum_state": state, "pq_reason": reason, "value_out_sats": vs,
+		}
+		if n < decodeLimit && strings.TrimSpace(raw) != "" {
+			row["decode"] = DecodeTxJSON(raw, net)
+		}
+		n++
+		txs = append(txs, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"found": true,
+		"block": map[string]any{"height": bH, "hash": bHash, "time_unix": bT, "tx_count": txc},
+		"transactions": txs,
+		"decode_limit": decodeLimit,
+		"decode_rows":  min(n, decodeLimit),
+	}, nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func (ix *coreIndexer) txRowByID(ctx context.Context, txid string) (rawHex, quantumState, pqReason string, blockH, timeUnix, valueOut int64, ok bool, err error) {
+	if ix == nil || ix.db == nil {
+		return "", "", "", 0, 0, 0, false, nil
+	}
+	txid = strings.ToLower(strings.TrimSpace(txid))
+	err = ix.db.QueryRowContext(ctx, `SELECT raw_hex, quantum_state, pq_reason, block_height, time_unix, value_out_sats FROM qe_core_txs WHERE txid=$1`, txid).
+		Scan(&rawHex, &quantumState, &pqReason, &blockH, &timeUnix, &valueOut)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", "", 0, 0, 0, false, nil
+	}
+	if err != nil {
+		return "", "", "", 0, 0, 0, false, err
+	}
+	return rawHex, quantumState, pqReason, blockH, timeUnix, valueOut, true, nil
 }
 
 func (ix *coreIndexer) autoStartIfEnabled() {

@@ -2,66 +2,70 @@
   "manifestVersion": 1,
   "meta": {
     "name": "Quantum Explorer",
-    "version": "0.1.16",
+    "version": "0.1.17",
     "logoPath": "logo.png",
-    "shortDescription": "Realtime Post-Quantum Dogecoin explorer",
-    "longDescription": "Quantum Explorer tracks Dogecoin post-quantum transaction signals in realtime from pure P2P mempool gossip and confirms transaction visibility through SPV logs. Public users can search by Dogecoin address, txid, block height/hash text, and see latest PQ activity with pending/confirmed + PQ-validity indicators. Admin controls are token-gated on the same web port via /admin/<TOKEN> and /api/admin/<TOKEN>/* for mempool/SPV start-stop. The admin checkpoint form stores operator reference metadata only: libdogecoin spvnode does not read that JSON. Instead it uses its own embedded checkpoint table; this pup passes -p and -q (with -l) so a fresh headers.db starts from the latest embedded checkpoint instead of genesis. If an older run already built headers.db from height 0, delete headers.db (and restart SPV) to benefit. The bundled libdogecoin revision fixes the tallest mainnet embedded checkpoint (about 6,093,890); you cannot SPV-jump to a higher height until upstream adds checkpoints. Optional QE_SPV_WATCH_ADDRESS sets spvnode -a like pq-wallet. QE_SPV_AUTO_START=0 disables SPV on process boot. The SPV chain index (headers and heuristic block→tx links) defaults to a JSON file under the storage dir; set QE_POSTGRES_URL to a PostgreSQL connection string (for example postgres://user:pass@host:5432/dbname) for concurrent reads and a single writer without SQLite.",
+    "shortDescription": "Dogecoin blockchain explorer with Core RPC indexer and PQ transaction metrics",
+    "longDescription": "Quantum Explorer runs PostgreSQL inside the pup (embedded when QE_POSTGRES_URL is unset), indexes every block and transaction from Dogecoin Core via RPC into local tables, and serves a Comic Neue + Material Icons web UI. Search supports address, txid, block height, and block hash. Post-quantum signals are classified from decoded raw transaction bytes (OP_RETURN markers). Optional libdogecoin SPV and P2P mempool tracking are off by default; set QE_SPV_AUTO_START=1 or QE_MEMPOOL_AUTO_START=1 to enable legacy paths. Configure Dogecoin Core RPC (QE_CORE_RPC_*) for indexing; link the core-rpc interface from the Dogecoin Core pup when available.",
     "upstreamVersions": {
       "Go": "1.24",
-      "libdogecoin": "spvnode"
+      "PostgreSQL": "16",
+      "libdogecoin": "spvnode (optional)"
     }
   },
   "config": {
     "sections": [
       {
         "name": "Web",
-        "description": "HTTP port is inside the container; open the URL and host port Dogebox shows for this pup (not always :33666 on the host). Strict PQ verification prefers raw tx from P2P when peers relay full tx messages; optional URL below is an HTTP fallback.",
+        "description": "HTTP port is inside the container; open the URL Dogebox shows for this pup.",
         "fields": [
           { "name": "PUBLIC_PORT", "label": "HTTP port", "type": "text", "default": "33666" },
           { "name": "NETWORK", "label": "Network (mainnet/testnet)", "type": "text", "default": "mainnet" },
-          { "name": "QE_EXPLORER_TX_API", "label": "Optional: tx API URL with {txid} returning JSON containing raw tx hex (fallback if P2P did not deliver full tx)", "type": "text", "default": "" }
+          { "name": "QE_EXPLORER_TX_API", "label": "Optional: tx API URL with {txid} (legacy mempool path only)", "type": "text", "default": "" }
         ]
       },
       {
-        "name": "SPV (libdogecoin)",
-        "description": "spvnode: -f 0 -c -l, optional -p -q for embedded checkpoints (default on), optional -a, -w/-h, -b scan last. Admin checkpoint JSON is not passed to spvnode.",
+        "name": "Embedded PostgreSQL",
+        "description": "If QE_POSTGRES_URL is empty, the pup starts PostgreSQL under the storage dir and creates database quantum_explorer. Set PGPORT to change the local TCP port (default 55432).",
         "fields": [
-          { "name": "QE_SPV_WATCH_ADDRESS", "label": "Optional: P2PKH address for spvnode -a (recommended)", "type": "text", "default": "" },
-          { "name": "QE_SPV_USE_CHECKPOINT", "label": "Use embedded checkpoints -p/-q (1=yes, 0=sync from genesis)", "type": "text", "default": "1" },
-          { "name": "QE_SPV_AUTO_START", "label": "Start spvnode when Quantum Explorer starts (1=yes, 0=no)", "type": "text", "default": "1" }
+          { "name": "QE_POSTGRES_URL", "label": "Optional: override Postgres URL (leave empty for embedded)", "type": "text", "default": "" },
+          { "name": "PGPORT", "label": "Embedded Postgres TCP port", "type": "text", "default": "55432" }
         ]
       },
       {
-        "name": "Chain index storage",
-        "description": "Leave empty to store the SPV chain index in qe-chain-index.json (fine for a single process). Set a Postgres URL when many clients hit the public APIs or you run multiple app instances (one writer recommended). On first connect to an empty database, existing qe-chain-index.json is imported once.",
+        "name": "Dogecoin Core RPC",
+        "description": "Required for full-chain indexing. Read-only RPC. Point QE_CORE_RPC_URL at your Core node (dependency interface core-rpc when linked).",
         "fields": [
-          { "name": "QE_POSTGRES_URL", "label": "Optional: PostgreSQL URL for chain index (postgres://…)", "type": "text", "default": "" }
-        ]
-      },
-      {
-        "name": "Dogecoin Core RPC Optional",
-        "description": "Optional Dogecoin Core connection for chain/mempool metrics in API/admin diagnostics. RPC is read-only.",
-        "fields": [
-          { "name": "QE_CORE_RPC_URL", "label": "Optional: full RPC URL (http://host:port)", "type": "text", "default": "" },
+          { "name": "QE_CORE_RPC_URL", "label": "RPC base URL (http://host:port)", "type": "text", "default": "" },
           { "name": "QE_CORE_RPC_USER", "label": "RPC username", "type": "text", "default": "" },
           { "name": "QE_CORE_RPC_PASSWORD", "label": "RPC password", "type": "password", "default": "" },
-          { "name": "QE_CORE_RPC_TIMEOUT_MS", "label": "RPC timeout milliseconds", "type": "text", "default": "8000" },
-          { "name": "QE_CORE_INDEXER_AUTO_START", "label": "Core indexer autostart (1=yes, 0=no)", "type": "text", "default": "1" },
-          { "name": "QE_CORE_BACKFILL_BATCH", "label": "Blocks processed per batch cycle", "type": "text", "default": "20" },
-          { "name": "QE_CORE_START_HEIGHT", "label": "Start backfill from this height on fresh state", "type": "text", "default": "0" }
+          { "name": "QE_CORE_RPC_TIMEOUT_MS", "label": "RPC timeout ms", "type": "text", "default": "8000" },
+          { "name": "QE_CORE_INDEXER_AUTO_START", "label": "Start indexer with app (1=yes)", "type": "text", "default": "1" },
+          { "name": "QE_CORE_BACKFILL_BATCH", "label": "Blocks per indexer batch", "type": "text", "default": "20" },
+          { "name": "QE_CORE_START_HEIGHT", "label": "Start height on fresh DB", "type": "text", "default": "0" }
+        ]
+      },
+      {
+        "name": "Optional SPV and mempool",
+        "description": "Legacy libdogecoin SPV and P2P mempool indexer; disabled by default.",
+        "fields": [
+          { "name": "QE_MEMPOOL_AUTO_START", "label": "Start mempool tracker (1=yes)", "type": "text", "default": "0" },
+          { "name": "QE_SPV_WATCH_ADDRESS", "label": "Optional: spvnode watch address", "type": "text", "default": "" },
+          { "name": "QE_SPV_USE_CHECKPOINT", "label": "Embedded checkpoints (1=yes)", "type": "text", "default": "1" },
+          { "name": "QE_SPV_AUTO_START", "label": "Start spvnode (1=yes)", "type": "text", "default": "0" },
+          { "name": "QE_LEGACY_REFRESH_LOOP", "label": "Legacy PQ refresh loop (1=yes)", "type": "text", "default": "0" }
         ]
       },
       {
         "name": "Access and Security",
-        "description": "Token used in URL path to access admin UI/API on same port.",
+        "description": "Admin routes use token in URL. Public APIs can be token-gated by path.",
         "fields": [
           { "name": "QE_ADMIN_TOKEN", "label": "Admin token for /admin/<TOKEN>", "type": "password", "default": "QUANTUM-TOKEN" },
-          { "name": "QE_ADMIN_ALLOWLIST", "label": "Optional: comma-separated allowed client IPs for admin routes", "type": "text", "default": "" },
-          { "name": "QE_PUBLIC_API_TOKEN", "label": "Optional: token required for protected public APIs", "type": "password", "default": "" },
-          { "name": "QE_PUBLIC_API_ALLOWLIST", "label": "Optional: comma-separated IPs allowed to protected public APIs", "type": "text", "default": "" },
-          { "name": "QE_PUBLIC_PROTECTED_PATHS", "label": "Protected public API paths (comma-separated)", "type": "text", "default": "/api/public/core/search,/api/public/core/summary" },
+          { "name": "QE_ADMIN_ALLOWLIST", "label": "Optional: comma-separated admin IPs", "type": "text", "default": "" },
+          { "name": "QE_PUBLIC_API_TOKEN", "label": "Optional: token for protected public APIs", "type": "password", "default": "" },
+          { "name": "QE_PUBLIC_API_ALLOWLIST", "label": "Optional: IPs for protected public APIs", "type": "text", "default": "" },
+          { "name": "QE_PUBLIC_PROTECTED_PATHS", "label": "Protected paths (comma-separated)", "type": "text", "default": "" },
           { "name": "QE_PUBLIC_RATE_LIMIT", "label": "Public API requests per IP per window", "type": "text", "default": "120" },
-          { "name": "QE_PUBLIC_RATE_WINDOW_SEC", "label": "Public API rate-limit window seconds", "type": "text", "default": "60" }
+          { "name": "QE_PUBLIC_RATE_WINDOW_SEC", "label": "Rate-limit window seconds", "type": "text", "default": "60" }
         ]
       }
     ]
@@ -69,7 +73,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "06e2394625da546d102bbbd506ec028bd3178102700fb07527c5809d46be3d99"
+      "nixFileSha256": "800c9722ae7d95bbb793010cbbadf1148d3846d1b70edf7777c5bf395a764949"
     },
     "services": [
       {
@@ -92,11 +96,11 @@
   "interfaces": [
     {
       "name": "quantum-explorer-public",
-      "version": "0.1.16",
+      "version": "0.1.17",
       "permissionGroups": [
         {
           "name": "Quantum Explorer HTTP",
-          "description": "Public explorer UI, search API, and token-gated admin routes",
+          "description": "Public explorer UI and APIs",
           "severity": 2,
           "routes": [ "/", "/logo.png", "/api/public/*", "/admin/*", "/api/admin/*" ],
           "port": 33666
@@ -104,7 +108,20 @@
       ]
     }
   ],
-  "dependencies": [],
+  "dependencies": [
+    {
+      "interfaceName": "core-rpc",
+      "interfaceVersion": "0.0.2",
+      "permissionGroups": [ "RPC" ],
+      "optional": true,
+      "source": {
+        "sourceLocation": "",
+        "pupName": "",
+        "pupVersion": "",
+        "pupLogoBase64": ""
+      }
+    }
+  ],
   "metrics": [
     { "name": "pq_seen", "label": "PQ seen", "type": "int", "history": 30 },
     { "name": "pq_confirmed", "label": "PQ confirmed", "type": "int", "history": 30 },

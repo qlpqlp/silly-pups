@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -136,7 +137,7 @@ func defaultConfig() Config {
 		AdminAllowlist:       splitCSVEnv("QE_ADMIN_ALLOWLIST"),
 		PublicAPIToken:       strings.TrimSpace(os.Getenv("QE_PUBLIC_API_TOKEN")),
 		PublicAPIAllowlist:   splitCSVEnv("QE_PUBLIC_API_ALLOWLIST"),
-		PublicProtectedPaths: splitCSVEnvWithDefault("QE_PUBLIC_PROTECTED_PATHS", "/api/public/core/search,/api/public/core/summary"),
+		PublicProtectedPaths: splitCSVEnvWithDefault("QE_PUBLIC_PROTECTED_PATHS", ""),
 		PublicRateLimit:      envIntBounded("QE_PUBLIC_RATE_LIMIT", 120, 1, 100000),
 		PublicRateWindowSec:  envIntBounded("QE_PUBLIC_RATE_WINDOW_SEC", 60, 1, 86400),
 	}
@@ -846,7 +847,7 @@ func (a *app) latest(limit int) []*PQTx {
 	return rows
 }
 
-func (a *app) publicStatus(w http.ResponseWriter, _ *http.Request) {
+func (a *app) publicStatus(w http.ResponseWriter, r *http.Request) {
 	rows := a.latest(100)
 	m := map[string]int{"mempool_live": 0, "pq_seen": len(rows), "confirmed": 0, "invalid": 0, "pq_valid": 0, "non_quantum": 0}
 	for _, t := range rows {
@@ -909,7 +910,7 @@ func (a *app) publicStatus(w http.ResponseWriter, _ *http.Request) {
 	chainSum := a.chainSummaryMap()
 	chainHdrs := a.recentChainHeaders(12)
 
-	writeJSON(w, 200, map[string]any{
+	status := map[string]any{
 		"metrics":                m,
 		"latest":                 rows,
 		"latest_pq_transactions": latestPQ,
@@ -939,7 +940,26 @@ func (a *app) publicStatus(w http.ResponseWriter, _ *http.Request) {
 		},
 		"core":         a.core.snapshot(),
 		"core_indexer": a.coreIndexerStatus(),
-	})
+	}
+	if a.cidx != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+		defer cancel()
+		ex := map[string]any{
+			"enabled": true,
+			"summary": a.cidx.summary(ctx),
+			"pq":      a.cidx.pqAggregates(ctx),
+		}
+		if rb, err := a.cidx.recentBlocks(ctx, 15); err == nil {
+			ex["recent_blocks"] = rb
+		}
+		status["explorer"] = ex
+	} else {
+		status["explorer"] = map[string]any{
+			"enabled": false,
+			"note":    "Set QE_POSTGRES_URL (embedded Postgres in this pup) and Dogecoin Core RPC for full chain indexing.",
+		}
+	}
+	writeJSON(w, 200, status)
 }
 
 func (a *app) publicBlock(w http.ResponseWriter, r *http.Request) {
@@ -952,6 +972,54 @@ func (a *app) publicBlock(w http.ResponseWriter, r *http.Request) {
 	if hash == "" && heightStr == "" {
 		writeJSON(w, 400, map[string]string{"error": "provide hash= or height="})
 		return
+	}
+	if a.cidx != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+		defer cancel()
+		decodeLimit := envIntBounded("QE_BLOCK_DECODE_LIMIT", 50, 1, 200)
+		if s := strings.TrimSpace(r.URL.Query().Get("decode_limit")); s != "" {
+			if n, err := strconv.Atoi(s); err == nil && n > 0 && n <= 200 {
+				decodeLimit = n
+			}
+		}
+		var hp *int64
+		var hpStr *string
+		if heightStr != "" {
+			if hi, err := strconv.ParseInt(heightStr, 10, 64); err == nil && hi >= 0 {
+				hp = &hi
+			}
+		}
+		if hash != "" {
+			if len(hash) != 64 || !isHex64String(hash) {
+				writeJSON(w, 400, map[string]string{"error": "hash must be 64 hex chars"})
+				return
+			}
+			hs := hash
+			hpStr = &hs
+		}
+		if hp != nil || hpStr != nil {
+			detail, err := a.cidx.blockDetail(ctx, hp, hpStr, decodeLimit)
+			if err != nil {
+				writeJSON(w, 500, map[string]string{"error": err.Error()})
+				return
+			}
+			if found, _ := detail["found"].(bool); found {
+				bm := detail["block"].(map[string]any)
+				bh := int(anyInt64(bm["height"]))
+				ts := time.Unix(anyInt64(bm["time_unix"]), 0).UTC().Format(time.RFC3339)
+				b := &IndexedBlockHeader{Height: bh, Hash: fmt.Sprint(bm["hash"]), Timestamp: ts}
+				writeJSON(w, 200, map[string]any{
+					"source":                  "core_index",
+					"block":                   b,
+					"associated_transactions": detail["transactions"],
+					"notes": []string{
+						"Dogecoin Core RPC indexer (local PostgreSQL).",
+						fmt.Sprintf("Decode included for the first %d transactions (decode_limit).", decodeLimit),
+					},
+				})
+				return
+			}
+		}
 	}
 	var b *IndexedBlockHeader
 	var err error
@@ -1043,6 +1111,43 @@ func (a *app) publicTxDetail(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "txid must be 64 hex characters"})
 		return
 	}
+	net := strings.ToLower(strings.TrimSpace(a.cfg.Network))
+	if a.cidx != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
+		rawHex, qState, pqReas, blkH, tm, vOut, okRow, err := a.cidx.txRowByID(ctx, q)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": err.Error()})
+			return
+		}
+		if okRow {
+			pqValid := qState == "quantum"
+			score := 0
+			if pqValid {
+				score = 100
+			}
+			seen := time.Unix(tm, 0).UTC().Format(time.RFC3339)
+			cp := PQTx{
+				Txid:      q,
+				Confirmed: true,
+				PQValid:   pqValid,
+				PQScore:   score,
+				PQReason:  pqReas,
+				Verifier:  "strict-v1",
+				FirstSeen: seen,
+				LastSeen:  seen,
+			}
+			writeJSON(w, 200, map[string]any{
+				"source":          "core_index",
+				"tx":              &cp,
+				"pq_verification": buildPQVerificationDetail(rawHex, net),
+				"core": map[string]any{
+					"block_height": blkH, "quantum_state": qState, "value_out_sats": vOut,
+				},
+			})
+			return
+		}
+	}
 	a.mu.RLock()
 	tx, ok := a.txs[q]
 	if !ok {
@@ -1062,7 +1167,6 @@ func (a *app) publicTxDetail(w http.ResponseWriter, r *http.Request) {
 	a.mu.RLock()
 	eng := a.eng
 	tpl := strings.TrimSpace(a.cfg.ExplorerTxAPI)
-	net := strings.ToLower(strings.TrimSpace(a.cfg.Network))
 	a.mu.RUnlock()
 	rawHex := a.fetchRawTxHex(q, eng, tpl)
 	cp := *tx
@@ -1077,6 +1181,20 @@ func (a *app) publicSearch(w http.ResponseWriter, r *http.Request) {
 	if q == "" {
 		writeJSON(w, 400, map[string]string{"error": "missing q"})
 		return
+	}
+	if a.cidx != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		out, err := a.cidx.search(ctx, q, 50)
+		if err == nil && out != nil {
+			if e, ok := out["error"].(string); ok && strings.TrimSpace(e) != "" {
+				// fall through to legacy
+			} else {
+				out["source"] = "core_index"
+				writeJSON(w, 200, out)
+				return
+			}
+		}
 	}
 	rows := a.latest(1000)
 	out := make([]*PQTx, 0)
@@ -1263,10 +1381,14 @@ func main() {
 	log.Printf("[quantum-explorer] chain index backend=%s", cb.Kind())
 	a.reindexUnsafe()
 	_ = saveJSON(a.cfgPath, a.cfg)
-	if err := a.startMempool(); err != nil {
-		log.Printf("[quantum-explorer] mempool autostart failed: %v", err)
+	if strings.TrimSpace(env("QE_MEMPOOL_AUTO_START", "0")) == "1" {
+		if err := a.startMempool(); err != nil {
+			log.Printf("[quantum-explorer] mempool autostart failed: %v", err)
+		}
+	} else {
+		log.Printf("[quantum-explorer] mempool autostart skipped (QE_MEMPOOL_AUTO_START!=1)")
 	}
-	if strings.TrimSpace(os.Getenv("QE_SPV_AUTO_START")) == "0" {
+	if strings.TrimSpace(env("QE_SPV_AUTO_START", "0")) == "0" {
 		log.Printf("[quantum-explorer] SPV autostart skipped (QE_SPV_AUTO_START=0)")
 	} else if err := a.startSPV(); err != nil {
 		log.Printf("[quantum-explorer] SPV autostart failed: %v (set LIBDOGECOIN_SPVNODE to your spvnode binary path)", err)
@@ -1274,7 +1396,10 @@ func main() {
 		log.Printf("[quantum-explorer] SPV autostart invoked (QE_SPV_USE_CHECKPOINT=%q)", env("QE_SPV_USE_CHECKPOINT", "1"))
 	}
 	go a.subsystemWatchdog()
-	go a.refreshLoop()
+	if strings.TrimSpace(env("QE_LEGACY_REFRESH_LOOP", "0")) == "1" {
+		go a.refreshLoop()
+		log.Printf("[quantum-explorer] legacy refresh loop enabled (QE_LEGACY_REFRESH_LOOP=1)")
+	}
 	if a.cidx != nil {
 		a.cidx.autoStartIfEnabled()
 	}

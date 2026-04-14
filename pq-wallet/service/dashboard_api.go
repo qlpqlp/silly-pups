@@ -45,6 +45,9 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	spv := s.readSPVStatus()
 	logTail, _ := spv["log_tail"].(string)
 	hdr := parseSPVLogHeaderInfo(logTail)
+	if s.applySPVConfirmations(st, logTail) {
+		_ = s.saveState(st)
+	}
 	if hdr.HeaderHeight == 0 && len(st.Metrics) > 0 {
 		for i := len(st.Metrics) - 1; i >= 0; i-- {
 			if st.Metrics[i].HeaderHeight > 0 {
@@ -227,6 +230,10 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 			_ = s.saveState(st)
 		}
 	}
+	spv := s.readSPVStatus()
+	if logTail, _ := spv["log_tail"].(string); s.applySPVConfirmations(st, logTail) {
+		_ = s.saveState(st)
+	}
 	out := s.mergeTxListWithMemeTracker(wf, st)
 	writeJSON(w, http.StatusOK, map[string]any{"transactions": out})
 }
@@ -270,8 +277,9 @@ func floatFromAny(v any) float64 {
 func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any) bool {
 	existing := make(map[string]struct{}, len(st.Transactions))
 	for _, t := range st.Transactions {
-		if t.Txid != "" {
-			existing[t.Txid] = struct{}{}
+		id := normalizeTxid(t.Txid)
+		if id != "" {
+			existing[id] = struct{}{}
 		}
 	}
 	var incoming []TxRecord
@@ -279,7 +287,7 @@ func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any
 		if !truthyAny(m["tracked_match"]) {
 			continue
 		}
-		txid := strings.TrimSpace(jsonStringAny(m["txid"]))
+		txid := normalizeTxid(jsonStringAny(m["txid"]))
 		if txid == "" {
 			continue
 		}
@@ -312,7 +320,7 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 			if !truthyAny(m["tracked_match"]) {
 				continue
 			}
-			txid := strings.TrimSpace(jsonStringAny(m["txid"]))
+			txid := normalizeTxid(jsonStringAny(m["txid"]))
 			if txid == "" {
 				continue
 			}
@@ -322,7 +330,7 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 	out := make([]txListRow, 0, len(st.Transactions))
 	for _, t := range st.Transactions {
 		tr := txListRow{TxRecord: t, Pending: t.Confirmations == 0}
-		if mtrOverlay[t.Txid] && t.Confirmations == 0 {
+		if mtrOverlay[normalizeTxid(t.Txid)] && t.Confirmations == 0 {
 			tr.Pending = true
 			tr.Source = "memetracker"
 		}
@@ -354,19 +362,20 @@ func (s *Server) syncTransactionsFromNetwork(ctx context.Context, wf *WalletFile
 
 	seen := make(map[string]struct{})
 	for _, t := range out {
-		if t.Txid == "" || strings.HasPrefix(t.Txid, "_") {
+		id := normalizeTxid(t.Txid)
+		if id == "" || strings.HasPrefix(id, "_") {
 			continue
 		}
 		if len(seen) >= 12 {
 			break
 		}
-		if _, ok := seen[t.Txid]; ok {
+		if _, ok := seen[id]; ok {
 			continue
 		}
-		seen[t.Txid] = struct{}{}
-		if s.txPQHintFromExplorer(ctx, t.Txid) {
+		seen[id] = struct{}{}
+		if s.txPQHintFromExplorer(ctx, id) {
 			for i := range out {
-				if out[i].Txid == t.Txid {
+				if normalizeTxid(out[i].Txid) == id {
 					out[i].PQHint = true
 					out[i].PQVerified = true
 				}
@@ -437,6 +446,10 @@ func (s *Server) fetchBlockchairAddress(ctx context.Context, baseURL, address st
 			if h == "" {
 				continue
 			}
+			h = normalizeTxid(h)
+			if h == "" {
+				continue
+			}
 			txs = append(txs, TxRecord{
 				Txid:          h,
 				Direction:     "in",
@@ -449,6 +462,32 @@ func (s *Server) fetchBlockchairAddress(ctx context.Context, baseURL, address st
 		}
 	}
 	return txs, balance, nil
+}
+
+func (s *Server) applySPVConfirmations(st *WalletState, logTail string) bool {
+	confirmed := parseSPVConfirmedTxids(logTail)
+	if len(confirmed) == 0 {
+		return false
+	}
+	changed := false
+	for i := range st.Transactions {
+		id := normalizeTxid(st.Transactions[i].Txid)
+		if id == "" {
+			continue
+		}
+		if _, ok := confirmed[id]; !ok {
+			continue
+		}
+		st.Transactions[i].Txid = id
+		if st.Transactions[i].Confirmations <= 0 {
+			st.Transactions[i].Confirmations = 1
+			if st.Transactions[i].Source == "memetracker" || st.Transactions[i].Source == "" {
+				st.Transactions[i].Source = "spv"
+			}
+			changed = true
+		}
+	}
+	return changed
 }
 
 // Blockchair uses smallest units for Dogecoin (×1e8) when the number is large.

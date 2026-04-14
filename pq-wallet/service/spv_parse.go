@@ -22,6 +22,7 @@ var (
 	reMempoolExplicit1 = regexp.MustCompile(`(?i)mempool[^\n]{0,64}(?:size|count|transactions?|txs?)\s*[:=]\s*(\d{1,9})`)
 	reMempoolExplicit2 = regexp.MustCompile(`(?i)(?:^|\s)(\d{1,9})\s+transactions?\s+in\s+mempool`)
 	reMempoolExplicit3 = regexp.MustCompile(`(?i)\[(?:smpv|mempool)\][^\n]{0,120}(\d{1,9})\s*(?:tx|txn|transaction)`)
+	reSpvConfirmedLine = regexp.MustCompile(`(?i)\b(confirm|confirmed|merkle|inclusion|matched|proof)\b`)
 )
 
 // PeerConnectionInfo is parsed from libdogecoin net.c log lines (current / last handshake in the tail).
@@ -416,6 +417,36 @@ func parseSPVTxSeenCount(log string) int {
 		}
 	}
 	return len(seen)
+}
+
+// parseSPVConfirmedTxids finds txids on lines that look like SPV confirmation/proof events.
+func parseSPVConfirmedTxids(log string) map[string]struct{} {
+	out := make(map[string]struct{})
+	if strings.TrimSpace(log) == "" {
+		return out
+	}
+	for _, line := range strings.Split(log, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		low := strings.ToLower(line)
+		// Skip pipe tip rows like: hash|height|...
+		if len(line) > 64 && line[64] == '|' && strings.Count(line, "|") >= 2 {
+			continue
+		}
+		if !reSpvConfirmedLine.MatchString(low) {
+			continue
+		}
+		for _, hx := range reBlockHash.FindAllString(line, -1) {
+			id := normalizeTxid(hx)
+			if id == "" {
+				continue
+			}
+			out[id] = struct{}{}
+		}
+	}
+	return out
 }
 
 func countDistinctMempoolTxHints(log string) int {

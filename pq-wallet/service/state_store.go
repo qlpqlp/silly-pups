@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -90,19 +91,23 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 	byID := make(map[string]TxRecord)
 	order := make([]string, 0)
 	for _, t := range existing {
-		if t.Txid == "" {
+		id := normalizeTxid(t.Txid)
+		if id == "" {
 			continue
 		}
-		if _, ok := byID[t.Txid]; !ok {
-			order = append(order, t.Txid)
+		t.Txid = id
+		if _, ok := byID[id]; !ok {
+			order = append(order, id)
 		}
-		byID[t.Txid] = t
+		byID[id] = t
 	}
 	for _, t := range incoming {
-		if t.Txid == "" {
+		id := normalizeTxid(t.Txid)
+		if id == "" {
 			continue
 		}
-		if prev, ok := byID[t.Txid]; ok {
+		t.Txid = id
+		if prev, ok := byID[id]; ok {
 			// merge: prefer higher confirmations, OR pq flags
 			if t.Confirmations > prev.Confirmations {
 				prev.Confirmations = t.Confirmations
@@ -125,15 +130,30 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 			if t.Source != "" {
 				prev.Source = t.Source
 			}
-			byID[t.Txid] = prev
+			byID[id] = prev
 			continue
 		}
-		byID[t.Txid] = t
-		order = append(order, t.Txid)
+		byID[id] = t
+		order = append(order, id)
 	}
 	out := make([]TxRecord, 0, len(order))
 	for _, id := range order {
 		out = append(out, byID[id])
 	}
 	return out
+}
+
+func normalizeTxid(txid string) string {
+	id := strings.ToLower(strings.TrimSpace(txid))
+	if len(id) != 64 {
+		return ""
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') {
+			continue
+		}
+		return ""
+	}
+	return id
 }

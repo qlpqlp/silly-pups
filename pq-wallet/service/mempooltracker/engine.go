@@ -2780,10 +2780,11 @@ func (e *Engine) PendingMempoolDOGE(address string, confirmedTxids map[string]st
 	}
 	var sum float64
 	for _, tx := range recents {
-		if tx.Txid == "" {
+		id := strings.ToLower(strings.TrimSpace(tx.Txid))
+		if id == "" {
 			continue
 		}
-		if _, ok := confirmedTxids[tx.Txid]; ok {
+		if _, ok := confirmedTxids[id]; ok {
 			continue
 		}
 		sum += tx.AmountDoge

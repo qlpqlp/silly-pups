@@ -65,11 +65,12 @@ func (s *Server) syncMemeTracker(ctx context.Context, wf *WalletFile, st *Wallet
 
 	confirmed := make(map[string]struct{})
 	for _, t := range st.Transactions {
-		if t.Txid == "" {
+		id := normalizeTxid(t.Txid)
+		if id == "" {
 			continue
 		}
 		if t.Confirmations > 0 {
-			confirmed[t.Txid] = struct{}{}
+			confirmed[id] = struct{}{}
 		}
 	}
 	var sum float64

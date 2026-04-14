@@ -64,7 +64,10 @@
     .pq-tx-row .row-meta { margin-top:.35rem; font-size:.8rem; color:var(--muted); }
     .modal-backdrop { display:none; position:fixed; inset:0; z-index:200; background:rgba(5,8,12,.78); align-items:flex-start; justify-content:center; padding:1rem; overflow-y:auto; }
     .modal-backdrop.show { display:flex; }
-    .modal-card { width:100%; max-width:720px; margin:2vh auto; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:1rem 1.1rem; max-height:90vh; overflow:auto; box-shadow:0 16px 48px rgba(0,0,0,.5); }
+    .modal-card { width:100%; max-width:720px; margin:2vh auto; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:1rem 1.1rem; max-height:90vh; overflow:auto; box-shadow:0 16px 48px rgba(0,0,0,.5); scrollbar-width:thin; scrollbar-color:#2d4564 #101a27; }
+    .modal-card::-webkit-scrollbar { width:10px; height:10px; }
+    .modal-card::-webkit-scrollbar-track { background:#101a27; border-radius:999px; }
+    .modal-card::-webkit-scrollbar-thumb { background:linear-gradient(180deg,#2d4564,#1f3147); border-radius:999px; border:2px solid #101a27; }
     .modal-card h2 { margin:0 0 .5rem; font-size:1.15rem; }
     .modal-close { float:right; border:1px solid var(--line); background:#162232; color:var(--txt); border-radius:10px; padding:.35rem .75rem; font:inherit; cursor:pointer; }
     .detail-section { margin:.85rem 0; padding-top:.75rem; border-top:1px solid var(--line); }
@@ -107,6 +110,12 @@
     .docs-links a { color:#9fd6ff; text-decoration:none; }
     .docs-links a:hover { text-decoration:underline; }
     .docs-step { border-left:3px solid rgba(242,203,44,.45); padding-left:.55rem; margin:.45rem 0; }
+    .tx-tabs { margin-top:.6rem; }
+    .tx-tab-buttons { display:flex; flex-wrap:wrap; gap:.4rem; margin:.5rem 0 .65rem; }
+    .tx-tab-btn { border:1px solid var(--line); background:#132030; color:var(--muted); border-radius:999px; padding:.3rem .62rem; font:inherit; font-size:.8rem; cursor:pointer; }
+    .tx-tab-btn.active { color:var(--txt); background:rgba(242,203,44,.12); border-color:rgba(242,203,44,.45); }
+    .tx-tab-pane { display:none; }
+    .tx-tab-pane.active { display:block; }
     @media (max-width:900px){ .docs-grid { grid-template-columns:1fr; } }
     @media (max-width:900px){ .grid { grid-template-columns:1fr; } }
   </style>
@@ -411,7 +420,7 @@
       const outs = (dec.outputs || []).map(o => `
         <div class="tx-io-card">
           <strong>Output ${esc(String(o.n))}</strong> · <span style="color:var(--doge)">${esc(o.value_doge||"0")} DOGE</span>
-          <div class="detail-kv"><strong>Value (sats)</strong> ${esc(String(o.value_sats ?? ""))}</div>
+          <div class="detail-kv"><strong>Value (koinu)</strong> ${esc(String(o.value_sats ?? ""))}</div>
           <div class="detail-kv"><strong>Type</strong> ${esc(o.script_kind||"")}</div>
           ${o.address ? `<div class="mono" style="margin:.3rem 0;font-size:.8rem"><strong>Address</strong> ${esc(o.address)}</div>` : ""}
           <div class="muted" style="font-size:.75rem">${esc(o.address_note||"")}</div>
@@ -422,19 +431,48 @@
         return `<div class="tx-io-card"><strong>Witness · input ${esc(String(w.input_index))}</strong>${items}</div>`;
       }).join("");
       return `
-        <div class="edu-callout">Decoded locally from raw transaction bytes (same structure Bitcoin Core uses: version, inputs, outputs, locktime, optional SegWit witness).</div>
-        <div class="detail-kv"><strong>txid</strong> <span class="mono">${esc(dec.txid||"")}</span></div>
-        ${dec.wtxid ? `<div class="detail-kv"><strong>wtxid</strong> <span class="mono">${esc(dec.wtxid)}</span></div>` : ""}
-        <div class="detail-kv"><strong>Version</strong> ${esc(String(dec.version ?? ""))} · <strong>Locktime</strong> ${esc(String(dec.locktime ?? ""))}</div>
-        <div class="detail-kv muted">${esc(dec.locktime_note||"")}</div>
-        <div class="detail-kv"><strong>Size</strong> ${esc(String(dec.size_bytes ?? ""))} B · <strong>vsize</strong> ${esc(String(dec.vsize ?? ""))} · <strong>Weight</strong> ${esc(String(dec.weight ?? ""))}</div>
-        <div class="detail-kv"><strong>Output sum</strong> ${esc(String(dec.output_total_doge ?? ""))} DOGE (${esc(String(dec.output_total_sats ?? ""))} sats)</div>
-        <div class="detail-kv muted">${esc(dec.fee_note||"")}</div>
-        ${learns ? `<ul class="muted" style="font-size:.78rem;padding-left:1.1rem;margin:.4rem 0">${learns}</ul>` : ""}
-        ${dec.learn_segwit ? `<div class="edu-callout">${esc(dec.learn_segwit)}</div>` : ""}
-        <div class="detail-section"><h3>Inputs</h3><div class="io-grid">${ins || "<p class='muted'>None</p>"}</div></div>
-        <div class="detail-section"><h3>Outputs</h3><div class="io-grid two">${outs || "<p class='muted'>None</p>"}</div></div>
-        ${wit ? `<div class="detail-section"><h3>Witness</h3>${wit}</div>` : ""}`;
+        <div class="tx-tabs" data-tx-tabs>
+          <div class="tx-tab-buttons">
+            <button type="button" class="tx-tab-btn active" data-tab="summary">Summary</button>
+            <button type="button" class="tx-tab-btn" data-tab="inputs">Inputs</button>
+            <button type="button" class="tx-tab-btn" data-tab="outputs">Outputs</button>
+            ${wit ? `<button type="button" class="tx-tab-btn" data-tab="witness">Witness</button>` : ""}
+          </div>
+          <div class="tx-tab-pane active" data-pane="summary">
+            <div class="edu-callout">Decoded locally from raw transaction bytes (same structure Bitcoin Core uses: version, inputs, outputs, locktime, optional SegWit witness).</div>
+            <div class="detail-kv"><strong>txid</strong> <span class="mono">${esc(dec.txid||"")}</span></div>
+            ${dec.wtxid ? `<div class="detail-kv"><strong>wtxid</strong> <span class="mono">${esc(dec.wtxid)}</span></div>` : ""}
+            <div class="detail-kv"><strong>Version</strong> ${esc(String(dec.version ?? ""))} · <strong>Locktime</strong> ${esc(String(dec.locktime ?? ""))}</div>
+            <div class="detail-kv muted">${esc(dec.locktime_note||"")}</div>
+            <div class="detail-kv"><strong>Size</strong> ${esc(String(dec.size_bytes ?? ""))} B · <strong>vsize</strong> ${esc(String(dec.vsize ?? ""))} · <strong>Weight</strong> ${esc(String(dec.weight ?? ""))}</div>
+            <div class="detail-kv"><strong>Output sum</strong> ${esc(String(dec.output_total_doge ?? ""))} DOGE (${esc(String(dec.output_total_sats ?? ""))} koinu)</div>
+            <div class="detail-kv muted">${esc(dec.fee_note||"")}</div>
+            ${learns ? `<ul class="muted" style="font-size:.78rem;padding-left:1.1rem;margin:.4rem 0">${learns}</ul>` : ""}
+            ${dec.learn_segwit ? `<div class="edu-callout">${esc(dec.learn_segwit)}</div>` : ""}
+          </div>
+          <div class="tx-tab-pane" data-pane="inputs">
+            <div class="io-grid">${ins || "<p class='muted'>None</p>"}</div>
+          </div>
+          <div class="tx-tab-pane" data-pane="outputs">
+            <div class="io-grid two">${outs || "<p class='muted'>None</p>"}</div>
+          </div>
+          ${wit ? `<div class="tx-tab-pane" data-pane="witness">${wit}</div>` : ""}
+        </div>`;
+    }
+
+    function initTxTabs(root){
+      if (!root) return;
+      const tabWrap = root.querySelector("[data-tx-tabs]");
+      if (!tabWrap) return;
+      const btns = Array.from(tabWrap.querySelectorAll(".tx-tab-btn"));
+      const panes = Array.from(tabWrap.querySelectorAll(".tx-tab-pane"));
+      btns.forEach(btn => {
+        btn.onclick = () => {
+          const target = btn.getAttribute("data-tab") || "summary";
+          btns.forEach(b => b.classList.toggle("active", b === btn));
+          panes.forEach(p => p.classList.toggle("active", p.getAttribute("data-pane") === target));
+        };
+      });
     }
 
     async function openTxDetail(txid){
@@ -478,6 +516,7 @@
           <div class="detail-kv"><strong>Reason</strong> ${esc(strict.reason||"—")}</div>
           <div class="detail-kv muted" style="font-size:.8rem">${esc(JSON.stringify(strict.evidence||[]))}</div>
         </div>`;
+      initTxTabs(body);
     }
 
     function closeBlockModal(){ document.getElementById("block-modal").classList.remove("show"); }

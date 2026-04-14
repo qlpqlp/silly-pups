@@ -4,9 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,20 +28,25 @@ type Options struct {
 }
 
 type liveMempoolTx struct {
-	Txid      string
-	FirstSeen time.Time
-	LastSeen  time.Time
+	Txid      string    `json:"txid"`
+	FirstSeen time.Time `json:"first_seen"`
+	LastSeen  time.Time `json:"last_seen"`
+	DroppedAt time.Time `json:"dropped_at,omitempty"`
 }
 
 const maxRawTxCache = 1000
 
 type Engine struct {
-	mu       sync.RWMutex
-	stopCh   chan struct{}
-	stopped  chan struct{}
-	liveByID map[string]liveMempoolTx
-	rawByID  map[string]string
-	rawOrder []string
+	mu           sync.RWMutex
+	stopCh       chan struct{}
+	stopped      chan struct{}
+	liveByID     map[string]liveMempoolTx
+	allByID      map[string]liveMempoolTx
+	rawByID      map[string]string
+	rawOrder     []string
+	requeryQueue []string
+	requerySet   map[string]struct{}
+	eventsPath   string
 }
 
 func Start(opts Options) (*Engine, error) {
@@ -47,11 +54,15 @@ func Start(opts Options) (*Engine, error) {
 		return nil, errors.New("mempooltracker: StorageDir required")
 	}
 	e := &Engine{
-		stopCh:   make(chan struct{}),
-		stopped:  make(chan struct{}),
-		liveByID: map[string]liveMempoolTx{},
-		rawByID:  map[string]string{},
+		stopCh:     make(chan struct{}),
+		stopped:    make(chan struct{}),
+		liveByID:   map[string]liveMempoolTx{},
+		allByID:    map[string]liveMempoolTx{},
+		rawByID:    map[string]string{},
+		requerySet: map[string]struct{}{},
+		eventsPath: filepath.Join(opts.StorageDir, "mempool-events.jsonl"),
 	}
+	_ = os.MkdirAll(opts.StorageDir, 0o755)
 	network := strings.ToLower(strings.TrimSpace(opts.Network))
 	if network == "" {
 		network = strings.ToLower(strings.TrimSpace(os.Getenv("NETWORK")))
@@ -75,6 +86,20 @@ func (e *Engine) DashboardSnapshot() (mempoolCount int, live []map[string]any, w
 	for txid, row := range e.liveByID {
 		if row.LastSeen.Before(cutoff) {
 			delete(e.liveByID, txid)
+			h := e.allByID[txid]
+			if h.Txid == "" {
+				h = row
+			}
+			if h.DroppedAt.IsZero() {
+				h.DroppedAt = time.Now().UTC()
+				e.enqueueRequeryLocked(txid)
+				e.appendEventLocked("dropped", txid, map[string]any{
+					"first_seen": h.FirstSeen.Format(time.RFC3339),
+					"last_seen":  h.LastSeen.Format(time.RFC3339),
+					"dropped_at": h.DroppedAt.Format(time.RFC3339),
+				})
+			}
+			e.allByID[txid] = h
 		}
 	}
 	rows := make([]liveMempoolTx, 0, len(e.liveByID))
@@ -133,7 +158,18 @@ func (e *Engine) markSeenMaybeRaw(txid string, rawPayload []byte) {
 		e.liveByID[id] = row
 	} else {
 		e.liveByID[id] = liveMempoolTx{Txid: id, FirstSeen: now, LastSeen: now}
+		e.appendEventLocked("seen", id, map[string]any{
+			"first_seen": now.Format(time.RFC3339),
+		})
 	}
+	h := e.allByID[id]
+	if h.Txid == "" {
+		h = liveMempoolTx{Txid: id, FirstSeen: now}
+	}
+	h.LastSeen = now
+	h.DroppedAt = time.Time{}
+	e.allByID[id] = h
+	delete(e.requerySet, id)
 	if len(rawPayload) == 0 || len(rawPayload) > 4*1024*1024 {
 		return
 	}
@@ -142,11 +178,73 @@ func (e *Engine) markSeenMaybeRaw(txid string, rawPayload []byte) {
 	}
 	e.rawByID[id] = hex.EncodeToString(rawPayload)
 	e.rawOrder = append(e.rawOrder, id)
+	e.appendEventLocked("raw_cached", id, map[string]any{
+		"raw_size_bytes": len(rawPayload),
+	})
 	for len(e.rawOrder) > maxRawTxCache {
 		oldest := e.rawOrder[0]
 		e.rawOrder = e.rawOrder[1:]
 		delete(e.rawByID, oldest)
 	}
+}
+
+func (e *Engine) enqueueRequeryLocked(txid string) {
+	id := strings.ToLower(strings.TrimSpace(txid))
+	if len(id) != 64 {
+		return
+	}
+	if _, ok := e.requerySet[id]; ok {
+		return
+	}
+	e.requerySet[id] = struct{}{}
+	e.requeryQueue = append(e.requeryQueue, id)
+}
+
+func (e *Engine) drainRequery(max int) []string {
+	if max < 1 {
+		return nil
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(e.requeryQueue) == 0 {
+		return nil
+	}
+	if len(e.requeryQueue) < max {
+		max = len(e.requeryQueue)
+	}
+	out := make([]string, 0, max)
+	for i := 0; i < max; i++ {
+		id := e.requeryQueue[0]
+		e.requeryQueue = e.requeryQueue[1:]
+		delete(e.requerySet, id)
+		out = append(out, id)
+		e.appendEventLocked("requery_queued_send", id, nil)
+	}
+	return out
+}
+
+func (e *Engine) appendEventLocked(kind, txid string, extra map[string]any) {
+	if strings.TrimSpace(e.eventsPath) == "" {
+		return
+	}
+	row := map[string]any{
+		"ts":   time.Now().UTC().Format(time.RFC3339),
+		"type": kind,
+		"txid": strings.ToLower(strings.TrimSpace(txid)),
+	}
+	for k, v := range extra {
+		row[k] = v
+	}
+	b, err := json.Marshal(row)
+	if err != nil {
+		return
+	}
+	f, err := os.OpenFile(e.eventsPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.Write(append(b, '\n'))
 }
 
 func (e *Engine) loop(network string) {
@@ -217,6 +315,11 @@ func (e *Engine) session(conn net.Conn, magic uint32) error {
 			if !sentMempool {
 				sentMempool = true
 				_ = writeMessage(conn, magic, "mempool", nil)
+			}
+			if ids := e.drainRequery(128); len(ids) > 0 {
+				if gd := buildGetDataFromTxids(ids); len(gd) > 0 {
+					_ = writeMessage(conn, magic, "getdata", gd)
+				}
 			}
 		case "ping":
 			_ = writeMessage(conn, magic, "pong", payload)
@@ -311,6 +414,37 @@ func buildGetDataTxPayload(invPayload []byte, maxItems int) []byte {
 		vec := make([]byte, 36)
 		binary.LittleEndian.PutUint32(vec, t)
 		copy(vec[4:], h)
+		blob = append(blob, vec...)
+		count++
+	}
+	if count == 0 {
+		return nil
+	}
+	out := appendVarInt(nil, uint64(count))
+	out = append(out, blob...)
+	return out
+}
+
+func buildGetDataFromTxids(txids []string) []byte {
+	if len(txids) == 0 {
+		return nil
+	}
+	blob := make([]byte, 0, len(txids)*36)
+	count := 0
+	for _, t := range txids {
+		id := strings.ToLower(strings.TrimSpace(t))
+		if len(id) != 64 {
+			continue
+		}
+		raw, err := hex.DecodeString(id)
+		if err != nil || len(raw) != 32 {
+			continue
+		}
+		vec := make([]byte, 36)
+		binary.LittleEndian.PutUint32(vec, uint32(msgTx))
+		for i := 0; i < 32; i++ {
+			vec[4+i] = raw[31-i]
+		}
 		blob = append(blob, vec...)
 		count++
 	}

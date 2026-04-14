@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "meta": {
     "name": "Quantum Explorer",
-    "version": "0.1.15",
+    "version": "0.1.16",
     "logoPath": "logo.png",
     "shortDescription": "Realtime Post-Quantum Dogecoin explorer",
     "longDescription": "Quantum Explorer tracks Dogecoin post-quantum transaction signals in realtime from pure P2P mempool gossip and confirms transaction visibility through SPV logs. Public users can search by Dogecoin address, txid, block height/hash text, and see latest PQ activity with pending/confirmed + PQ-validity indicators. Admin controls are token-gated on the same web port via /admin/<TOKEN> and /api/admin/<TOKEN>/* for mempool/SPV start-stop. The admin checkpoint form stores operator reference metadata only: libdogecoin spvnode does not read that JSON. Instead it uses its own embedded checkpoint table; this pup passes -p and -q (with -l) so a fresh headers.db starts from the latest embedded checkpoint instead of genesis. If an older run already built headers.db from height 0, delete headers.db (and restart SPV) to benefit. The bundled libdogecoin revision fixes the tallest mainnet embedded checkpoint (about 6,093,890); you cannot SPV-jump to a higher height until upstream adds checkpoints. Optional QE_SPV_WATCH_ADDRESS sets spvnode -a like pq-wallet. QE_SPV_AUTO_START=0 disables SPV on process boot. The SPV chain index (headers and heuristic block→tx links) defaults to a JSON file under the storage dir; set QE_POSTGRES_URL to a PostgreSQL connection string (for example postgres://user:pass@host:5432/dbname) for concurrent reads and a single writer without SQLite.",
@@ -39,29 +39,25 @@
         ]
       },
       {
-        "name": "Dogecoin Core RPC + ZMQ (optional)",
-        "description": "Optional Dogecoin Core connection for chain/mempool metrics in API/admin diagnostics. RPC is read-only. ZMQ endpoints are stored for operator visibility and future realtime consumers.",
+        "name": "Dogecoin Core RPC Optional",
+        "description": "Optional Dogecoin Core connection for chain/mempool metrics in API/admin diagnostics. RPC is read-only.",
         "fields": [
           { "name": "QE_CORE_RPC_URL", "label": "Optional: full RPC URL (http://host:port)", "type": "text", "default": "" },
-          { "name": "QE_CORE_RPC_HOST", "label": "RPC host (used when URL is empty)", "type": "text", "default": "127.0.0.1" },
-          { "name": "QE_CORE_RPC_PORT", "label": "RPC port (used when URL is empty)", "type": "text", "default": "22555" },
           { "name": "QE_CORE_RPC_USER", "label": "RPC username", "type": "text", "default": "" },
-          { "name": "QE_CORE_RPC_PASSWORD", "label": "RPC password", "type": "text", "default": "" },
+          { "name": "QE_CORE_RPC_PASSWORD", "label": "RPC password", "type": "password", "default": "" },
           { "name": "QE_CORE_RPC_TIMEOUT_MS", "label": "RPC timeout milliseconds", "type": "text", "default": "8000" },
-          { "name": "QE_CORE_ZMQ_RAWTX", "label": "Optional: ZMQ rawtx endpoint (e.g. tcp://core:28332)", "type": "text", "default": "" },
-          { "name": "QE_CORE_ZMQ_HASHBLOCK", "label": "Optional: ZMQ hashblock endpoint (e.g. tcp://core:28333)", "type": "text", "default": "" },
           { "name": "QE_CORE_INDEXER_AUTO_START", "label": "Core indexer autostart (1=yes, 0=no)", "type": "text", "default": "1" },
           { "name": "QE_CORE_BACKFILL_BATCH", "label": "Blocks processed per batch cycle", "type": "text", "default": "20" },
           { "name": "QE_CORE_START_HEIGHT", "label": "Start backfill from this height on fresh state", "type": "text", "default": "0" }
         ]
       },
       {
-        "name": "Backoffice Token",
+        "name": "Access and Security",
         "description": "Token used in URL path to access admin UI/API on same port.",
         "fields": [
-          { "name": "QE_ADMIN_TOKEN", "label": "Admin token for /admin/<TOKEN>", "type": "text", "default": "QUANTUM-TOKEN" },
+          { "name": "QE_ADMIN_TOKEN", "label": "Admin token for /admin/<TOKEN>", "type": "password", "default": "QUANTUM-TOKEN" },
           { "name": "QE_ADMIN_ALLOWLIST", "label": "Optional: comma-separated allowed client IPs for admin routes", "type": "text", "default": "" },
-          { "name": "QE_PUBLIC_API_TOKEN", "label": "Optional: token required for protected public APIs", "type": "text", "default": "" },
+          { "name": "QE_PUBLIC_API_TOKEN", "label": "Optional: token required for protected public APIs", "type": "password", "default": "" },
           { "name": "QE_PUBLIC_API_ALLOWLIST", "label": "Optional: comma-separated IPs allowed to protected public APIs", "type": "text", "default": "" },
           { "name": "QE_PUBLIC_PROTECTED_PATHS", "label": "Protected public API paths (comma-separated)", "type": "text", "default": "/api/public/core/search,/api/public/core/summary" },
           { "name": "QE_PUBLIC_RATE_LIMIT", "label": "Public API requests per IP per window", "type": "text", "default": "120" },
@@ -96,7 +92,7 @@
   "interfaces": [
     {
       "name": "quantum-explorer-public",
-      "version": "0.1.15",
+      "version": "0.1.16",
       "permissionGroups": [
         {
           "name": "Quantum Explorer HTTP",

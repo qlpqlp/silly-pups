@@ -25,8 +25,8 @@
     .row { display:flex; gap:.5rem; flex-wrap:wrap; }
     .search-wrap { position:relative; }
     .search-wrap input { padding-right:2.8rem; }
-    .search-inside-btn { position:absolute; right:.35rem; top:50%; transform:translateY(-50%); width:2.2rem; height:2.2rem; border-radius:9px; border:1px solid var(--line); background:#152337; color:var(--txt); display:flex; align-items:center; justify-content:center; cursor:pointer; }
-    .search-inside-btn:hover { border-color:var(--accent); }
+    .search-inside-btn { position:absolute; right:.35rem; top:50%; transform:translateY(-50%); width:2.2rem; height:2.2rem; border-radius:9px; border:1px solid #b48a0f; background:linear-gradient(135deg,var(--doge),#e6a317); color:#1a1408; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+    .search-inside-btn:hover { filter:brightness(1.05); }
     input,select { background:#0d1622; color:var(--txt); border:1px solid var(--line); border-radius:10px; padding:.6rem .7rem; font:inherit; width:100%; }
     .btn { border:1px solid var(--line); background:#162232; color:var(--txt); border-radius:10px; padding:.6rem .8rem; font:inherit; cursor:pointer; width:100%; }
     .btn.primary { background:linear-gradient(135deg,var(--doge),#e6a317); color:#1a1408; border-color:transparent; font-weight:700; }
@@ -87,6 +87,9 @@
     .metric-bar.nonq > span { background:#ff8f8f; }
     .docs-btn { display:inline-flex; align-items:center; gap:.35rem; width:auto; padding:.45rem .7rem; }
     .docs-btn .material-symbols-outlined { font-size:18px; line-height:1; }
+    .hero-actions { margin-left:auto; display:flex; align-items:center; gap:.55rem; }
+    .doge-foundation-logo { height:auto; width:100px !important; filter:invert(1); opacity:.94; }
+    .site-footer { margin:1rem 0 .2rem; text-align:center; color:var(--muted); font-size:.86rem; }
     .title-icon { font-size:18px; vertical-align:middle; margin-right:.35rem; color:var(--doge); }
     .btn-ico { display:inline-flex; align-items:center; gap:.3rem; }
     .btn-ico .material-symbols-outlined { font-size:17px; line-height:1; }
@@ -116,11 +119,12 @@
       <div>
         <h1>Quantum Explorer</h1>
       </div>
-      <div style="margin-left:auto">
+      <div class="hero-actions">
         <button type="button" class="btn docs-btn" id="btn-user-docs" title="Open educational documentation">
           <span class="material-symbols-outlined" aria-hidden="true">school</span>
           <span>Docs</span>
         </button>
+        <img src="https://lib.dogecoin.org/img/dogecoin-foundation.svg" class="doge-foundation-logo" alt="Dogecoin Foundation logo" />
       </div>
     </div>
 
@@ -285,6 +289,7 @@
       <div id="spv-headers" class="headers"></div>
     </section>
 
+    <footer class="site-footer">Coded with love for all Dogecoin community</footer>
   </div>
 
   <script>

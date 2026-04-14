@@ -311,6 +311,40 @@ func (p *postgresChainBackend) AdminDiagnostics() map[string]any {
 		"qe_chain_headers":  nH,
 		"qe_block_tx_links": nL,
 	}
+	rows, err := p.db.QueryContext(ctx, `
+		SELECT relname,
+		       pg_total_relation_size(c.oid)::bigint AS total_bytes,
+		       pg_relation_size(c.oid)::bigint AS table_bytes,
+		       (pg_total_relation_size(c.oid) - pg_relation_size(c.oid))::bigint AS index_bytes
+		FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = current_schema()
+		  AND relkind = 'r'
+		  AND relname IN ('qe_chain_headers', 'qe_block_tx_links')
+		ORDER BY pg_total_relation_size(c.oid) DESC`)
+	if err != nil {
+		out["table_size_error"] = err.Error()
+	} else {
+		defer rows.Close()
+		sizes := make([]map[string]any, 0, 2)
+		for rows.Next() {
+			var rel string
+			var total, table, index int64
+			if err := rows.Scan(&rel, &total, &table, &index); err != nil {
+				out["table_size_error"] = err.Error()
+				break
+			}
+			sizes = append(sizes, map[string]any{
+				"name":        rel,
+				"total_bytes": total,
+				"table_bytes": table,
+				"index_bytes": index,
+			})
+		}
+		if len(sizes) > 0 {
+			out["table_sizes"] = sizes
+		}
+	}
 	hc, tip, txh, err := p.Summary()
 	if err == nil {
 		out["summary"] = map[string]any{"header_count": hc, "tip_height": tip, "heights_with_tx_links": txh}

@@ -39,10 +39,33 @@
         ]
       },
       {
+        "name": "Dogecoin Core RPC + ZMQ (optional)",
+        "description": "Optional Dogecoin Core connection for chain/mempool metrics in API/admin diagnostics. RPC is read-only. ZMQ endpoints are stored for operator visibility and future realtime consumers.",
+        "fields": [
+          { "name": "QE_CORE_RPC_URL", "label": "Optional: full RPC URL (http://host:port)", "type": "text", "default": "" },
+          { "name": "QE_CORE_RPC_HOST", "label": "RPC host (used when URL is empty)", "type": "text", "default": "127.0.0.1" },
+          { "name": "QE_CORE_RPC_PORT", "label": "RPC port (used when URL is empty)", "type": "text", "default": "22555" },
+          { "name": "QE_CORE_RPC_USER", "label": "RPC username", "type": "text", "default": "" },
+          { "name": "QE_CORE_RPC_PASSWORD", "label": "RPC password", "type": "text", "default": "" },
+          { "name": "QE_CORE_RPC_TIMEOUT_MS", "label": "RPC timeout milliseconds", "type": "text", "default": "8000" },
+          { "name": "QE_CORE_ZMQ_RAWTX", "label": "Optional: ZMQ rawtx endpoint (e.g. tcp://core:28332)", "type": "text", "default": "" },
+          { "name": "QE_CORE_ZMQ_HASHBLOCK", "label": "Optional: ZMQ hashblock endpoint (e.g. tcp://core:28333)", "type": "text", "default": "" },
+          { "name": "QE_CORE_INDEXER_AUTO_START", "label": "Core indexer autostart (1=yes, 0=no)", "type": "text", "default": "1" },
+          { "name": "QE_CORE_BACKFILL_BATCH", "label": "Blocks processed per batch cycle", "type": "text", "default": "20" },
+          { "name": "QE_CORE_START_HEIGHT", "label": "Start backfill from this height on fresh state", "type": "text", "default": "0" }
+        ]
+      },
+      {
         "name": "Backoffice Token",
         "description": "Token used in URL path to access admin UI/API on same port.",
         "fields": [
-          { "name": "QE_ADMIN_TOKEN", "label": "Admin token for /admin/<TOKEN>", "type": "text", "default": "QUANTUM-TOKEN" }
+          { "name": "QE_ADMIN_TOKEN", "label": "Admin token for /admin/<TOKEN>", "type": "text", "default": "QUANTUM-TOKEN" },
+          { "name": "QE_ADMIN_ALLOWLIST", "label": "Optional: comma-separated allowed client IPs for admin routes", "type": "text", "default": "" },
+          { "name": "QE_PUBLIC_API_TOKEN", "label": "Optional: token required for protected public APIs", "type": "text", "default": "" },
+          { "name": "QE_PUBLIC_API_ALLOWLIST", "label": "Optional: comma-separated IPs allowed to protected public APIs", "type": "text", "default": "" },
+          { "name": "QE_PUBLIC_PROTECTED_PATHS", "label": "Protected public API paths (comma-separated)", "type": "text", "default": "/api/public/core/search,/api/public/core/summary" },
+          { "name": "QE_PUBLIC_RATE_LIMIT", "label": "Public API requests per IP per window", "type": "text", "default": "120" },
+          { "name": "QE_PUBLIC_RATE_WINDOW_SEC", "label": "Public API rate-limit window seconds", "type": "text", "default": "60" }
         ]
       }
     ]

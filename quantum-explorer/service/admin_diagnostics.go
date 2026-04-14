@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -75,6 +76,11 @@ func adminEnvSnapshot() map[string]any {
 		"QE_STORAGE_DIR", "PUBLIC_PORT", "NETWORK",
 		"QE_SPV_AUTO_START", "QE_SPV_USE_CHECKPOINT", "QE_SPV_WATCH_ADDRESS",
 		"QE_POSTGRES_URL", "LIBDOGECOIN_SPVNODE", "QE_EXPLORER_TX_API",
+		"QE_CORE_RPC_URL", "QE_CORE_RPC_HOST", "QE_CORE_RPC_PORT", "QE_CORE_RPC_USER",
+		"QE_CORE_ZMQ_RAWTX", "QE_CORE_ZMQ_HASHBLOCK", "QE_CORE_RPC_TIMEOUT_MS",
+		"QE_CORE_INDEXER_AUTO_START", "QE_CORE_BACKFILL_BATCH", "QE_CORE_START_HEIGHT",
+		"QE_PUBLIC_API_ALLOWLIST", "QE_PUBLIC_PROTECTED_PATHS",
+		"QE_PUBLIC_RATE_LIMIT", "QE_PUBLIC_RATE_WINDOW_SEC",
 	}
 	out := make(map[string]any, len(keys)+1)
 	for _, k := range keys {
@@ -86,6 +92,10 @@ func adminEnvSnapshot() map[string]any {
 		switch k {
 		case "QE_POSTGRES_URL":
 			out[k] = redactDatabaseURL(v)
+		case "QE_CORE_RPC_URL":
+			out[k] = redactDatabaseURL(v)
+		case "QE_CORE_RPC_USER":
+			out[k] = "(set)"
 		case "QE_EXPLORER_TX_API":
 			if len(v) > 160 {
 				out[k] = v[:160] + "…"
@@ -100,6 +110,11 @@ func adminEnvSnapshot() map[string]any {
 		out["QE_ADMIN_TOKEN"] = "(empty; default may apply)"
 	} else {
 		out["QE_ADMIN_TOKEN"] = "(set)"
+	}
+	if strings.TrimSpace(os.Getenv("QE_PUBLIC_API_TOKEN")) == "" {
+		out["QE_PUBLIC_API_TOKEN"] = "(empty)"
+	} else {
+		out["QE_PUBLIC_API_TOKEN"] = "(set)"
 	}
 	return out
 }
@@ -134,6 +149,12 @@ func (a *app) adminDiagnostics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	chainDiag := a.chain.AdminDiagnostics()
+	coreIndexerDiag := a.coreIndexerStatus()
+	if a.cidx != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
+		coreIndexerDiag = a.cidx.summary(ctx)
+		cancel()
+	}
 
 	pqtxStat := map[string]any{"path": a.storePath}
 	if st, err := os.Stat(a.storePath); err != nil {
@@ -171,7 +192,9 @@ func (a *app) adminDiagnostics(w http.ResponseWriter, r *http.Request) {
 		"spv_chain_refresh": map[string]any{
 			"last_spv_log_read_error": emptyOrString(lastIngestErr),
 		},
-		"chain_index": chainDiag,
+		"chain_index":  chainDiag,
+		"core_rpc":     a.core.snapshot(),
+		"core_indexer": coreIndexerDiag,
 	})
 }
 

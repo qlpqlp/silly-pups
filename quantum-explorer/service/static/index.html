@@ -23,13 +23,22 @@
     .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:.9rem; }
     .card h2 { margin:0 0 .6rem; font-size:1.05rem; }
     .row { display:flex; gap:.5rem; flex-wrap:wrap; }
+    .search-wrap { position:relative; }
+    .search-wrap input { padding-right:2.8rem; }
+    .search-inside-btn { position:absolute; right:.35rem; top:50%; transform:translateY(-50%); width:2.2rem; height:2.2rem; border-radius:9px; border:1px solid var(--line); background:#152337; color:var(--txt); display:flex; align-items:center; justify-content:center; cursor:pointer; }
+    .search-inside-btn:hover { border-color:var(--accent); }
     input,select { background:#0d1622; color:var(--txt); border:1px solid var(--line); border-radius:10px; padding:.6rem .7rem; font:inherit; width:100%; }
     .btn { border:1px solid var(--line); background:#162232; color:var(--txt); border-radius:10px; padding:.6rem .8rem; font:inherit; cursor:pointer; width:100%; }
     .btn.primary { background:linear-gradient(135deg,var(--doge),#e6a317); color:#1a1408; border-color:transparent; font-weight:700; }
-    .kpi { display:grid; grid-template-columns:repeat(3,1fr); gap:.5rem; }
-    @media (max-width:720px){ .kpi { grid-template-columns:repeat(2,1fr); } }
-    .pill { border:1px solid var(--line); border-radius:12px; padding:.55rem .65rem; background:#0f1824; }
-    .pill b { display:block; font-size:1.1rem; }
+    .kpi { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.55rem; }
+    .kpi-card { border:1px solid var(--line); border-radius:12px; padding:.65rem .7rem; background:linear-gradient(180deg,#101b28 0%,#0f1824 100%); }
+    .kpi-label { color:var(--muted); font-size:.74rem; text-transform:uppercase; letter-spacing:.05em; }
+    .kpi-value { display:block; font-size:1.2rem; font-weight:700; margin-top:.15rem; }
+    .kpi-tone-ok { color:var(--ok); }
+    .kpi-tone-warn { color:var(--warn); }
+    .kpi-tone-bad { color:var(--bad); }
+    .kpi-tone-info { color:#9fd6ff; }
+    @media (min-width:980px){ .kpi { grid-template-columns:repeat(2,minmax(0,1fr)); } }
     .muted { color:var(--muted); font-size:.86rem; }
     .tx { border:1px solid var(--line); border-radius:12px; padding:.6rem; margin-bottom:.5rem; background:#0f1824; }
     .headers { margin-top:.6rem; }
@@ -70,6 +79,32 @@
     @media (min-width:560px){ .io-grid.two { grid-template-columns:1fr 1fr; } }
     .tx-io-card { border:1px solid var(--line); border-radius:12px; padding:.55rem .65rem; background:#0f1824; font-size:.82rem; }
     .tx-io-card strong { color:var(--doge); font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; }
+    .metric-row { border:1px solid var(--line); border-radius:10px; padding:.5rem .6rem; margin-bottom:.4rem; background:#0f1824; }
+    .metric-bar-wrap { display:grid; grid-template-columns:1fr 1fr; gap:.35rem; margin-top:.35rem; }
+    .metric-bar { height:10px; border-radius:999px; background:#1f2f44; overflow:hidden; }
+    .metric-bar > span { display:block; height:100%; }
+    .metric-bar.quantum > span { background:#63c7ff; }
+    .metric-bar.nonq > span { background:#ff8f8f; }
+    .docs-btn { display:inline-flex; align-items:center; gap:.35rem; width:auto; padding:.45rem .7rem; }
+    .docs-btn .material-symbols-outlined { font-size:18px; line-height:1; }
+    .title-icon { font-size:18px; vertical-align:middle; margin-right:.35rem; color:var(--doge); }
+    .btn-ico { display:inline-flex; align-items:center; gap:.3rem; }
+    .btn-ico .material-symbols-outlined { font-size:17px; line-height:1; }
+    .tx-type-ico { font-size:16px; vertical-align:middle; margin-right:.25rem; }
+    .docs-modal { display:none; position:fixed; inset:0; z-index:260; background:rgba(5,8,12,.8); padding:1rem; overflow-y:auto; }
+    .docs-modal.show { display:block; }
+    .docs-panel { max-width:980px; margin:2vh auto; background:linear-gradient(180deg,#122033 0%, #101a29 100%); border:1px solid var(--line); border-radius:18px; box-shadow:0 18px 54px rgba(0,0,0,.5); }
+    .docs-head { display:flex; justify-content:space-between; align-items:center; gap:.6rem; padding:.85rem 1rem; border-bottom:1px solid var(--line); background:linear-gradient(90deg,rgba(242,203,44,.18),transparent); }
+    .docs-brand { width:28px; height:28px; border-radius:8px; border:1px solid var(--line); background:#0b121a; object-fit:cover; vertical-align:middle; margin-right:.45rem; }
+    .docs-grid { display:grid; grid-template-columns:1.1fr .9fr; gap:.8rem; padding:1rem; }
+    .docs-card { border:1px solid var(--line); border-radius:12px; background:#0f1824; padding:.75rem .8rem; }
+    .docs-card h3 { margin:.15rem 0 .45rem; color:var(--doge); font-size:.95rem; }
+    .docs-card p, .docs-card li { color:var(--muted); font-size:.83rem; line-height:1.45; }
+    .docs-card ul { margin:.25rem 0 .25rem 1rem; padding:0; }
+    .docs-links a { color:#9fd6ff; text-decoration:none; }
+    .docs-links a:hover { text-decoration:underline; }
+    .docs-step { border-left:3px solid rgba(242,203,44,.45); padding-left:.55rem; margin:.45rem 0; }
+    @media (max-width:900px){ .docs-grid { grid-template-columns:1fr; } }
     @media (max-width:900px){ .grid { grid-template-columns:1fr; } }
   </style>
 </head>
@@ -81,14 +116,20 @@
       <div>
         <h1>Quantum Explorer</h1>
       </div>
+      <div style="margin-left:auto">
+        <button type="button" class="btn docs-btn" id="btn-user-docs" title="Open educational documentation">
+          <span class="material-symbols-outlined" aria-hidden="true">school</span>
+          <span>Docs</span>
+        </button>
+      </div>
     </div>
 
     <div class="grid">
       <section class="card">
-        <h2>Search</h2>
-        <div class="row">
+        <h2><span class="material-symbols-outlined title-icon" aria-hidden="true">search</span>Search</h2>
+        <div class="search-wrap">
           <input id="q" placeholder="Dogecoin address, txid, block hash, or height" />
-          <button class="btn primary" id="btn-search">Search</button>
+          <button class="search-inside-btn" id="btn-search" title="Search" aria-label="Search"><span class="material-symbols-outlined" aria-hidden="true">search</span></button>
         </div>
         <p class="muted">Quantum Explorer indexes only PQ-like transactions and exposes verification state.</p>
         <p class="muted" id="chain-index-strip" style="font-size:.82rem;margin:.35rem 0">Chain index: …</p>
@@ -96,17 +137,17 @@
       </section>
 
       <aside class="card">
-        <h2>Metrics</h2>
-        <div class="badges" id="metric-badges" style="margin-bottom:.6rem"></div>
+        <h2><span class="material-symbols-outlined title-icon" aria-hidden="true">monitoring</span>Metrics</h2>
+        <div class="badges" id="metric-badges" style="margin-bottom:.7rem"></div>
         <div class="kpi">
-          <div class="pill"><span class="muted">Mempool (live)</span><b id="k-mempool">0</b></div>
-          <div class="pill"><span class="muted">PQ seen</span><b id="k-pq">0</b></div>
-          <div class="pill"><span class="muted">PQ valid</span><b id="k-pqvalid">0</b></div>
-          <div class="pill"><span class="muted">Confirmed (SPV)</span><b id="k-confirmed">0</b></div>
-          <div class="pill"><span class="muted">Invalid PQ</span><b id="k-invalid">0</b></div>
-          <div class="pill"><span class="muted">SPV tip height</span><b id="k-spv-tip">—</b></div>
-          <div class="pill"><span class="muted">SPV peers (log)</span><b id="k-spv-peers">—</b></div>
-          <div class="pill"><span class="muted">SPV mempool (log)</span><b id="k-spv-mempool">—</b></div>
+          <div class="kpi-card"><span class="kpi-label">Mempool Live</span><b class="kpi-value kpi-tone-info" id="k-mempool">0</b></div>
+          <div class="kpi-card"><span class="kpi-label">PQ Seen</span><b class="kpi-value" id="k-pq">0</b></div>
+          <div class="kpi-card"><span class="kpi-label">PQ Valid</span><b class="kpi-value kpi-tone-ok" id="k-pqvalid">0</b></div>
+          <div class="kpi-card"><span class="kpi-label">Confirmed (SPV)</span><b class="kpi-value kpi-tone-info" id="k-confirmed">0</b></div>
+          <div class="kpi-card"><span class="kpi-label">Invalid PQ</span><b class="kpi-value kpi-tone-bad" id="k-invalid">0</b></div>
+          <div class="kpi-card"><span class="kpi-label">SPV Tip Height</span><b class="kpi-value" id="k-spv-tip">—</b></div>
+          <div class="kpi-card"><span class="kpi-label">SPV Peers (log)</span><b class="kpi-value kpi-tone-warn" id="k-spv-peers">—</b></div>
+          <div class="kpi-card"><span class="kpi-label">SPV Mempool (log)</span><b class="kpi-value kpi-tone-warn" id="k-spv-mempool">—</b></div>
         </div>
       </aside>
     </div>
@@ -115,18 +156,34 @@
       <div class="pq-block" id="pq-block">
         <div class="pq-block-head">
           <div>
-            <h2>PQ transactions — latest block</h2>
+            <h2><span class="material-symbols-outlined title-icon" aria-hidden="true">token</span>PQ transactions — latest block</h2>
             <div class="pq-block-meta" id="pq-block-context">Correlates with SPV chain tip when available.</div>
           </div>
-          <div class="badges" id="pq-block-badges"></div>
+          <div>
+            <div class="row" style="margin-bottom:.45rem">
+              <select id="pq-mode" style="min-width:170px">
+                <option value="all">All indexed tx</option>
+                <option value="quantum">Quantum only</option>
+                <option value="non-quantum">Non-quantum only</option>
+              </select>
+            </div>
+            <div class="badges" id="pq-block-badges"></div>
+          </div>
         </div>
         <div class="pq-block-rows" id="pq-block-rows"></div>
       </div>
     </section>
 
+    <section class="card" style="margin-top:.8rem">
+      <h2><span class="material-symbols-outlined title-icon" aria-hidden="true">query_stats</span>24h transaction activity</h2>
+      <p class="muted">Bars compare indexed quantum vs non-quantum transactions by hour (latest 24h).</p>
+      <p class="muted" id="metrics-source" title="Shows whether data comes from pre-aggregated Core DB buckets or in-memory tracker fallback." style="font-size:.78rem">Source: …</p>
+      <div id="metrics-bars" class="headers"></div>
+    </section>
+
     <div class="modal-backdrop" id="tx-modal" role="dialog" aria-modal="true" aria-labelledby="tx-modal-title">
       <div class="modal-card">
-        <button type="button" class="modal-close" id="tx-modal-close" aria-label="Close">Close</button>
+        <button type="button" class="modal-close" id="tx-modal-close" aria-label="Close"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">close</span>Close</span></button>
         <h2 id="tx-modal-title">Transaction</h2>
         <div id="tx-modal-body" class="muted">Loading…</div>
       </div>
@@ -134,14 +191,91 @@
 
     <div class="modal-backdrop" id="block-modal" role="dialog" aria-modal="true" aria-labelledby="block-modal-title">
       <div class="modal-card" style="max-width:760px">
-        <button type="button" class="modal-close" id="block-modal-close" aria-label="Close">Close</button>
+        <button type="button" class="modal-close" id="block-modal-close" aria-label="Close"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">close</span>Close</span></button>
         <h2 id="block-modal-title">Block header</h2>
         <div id="block-modal-body" class="muted">Loading…</div>
       </div>
     </div>
+    <div class="docs-modal" id="docs-modal" role="dialog" aria-modal="true" aria-labelledby="docs-title">
+      <div class="docs-panel">
+        <div class="docs-head">
+          <div>
+            <h2 id="docs-title" style="margin:0"><img src="/logo.png" alt="" class="docs-brand" /><span class="material-symbols-outlined title-icon" aria-hidden="true">menu_book</span>Post-Quantum Documentation</h2>
+            <p class="muted" style="margin:.2rem 0 0">Educational guide: how PQ transactions are created, detected, and independently verified.</p>
+          </div>
+          <button type="button" class="btn" id="docs-close-btn" style="width:auto"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">close</span>Close</span></button>
+        </div>
+        <div class="docs-grid">
+          <div>
+            <div class="docs-card">
+              <h3>How a PQ transaction is made (concept)</h3>
+              <div class="docs-step">
+                <p><strong>Step 1:</strong> Build a normal Dogecoin transaction with standard inputs/outputs using wallet logic.</p>
+              </div>
+              <div class="docs-step">
+                <p><strong>Step 2:</strong> Attach a post-quantum commitment payload (commonly in <code>OP_RETURN</code>) that references PQ signature/artifact metadata.</p>
+              </div>
+              <div class="docs-step">
+                <p><strong>Step 3:</strong> Broadcast to network. The tx is first seen in mempool (pending), later linked to blocks (confirmed).</p>
+              </div>
+              <p>This explorer classifies PQ state from raw transaction bytes and marker evidence. It is designed for transparent education, so evidence/reason fields are always exposed.</p>
+            </div>
+            <div class="docs-card">
+              <h3>Using Dogecoin Foundation libdogecoin</h3>
+              <p>Recommended project links:</p>
+              <ul class="docs-links">
+                <li><a href="https://github.com/dogecoinfoundation/libdogecoin" target="_blank" rel="noopener">libdogecoin repository</a></li>
+                <li><a href="https://github.com/dogecoinfoundation/libdogecoin/tree/master/examples" target="_blank" rel="noopener">libdogecoin examples</a></li>
+              </ul>
+              <p>Typical workflow is: key management + tx composition in libdogecoin, PQ commitment embedding in tx data, then broadcast/monitoring through node or P2P listeners.</p>
+            </div>
+            <div class="docs-card">
+              <h3>Technical verification anyone can do</h3>
+              <ul>
+                <li>Fetch raw tx hex (from node RPC or explorer APIs).</li>
+                <li>Decode outputs and inspect <code>scriptPubKey</code> + <code>OP_RETURN</code> payload bytes.</li>
+                <li>Check recognized PQ commitment markers and parser result.</li>
+                <li>Check block inclusion/confirmations via chain/SPV context.</li>
+              </ul>
+              <p>In this UI, open a tx detail to see decode + strict PQ evidence. External verifiers can reproduce the same parsing from raw bytes.</p>
+            </div>
+          </div>
+          <div>
+            <div class="docs-card">
+              <h3>What "proof" means here</h3>
+              <p>There are two layers:</p>
+              <ul>
+                <li><strong>Commitment proof:</strong> tx data contains expected PQ marker structure.</li>
+                <li><strong>Chain proof:</strong> transaction is seen/confirmed in chain context.</li>
+              </ul>
+              <p>The strict verifier currently proves commitment-level evidence from raw tx bytes. Full cryptographic PQ signature validation can be layered on top as protocol rules evolve.</p>
+            </div>
+            <div class="docs-card">
+              <h3>Explorer APIs useful for auditors</h3>
+              <ul>
+                <li><code>/api/public/tx?txid=...</code> — decode + strict evidence</li>
+                <li><code>/api/public/block?height=...</code> — block context</li>
+                <li><code>/api/public/status</code> — runtime/SPV context</li>
+                <li><code>/api/public/metrics</code> — aggregate activity</li>
+              </ul>
+              <p>Auditors can export JSON from these endpoints and independently replay parsing/verification logic.</p>
+            </div>
+            <div class="docs-card">
+              <h3>Important limits and transparency notes</h3>
+              <ul>
+                <li>Mempool visibility can vary by peers and network conditions.</li>
+                <li>No raw hex = no strict marker validation.</li>
+                <li>PQ labeling depends on protocol marker conventions configured by implementation.</li>
+              </ul>
+              <p>For educational integrity, the explorer shows reason/evidence fields instead of hiding uncertain states.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <section class="card" style="margin-top:.8rem">
-      <h2>SPV chain &amp; headers</h2>
+      <h2><span class="material-symbols-outlined title-icon" aria-hidden="true">lan</span>SPV chain &amp; headers</h2>
       <div class="badges" id="spv-badges" style="margin:.35rem 0 .6rem"></div>
       <div id="spv-tip-card" class="head-row" style="margin-bottom:.65rem"></div>
       <p class="muted" id="spv-pq-status">SPV: checking…</p>
@@ -156,9 +290,23 @@
   <script>
     function esc(s){return String(s??"").replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));}
     function badge(cls,txt){return `<span class="badge ${cls}">${esc(txt)}</span>`;}
+    function txTypeIcon(tx){
+      if (!tx) return "help";
+      if (tx.pq_valid) return "verified";
+      if (tx.confirmed) return "check_circle";
+      return "receipt_long";
+    }
+    function txTypeLabel(tx){
+      if (!tx) return "unknown";
+      if (tx.pq_valid) return "quantum";
+      if (tx.confirmed) return "normal confirmed";
+      return "normal pending";
+    }
     async function j(url,opt){const r=await fetch(url,opt);return {ok:r.ok,s:r.status,d:await r.json().catch(()=>({}))};}
 
     let latestPQ10 = [];
+    let mempoolMode = "all";
+    let lastSPV = {};
 
     function renderPQBlock(spv, rows){
       const rowsEl = document.getElementById("pq-block-rows");
@@ -171,17 +319,20 @@
       } else {
         ctx.textContent = `No SPV tip yet — latest ${rows.length} indexed PQ-related transactions from mempool / tracker.`;
       }
+      const showing = Math.min(rows.length, 10);
       bb.innerHTML = [
         badge(rows.length > 0 ? "pq-ok" : "pending", `${rows.length} in feed`),
+        badge("", `showing ${showing}`),
         badge(spv && spv.running ? "confirmed" : "pending", spv && spv.running ? "SPV sync" : "SPV off")
       ].join("");
       if (!rows.length) {
         rowsEl.innerHTML = '<p class="muted" style="padding:.75rem 1rem;margin:0">No post-quantum transactions indexed yet.</p>';
         return;
       }
-      rowsEl.innerHTML = rows.map(t => `
+      const visibleRows = rows.slice(0, 10);
+      rowsEl.innerHTML = visibleRows.map(t => `
         <button type="button" class="pq-tx-row" data-txid="${esc(t.txid)}">
-          <div class="mono">${esc(t.txid)}</div>
+          <div class="mono"><span class="material-symbols-outlined tx-type-ico" title="${esc(txTypeLabel(t))}" aria-hidden="true">${txTypeIcon(t)}</span>${esc(t.txid)}</div>
           <div class="badges" style="margin:.4rem 0">
             ${badge(t.confirmed ? "confirmed":"pending", t.confirmed ? "Confirmed":"Pending")}
             ${badge(t.pq_valid ? "pq-ok":"pq-bad", t.pq_valid ? "PQ valid":"PQ invalid")}
@@ -193,6 +344,42 @@
       rowsEl.querySelectorAll(".pq-tx-row").forEach(btn => {
         btn.onclick = () => openTxDetail(btn.getAttribute("data-txid"));
       });
+    }
+
+    async function loadMempoolRows(){
+      const limit = 10;
+      const r = await j(`/api/public/mempool?mode=${encodeURIComponent(mempoolMode)}&limit=${limit}&offset=0`);
+      if (!r.ok) return [];
+      return Array.isArray(r.d.rows) ? r.d.rows : [];
+    }
+
+    function renderMetricsBars(buckets){
+      const el = document.getElementById("metrics-bars");
+      if (!Array.isArray(buckets) || buckets.length === 0) {
+        el.innerHTML = '<p class="muted">No 24h metric buckets yet.</p>';
+        return;
+      }
+      let max = 1;
+      for (const b of buckets) {
+        max = Math.max(max, Number(b.quantum || 0), Number(b.non_quantum || 0));
+      }
+      const latest = buckets.slice(-24).reverse();
+      el.innerHTML = latest.map(b => {
+        const q = Number(b.quantum || 0);
+        const n = Number(b.non_quantum || 0);
+        const qPct = Math.max(4, Math.round((q / max) * 100));
+        const nPct = Math.max(4, Math.round((n / max) * 100));
+        return `<div class="metric-row">
+          <div class="row" style="justify-content:space-between;font-size:.78rem">
+            <span>${esc(String(b.hour || ""))}</span>
+            <span class="muted">Q ${q} / NQ ${n}</span>
+          </div>
+          <div class="metric-bar-wrap">
+            <div class="metric-bar quantum"><span style="width:${qPct}%"></span></div>
+            <div class="metric-bar nonq"><span style="width:${nPct}%"></span></div>
+          </div>
+        </div>`;
+      }).join("");
     }
 
     function closeTxModal(){
@@ -316,7 +503,7 @@
           <div class="mono" style="font-size:.78rem">${esc(x.txid)}</div>
           ${x.decode_note ? `<p class="muted" style="font-size:.78rem;margin:.35rem 0">${esc(x.decode_note)}</p>` : ""}
           ${hasDec ? `<div class="muted" style="font-size:.75rem;margin:.25rem 0">≈ ${esc(String(dec.output_total_doge||"?"))} DOGE outputs · ${esc(String((dec.outputs||[]).length))} outs</div>` : ""}
-          <button type="button" class="btn" style="width:auto;margin-top:.35rem;padding:.4rem .65rem" data-txid="${esc(x.txid)}">Open full tx</button>
+          <button type="button" class="btn" style="width:auto;margin-top:.35rem;padding:.4rem .65rem" data-txid="${esc(x.txid)}"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">open_in_new</span>Open full tx</span></button>
         </div>`;
       }).join("");
       body.innerHTML = `
@@ -424,6 +611,7 @@
       document.getElementById("k-confirmed").textContent = m.confirmed ?? 0;
       document.getElementById("k-invalid").textContent = m.invalid ?? 0;
       const spv = r.d.spv || {};
+      lastSPV = spv;
       const tip = spv.tip_height > 0 ? String(spv.tip_height) : "—";
       document.getElementById("k-spv-tip").textContent = tip;
       document.getElementById("k-spv-peers").textContent = spv.peer_count_hint > 0 ? String(spv.peer_count_hint) : "—";
@@ -436,7 +624,7 @@
         badge(pqI > 0 ? "pq-bad" : "muted", `PQ invalid ${pqI}`),
         badge((m.confirmed ?? 0) > 0 ? "confirmed" : "pending", `SPV-confirmed ${m.confirmed ?? 0}`)
       ].join("");
-      latestPQ10 = r.d.latest_pq_transactions || (r.d.latest || []).slice(0, 10);
+      latestPQ10 = await loadMempoolRows();
       renderPQBlock(spv, latestPQ10);
       renderSPV(spv);
       const ci = r.d.chain_index || {};
@@ -444,6 +632,13 @@
       const chainTip = sum.tip_height > 0 ? sum.tip_height : "—";
       document.getElementById("chain-index-strip").textContent =
         `SPV chain index: ${sum.header_count ?? 0} headers, tip height ${chainTip}. Search by block height, block hash, txid, or address.`;
+      const mr = await j("/api/public/metrics?hours=24");
+      if (mr.ok) {
+        renderMetricsBars(mr.d.buckets || []);
+        const src = (mr.d.source || "unknown");
+        const srcEl = document.getElementById("metrics-source");
+        srcEl.textContent = `Source: ${src}`;
+      }
     }
 
     document.getElementById("btn-search").onclick = async () => {
@@ -479,6 +674,24 @@
         btn.onclick = () => openTxDetail(btn.getAttribute("data-txid"));
       });
     };
+    document.getElementById("pq-mode").onchange = async (e) => {
+      mempoolMode = String(e.target.value || "all");
+      latestPQ10 = await loadMempoolRows();
+      renderPQBlock(lastSPV, latestPQ10);
+    };
+    document.getElementById("q").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") document.getElementById("btn-search").click();
+    });
+    const docsModal = document.getElementById("docs-modal");
+    document.getElementById("btn-user-docs").onclick = () => {
+      docsModal.classList.add("show");
+    };
+    document.getElementById("docs-close-btn").onclick = () => {
+      docsModal.classList.remove("show");
+    };
+    docsModal.addEventListener("click", (e) => {
+      if (e.target && e.target.id === "docs-modal") docsModal.classList.remove("show");
+    });
     load();
     setInterval(load, 4000);
   </script>

@@ -32,12 +32,25 @@ type Checkpoint struct {
 	Timestamp string `json:"timestamp"`
 }
 
+type APIClient struct {
+	Name      string   `json:"name"`
+	Token     string   `json:"token"`
+	Allowlist []string `json:"allowlist"`
+}
+
 type Config struct {
-	HTTPPort      int        `json:"http_port"`
-	Network       string     `json:"network"`
-	AdminToken    string     `json:"admin_token"`
-	ExplorerTxAPI string     `json:"explorer_tx_api"`
-	Checkpoint    Checkpoint `json:"checkpoint"`
+	HTTPPort             int         `json:"http_port"`
+	Network              string      `json:"network"`
+	AdminToken           string      `json:"admin_token"`
+	ExplorerTxAPI        string      `json:"explorer_tx_api"`
+	Checkpoint           Checkpoint  `json:"checkpoint"`
+	AdminAllowlist       []string    `json:"admin_allowlist,omitempty"`
+	PublicAPIToken       string      `json:"public_api_token,omitempty"`
+	PublicAPIAllowlist   []string    `json:"public_api_allowlist,omitempty"`
+	PublicProtectedPaths []string    `json:"public_protected_paths,omitempty"`
+	PublicRateLimit      int         `json:"public_rate_limit,omitempty"`
+	PublicRateWindowSec  int         `json:"public_rate_window_sec,omitempty"`
+	PublicAPIClients     []APIClient `json:"public_api_clients,omitempty"`
 }
 
 type PQTx struct {
@@ -72,10 +85,17 @@ type app struct {
 
 	// SPV-derived chain index: JSON file (default) or PostgreSQL when QE_POSTGRES_URL is set.
 	chain chainBackend
+	core  *coreRPCClient
+	cidx  *coreIndexer
 
-	watchdogMu       sync.Mutex
-	lastSPVRetry     time.Time
-	lastMempoolRetry time.Time
+	watchdogMu           sync.Mutex
+	lastSPVRetry         time.Time
+	lastMempoolRetry     time.Time
+	adminAllowlist       map[string]struct{}
+	publicAllowlist      map[string]struct{}
+	publicToken          string
+	publicProtectedPaths map[string]struct{}
+	rl                   *ipRateLimiter
 }
 
 type SPVHeader struct {
@@ -113,7 +133,57 @@ func defaultConfig() Config {
 			Hash:      "7ecb28519e0c144261e511fd8706f8b54a93620cac31c41b5bcb0135f0d86a2b",
 			Timestamp: "2026-02-20T21:59:00Z",
 		},
+		AdminAllowlist:       splitCSVEnv("QE_ADMIN_ALLOWLIST"),
+		PublicAPIToken:       strings.TrimSpace(os.Getenv("QE_PUBLIC_API_TOKEN")),
+		PublicAPIAllowlist:   splitCSVEnv("QE_PUBLIC_API_ALLOWLIST"),
+		PublicProtectedPaths: splitCSVEnvWithDefault("QE_PUBLIC_PROTECTED_PATHS", "/api/public/core/search,/api/public/core/summary"),
+		PublicRateLimit:      envIntBounded("QE_PUBLIC_RATE_LIMIT", 120, 1, 100000),
+		PublicRateWindowSec:  envIntBounded("QE_PUBLIC_RATE_WINDOW_SEC", 60, 1, 86400),
 	}
+}
+
+func splitCSVEnv(key string) []string {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return nil
+	}
+	out := []string{}
+	for _, p := range strings.Split(raw, ",") {
+		s := strings.TrimSpace(p)
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func splitCSVEnvWithDefault(key, def string) []string {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		raw = def
+	}
+	out := []string{}
+	for _, p := range strings.Split(raw, ",") {
+		s := strings.TrimSpace(p)
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func envIntBounded(key string, def, min, max int) int {
+	n, err := strconv.Atoi(env(key, strconv.Itoa(def)))
+	if err != nil {
+		return def
+	}
+	if n < min {
+		return min
+	}
+	if n > max {
+		return max
+	}
+	return n
 }
 
 func loadConfig(path string) Config {
@@ -134,6 +204,15 @@ func loadConfig(path string) Config {
 	}
 	if cfg.Checkpoint.Height <= 0 {
 		cfg.Checkpoint = defaultConfig().Checkpoint
+	}
+	if cfg.PublicRateLimit <= 0 {
+		cfg.PublicRateLimit = defaultConfig().PublicRateLimit
+	}
+	if cfg.PublicRateWindowSec <= 0 {
+		cfg.PublicRateWindowSec = defaultConfig().PublicRateWindowSec
+	}
+	if len(cfg.PublicProtectedPaths) == 0 {
+		cfg.PublicProtectedPaths = defaultConfig().PublicProtectedPaths
 	}
 	return cfg
 }
@@ -769,13 +848,14 @@ func (a *app) latest(limit int) []*PQTx {
 
 func (a *app) publicStatus(w http.ResponseWriter, _ *http.Request) {
 	rows := a.latest(100)
-	m := map[string]int{"mempool_live": 0, "pq_seen": len(rows), "confirmed": 0, "invalid": 0, "pq_valid": 0}
+	m := map[string]int{"mempool_live": 0, "pq_seen": len(rows), "confirmed": 0, "invalid": 0, "pq_valid": 0, "non_quantum": 0}
 	for _, t := range rows {
 		if t.Confirmed {
 			m["confirmed"]++
 		}
 		if !t.PQValid {
 			m["invalid"]++
+			m["non_quantum"]++
 		} else {
 			m["pq_valid"]++
 		}
@@ -857,6 +937,8 @@ func (a *app) publicStatus(w http.ResponseWriter, _ *http.Request) {
 			"recent_headers":  chainHdrs,
 			"block_detail_qs": "GET /api/public/block?height=<n> or &hash=<64hex>",
 		},
+		"core":         a.core.snapshot(),
+		"core_indexer": a.coreIndexerStatus(),
 	})
 }
 
@@ -1094,6 +1176,16 @@ func (a *app) adminStatus(w http.ResponseWriter, _ *http.Request) {
 		"spv_log_path":        filepath.Join(a.storageDir, "spv.log"),
 		"libdogecoin_spvnode": strings.TrimSpace(env("LIBDOGECOIN_SPVNODE", "spvnode")),
 		"diagnostics_api":     "GET /api/admin/<token>/diagnostics",
+		"core_rpc":            a.core.snapshot(),
+		"core_indexer":        a.coreIndexerStatus(),
+		"admin_allowlist_set": len(a.adminAllowlist) > 0,
+		"public_protection": map[string]any{
+			"token_set":       a.publicToken != "",
+			"allowlist_set":   len(a.publicAllowlist) > 0,
+			"protected_paths": len(a.publicProtectedPaths),
+			"rate_limit":      a.rl.limit,
+			"rate_window_sec": int(a.rl.window.Seconds()),
+		},
 	})
 }
 
@@ -1160,8 +1252,13 @@ func main() {
 		txs:          map[string]*PQTx{},
 		addressIndex: map[string][]string{},
 		chain:        cb,
+		core:         newCoreRPCClientFromEnv(),
 	}
 	a.cfg = loadConfig(a.cfgPath)
+	a.applyAccessConfigLocked()
+	if pg, ok := cb.(*postgresChainBackend); ok {
+		a.cidx = newCoreIndexer(pg.db, a.core, a.cfg.Network)
+	}
 	a.txs = loadTxs(a.storePath)
 	log.Printf("[quantum-explorer] chain index backend=%s", cb.Kind())
 	a.reindexUnsafe()
@@ -1178,13 +1275,26 @@ func main() {
 	}
 	go a.subsystemWatchdog()
 	go a.refreshLoop()
+	if a.cidx != nil {
+		a.cidx.autoStartIfEnabled()
+	}
 
 	publicMux := http.NewServeMux()
-	publicMux.HandleFunc("/api/public/status", a.publicStatus)
-	publicMux.HandleFunc("/api/public/block", a.publicBlock)
-	publicMux.HandleFunc("/api/public/tx", a.publicTxDetail)
-	publicMux.HandleFunc("/api/public/search", a.publicSearch)
+	publicMux.HandleFunc("/healthz", a.healthz)
+	publicMux.HandleFunc("/readyz", a.readyz)
+	publicMux.HandleFunc("/api/public/status", a.withRateLimit(a.publicStatus))
+	publicMux.HandleFunc("/api/public/block", a.withRateLimit(a.publicBlock))
+	publicMux.HandleFunc("/api/public/tx", a.withRateLimit(a.publicTxDetail))
+	publicMux.HandleFunc("/api/public/search", a.withRateLimit(a.publicSearch))
+	publicMux.HandleFunc("/api/public/mempool", a.withRateLimit(a.publicMempool))
+	publicMux.HandleFunc("/api/public/metrics", a.withRateLimit(a.publicMetrics))
+	publicMux.HandleFunc("/api/public/core/search", a.withRateLimit(a.withPublicAccess(a.publicCoreSearch)))
+	publicMux.HandleFunc("/api/public/core/summary", a.withRateLimit(a.withPublicAccess(a.publicCoreSummary)))
 	publicMux.HandleFunc("/admin/", func(w http.ResponseWriter, r *http.Request) {
+		if !a.adminIPAllowed(r) {
+			http.NotFound(w, r)
+			return
+		}
 		token := strings.TrimPrefix(r.URL.Path, "/admin/")
 		token = strings.TrimSpace(strings.Trim(token, "/"))
 		if !a.adminTokenValid(token) {
@@ -1200,6 +1310,10 @@ func main() {
 		_, _ = w.Write(b)
 	})
 	publicMux.HandleFunc("/api/admin/", func(w http.ResponseWriter, r *http.Request) {
+		if !a.adminIPAllowed(r) {
+			http.NotFound(w, r)
+			return
+		}
 		rest := strings.TrimPrefix(r.URL.Path, "/api/admin/")
 		parts := strings.SplitN(rest, "/", 2)
 		if len(parts) != 2 {
@@ -1219,6 +1333,12 @@ func main() {
 			a.adminDiagnostics(w, r)
 		case "/checkpoint":
 			a.adminCheckpoint(w, r)
+		case "/access":
+			if r.Method == http.MethodGet {
+				a.adminAccessGet(w, r)
+				return
+			}
+			a.adminAccessSet(w, r)
 		case "/mempool/start":
 			if err := a.startMempool(); err != nil {
 				writeJSON(w, 500, map[string]string{"error": err.Error()})
@@ -1241,6 +1361,12 @@ func main() {
 			writeJSON(w, 200, map[string]any{"ok": true})
 		case "/spv/restart":
 			a.adminRestartSPV(w)
+		case "/core-indexer/start":
+			a.adminStartCoreIndexer(w)
+		case "/core-indexer/stop":
+			a.adminStopCoreIndexer(w)
+		case "/core-indexer/status":
+			a.adminCoreIndexerStatus(w)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1272,5 +1398,6 @@ func main() {
 	publicAddr := ":" + strconv.Itoa(a.cfg.HTTPPort)
 	log.Printf("[quantum-explorer] public listening on %s network=%s", publicAddr, a.cfg.Network)
 	log.Printf("[quantum-explorer] admin UI path tokenized: /admin/<TOKEN>")
-	log.Fatal(http.ListenAndServe(publicAddr, publicMux))
+	handler := withRequestLogging(withSecurityHeaders(publicMux))
+	log.Fatal(http.ListenAndServe(publicAddr, handler))
 }

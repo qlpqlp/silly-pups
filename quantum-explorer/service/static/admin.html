@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@400" rel="stylesheet" />
   <style>
     :root {
       --bg:#070b10; --surface:#0f1620; --card:#121a26; --txt:#e8eef8; --muted:#8b9cb8;
@@ -16,14 +17,26 @@
     }
     * { box-sizing:border-box; }
     body { margin:0; font-family:"DM Sans",system-ui,sans-serif; background:radial-gradient(1200px 800px at 100% -20%,#1a2840 0,var(--bg) 55%); color:var(--txt); min-height:100vh; }
+    .layout { display:flex; min-height:100vh; }
+    .sidebar { width:250px; border-right:1px solid var(--line); background:rgba(10,15,23,.9); backdrop-filter:blur(6px); padding:.8rem .65rem; transition:width .18s ease; position:sticky; top:0; height:100vh; overflow:auto; }
+    .sidebar.collapsed { width:78px; }
+    .sidebar-head { display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin-bottom:.8rem; }
+    .side-logo { display:flex; align-items:center; gap:.45rem; font-weight:700; }
+    .side-logo img { width:26px; height:26px; border-radius:7px; border:1px solid var(--line); background:#0b121a; object-fit:cover; }
+    .side-nav { display:grid; gap:.35rem; }
+    .side-nav button { width:100%; text-align:left; display:flex; align-items:center; gap:.5rem; background:#0f1620; border:1px solid var(--line); border-radius:10px; padding:.52rem .58rem; color:var(--txt); }
+    .side-nav button.active { border-color:var(--accent); background:#122033; }
+    .sidebar.collapsed .side-label, .sidebar.collapsed .side-logo span:last-child { display:none; }
+    .main { flex:1; min-width:0; }
     .topbar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.75rem; padding:1rem 1.25rem; border-bottom:1px solid var(--line); background:rgba(15,22,32,.85); backdrop-filter:blur(8px); position:sticky; top:0; z-index:10; }
-    .topbar h1 { margin:0; font-size:1.25rem; font-weight:700; letter-spacing:-.02em; }
+    .topbar h1 { margin:0; font-size:1.25rem; font-weight:700; letter-spacing:-.02em; display:flex; align-items:center; gap:.45rem; }
+    .brand-icon { width:26px; height:26px; border-radius:8px; border:1px solid var(--line); background:#0b121a; object-fit:cover; }
     .pills { display:flex; flex-wrap:wrap; gap:.4rem; }
     .pill { font-size:.72rem; font-weight:600; padding:.28rem .55rem; border-radius:999px; border:1px solid var(--line); background:var(--surface); }
     .pill.ok { border-color:rgba(61,214,143,.5); color:var(--ok); }
     .pill.bad { border-color:rgba(255,122,122,.5); color:var(--bad); }
-    .wrap { max-width:1100px; margin:0 auto; padding:1rem 1.25rem 2.5rem; }
-    .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:1rem 1.15rem; margin-bottom:1rem; box-shadow:0 8px 32px rgba(0,0,0,.25); }
+    .wrap { max-width:1100px; margin:0 auto; padding:1rem 1.25rem 2.5rem; min-width:0; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:1rem 1.15rem; margin-bottom:1rem; box-shadow:0 8px 32px rgba(0,0,0,.25); min-width:0; overflow:hidden; }
     h2 { margin:0 0 .65rem; font-size:1.05rem; font-weight:700; }
     h3 { margin:.85rem 0 .45rem; font-size:.88rem; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.06em; }
     .muted { color:var(--muted); font-size:.88rem; line-height:1.45; }
@@ -36,7 +49,7 @@
     button.warn { border-color:#a65; background:#2a1a12; color:#ffd7b0; }
     button.primary { border:none; background:linear-gradient(135deg,var(--doge),#c49a12); color:#1a1408; font-weight:700; }
     button.ghost { background:transparent; border-color:var(--line); color:var(--muted); font-size:.82rem; padding:.4rem .6rem; }
-    .mono { font-family:"JetBrains Mono",ui-monospace,monospace; }
+    .mono { font-family:"JetBrains Mono",ui-monospace,monospace; overflow-wrap:anywhere; word-break:break-word; }
     .status-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:.5rem; font-size:.82rem; }
     .status-item { padding:.5rem .6rem; border-radius:12px; border:1px solid var(--line); background:#0c121a; }
     .status-item strong { display:block; font-size:.65rem; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:.2rem; }
@@ -44,45 +57,142 @@
     .log-panel { border:1px solid #1e3d2f; border-radius:14px; overflow:hidden; background:var(--term-bg); }
     .log-head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.5rem; padding:.55rem .75rem; background:linear-gradient(90deg,rgba(94,207,255,.08),transparent); border-bottom:1px solid #1a3028; }
     .log-head span { font-size:.75rem; color:#6a9e8a; font-family:"JetBrains Mono",monospace; }
-    .log-body { margin:0; padding:.85rem 1rem; max-height:min(70vh,520px); overflow:auto; font-family:"JetBrains Mono",monospace; font-size:.72rem; line-height:1.5; color:var(--term-fg); white-space:pre-wrap; word-break:break-word; tab-size:4; }
+    .log-body { margin:0; padding:.85rem 1rem; max-height:min(70vh,520px); overflow:auto; font-family:"JetBrains Mono",monospace; font-size:.72rem; line-height:1.5; color:var(--term-fg); white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; tab-size:4; }
     .log-body.wrap-off { white-space:pre; overflow-x:auto; }
     details.json-details { margin:.5rem 0; border:1px solid var(--line); border-radius:12px; padding:0 .65rem; background:#0c121a; }
     details.json-details summary { cursor:pointer; padding:.6rem 0; font-weight:600; font-size:.85rem; color:var(--accent); }
-    details.json-details pre { margin:0 0 .65rem; font-size:.72rem; max-height:14rem; overflow:auto; color:var(--muted); }
-    .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:.65rem; }
+    details.json-details pre { margin:0 0 .65rem; font-size:.72rem; max-height:14rem; overflow:auto; color:var(--muted); white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; }
+    .grid2 { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:.65rem; min-width:0; }
     @media (max-width:800px){ .grid2 { grid-template-columns:1fr; } }
-    .diag-mini { font-size:.72rem; max-height:12rem; overflow:auto; padding:.6rem; border-radius:10px; border:1px solid var(--line); background:#0c121a; color:var(--muted); }
+    .diag-mini { font-size:.72rem; max-height:12rem; overflow:auto; padding:.6rem; border-radius:10px; border:1px solid var(--line); background:#0c121a; color:var(--muted); white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; min-width:0; }
     #diag-error { padding:.6rem; border-radius:10px; background:rgba(255,100,100,.1); border:1px solid rgba(255,100,100,.35); }
+    .title-ico { font-size:18px; vertical-align:middle; margin-right:.35rem; color:var(--doge); }
+    .btn-ico { display:inline-flex; align-items:center; gap:.32rem; }
+    .btn-ico .material-symbols-outlined { font-size:17px; line-height:1; }
+    .panel { display:none; }
+    .panel.active { display:block; }
+    .docs-modern { padding:1.05rem; background:linear-gradient(180deg,#111c2b 0%,#0f1724 100%); }
+    .docs-modern-head { display:flex; align-items:center; gap:.6rem; margin-bottom:.75rem; }
+    .docs-modern-head .material-symbols-outlined { color:var(--doge); }
+    .docs-modern-head h2 { margin:0; }
+    .docs-modern-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:.7rem; }
+    .docs-modern-card { border:1px solid var(--line); border-radius:14px; background:#0d1521; padding:.7rem .75rem; }
+    .docs-modern-card h3 { margin:.1rem 0 .35rem; color:var(--accent); font-size:.86rem; text-transform:none; letter-spacing:0; }
+    .docs-modern-list { margin:.25rem 0 0 1rem; padding:0; }
+    .docs-modern-list li { color:var(--muted); font-size:.81rem; line-height:1.4; margin:.2rem 0; }
+    .docs-kbd { font-family:"JetBrains Mono",ui-monospace,monospace; font-size:.73rem; border:1px solid var(--line); border-radius:8px; padding:.1rem .35rem; background:#0b121a; color:#cce4ff; }
+    textarea { max-width:100%; }
+    @media (max-width:980px){
+      .sidebar { width:78px; }
+      .sidebar .side-label, .sidebar .side-logo span:last-child { display:none; }
+    }
+    @media (max-width:620px){
+      .wrap { padding:.8rem .65rem 1.4rem; }
+      .card { padding:.8rem .75rem; }
+      .status-grid { grid-template-columns:1fr; }
+      .log-body { padding:.7rem .72rem; }
+    }
   </style>
 </head>
 <body>
+  <div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-head">
+      <div class="side-logo">
+        <img src="/logo.png" alt="Quantum Explorer logo" />
+        <span>QE Admin</span>
+      </div>
+      <button type="button" class="ghost" id="btn-sidebar-collapse" title="Collapse sidebar"><span class="material-symbols-outlined" aria-hidden="true">left_panel_close</span></button>
+    </div>
+    <nav class="side-nav">
+      <button type="button" class="active" data-panel="panel-status"><span class="material-symbols-outlined" aria-hidden="true">monitor_heart</span><span class="side-label">Status</span></button>
+      <button type="button" data-panel="panel-controls"><span class="material-symbols-outlined" aria-hidden="true">tune</span><span class="side-label">Controls</span></button>
+      <button type="button" data-panel="panel-diagnostics"><span class="material-symbols-outlined" aria-hidden="true">troubleshoot</span><span class="side-label">Diagnostics</span></button>
+      <button type="button" data-panel="panel-access"><span class="material-symbols-outlined" aria-hidden="true">vpn_key</span><span class="side-label">Access Policy</span></button>
+      <button type="button" data-panel="panel-docs"><span class="material-symbols-outlined" aria-hidden="true">menu_book</span><span class="side-label">Documentation</span></button>
+      <button type="button" data-panel="panel-checkpoint"><span class="material-symbols-outlined" aria-hidden="true">flag</span><span class="side-label">Checkpoint</span></button>
+    </nav>
+  </aside>
+  <main class="main">
   <header class="topbar">
-    <h1>Quantum Explorer — Admin</h1>
-    <div class="pills" id="pill-wrap">
-      <span class="pill" id="pill-backend">…</span>
-      <span class="pill" id="pill-mem">Mempool …</span>
-      <span class="pill" id="pill-spv">SPV …</span>
+    <h1><img src="/logo.png" alt="" class="brand-icon" />Quantum Explorer — Admin</h1>
+    <div class="row">
+      <div class="pills" id="pill-wrap">
+        <span class="pill" id="pill-backend">…</span>
+        <span class="pill" id="pill-mem">Mempool …</span>
+        <span class="pill" id="pill-spv">SPV …</span>
+      </div>
     </div>
   </header>
 
   <div class="wrap">
     <p class="muted" style="margin:0 0 1rem">Token in URL path. Logs below refresh automatically; use <strong>Copy log</strong> for support tickets.</p>
-
-    <section class="card">
-      <h2>Runtime status</h2>
-      <div id="status" class="status-grid mono muted">Loading…</div>
+    <section class="card panel docs-modern" id="panel-docs">
+      <div class="docs-modern-head">
+        <span class="material-symbols-outlined" aria-hidden="true">menu_book</span>
+        <h2>Admin documentation</h2>
+      </div>
+      <p class="muted" style="margin-top:0">Operational runbook for secure deployment and maintenance.</p>
+      <div class="docs-modern-grid">
+        <article class="docs-modern-card">
+          <h3>Baseline setup</h3>
+          <ul class="docs-modern-list">
+            <li>Set <span class="docs-kbd">QE_ADMIN_TOKEN</span> to a strong random value.</li>
+            <li>Use <span class="docs-kbd">QE_ADMIN_ALLOWLIST</span> for office/VPN IP access.</li>
+            <li>Set <span class="docs-kbd">NETWORK</span> and <span class="docs-kbd">PUBLIC_PORT</span> correctly.</li>
+            <li>Keep <span class="docs-kbd">QE_SPV_AUTO_START=1</span> for unattended boot.</li>
+          </ul>
+        </article>
+        <article class="docs-modern-card">
+          <h3>Core indexing</h3>
+          <ul class="docs-modern-list">
+            <li>Set <span class="docs-kbd">QE_POSTGRES_URL</span> for production backend.</li>
+            <li>Configure Core RPC URL/user/password.</li>
+            <li>Tune: <span class="docs-kbd">QE_CORE_INDEXER_AUTO_START</span>, <span class="docs-kbd">QE_CORE_BACKFILL_BATCH</span>, <span class="docs-kbd">QE_CORE_START_HEIGHT</span>.</li>
+            <li>Monitor via <span class="docs-kbd">/api/admin/&lt;TOKEN&gt;/core-indexer/status</span>.</li>
+          </ul>
+        </article>
+        <article class="docs-modern-card">
+          <h3>Public API security</h3>
+          <ul class="docs-modern-list">
+            <li>Protect endpoints with token + allowlist policy in Access panel.</li>
+            <li>Use per-user tokens in client JSON for traceability.</li>
+            <li>Harden with rate limits (<span class="docs-kbd">QE_PUBLIC_RATE_LIMIT</span>, <span class="docs-kbd">QE_PUBLIC_RATE_WINDOW_SEC</span>).</li>
+          </ul>
+        </article>
+        <article class="docs-modern-card">
+          <h3>Subsystem controls</h3>
+          <ul class="docs-modern-list">
+            <li>Mempool controls manage P2P capture lifecycle.</li>
+            <li>SPV controls manage <span class="docs-kbd">spvnode</span> process.</li>
+            <li>Core indexer controls backfill/search ingestion.</li>
+            <li>Validate after actions using Status + Diagnostics panels.</li>
+          </ul>
+        </article>
+        <article class="docs-modern-card">
+          <h3>Troubleshooting flow</h3>
+          <ul class="docs-modern-list">
+            <li>Check <span class="docs-kbd">/healthz</span> and <span class="docs-kbd">/readyz</span>.</li>
+            <li>Inspect SPV log tail for connectivity/sync clues.</li>
+            <li>Review Core RPC and indexer diagnostics state.</li>
+            <li>Verify Postgres and Core RPC credentials/network.</li>
+          </ul>
+        </article>
+      </div>
     </section>
 
-    <section class="card">
-      <h2>Live — <span style="color:var(--accent)">spv.log</span></h2>
+    <section class="card panel active" id="panel-status">
+      <h2><span class="material-symbols-outlined title-ico" aria-hidden="true">monitor_heart</span>Runtime status</h2>
+      <div id="status" class="status-grid mono muted">Loading…</div>
+      <h2><span class="material-symbols-outlined title-ico" aria-hidden="true">terminal</span>Live — <span style="color:var(--accent)">spv.log</span></h2>
       <p class="muted" style="margin-top:0">Tail (~96KB) from disk. If the tip height stops moving for a long time, see the SPV checkpoint note in status — libdogecoin only ships <em>finite</em> embedded checkpoints; after that, sync depends on peers and upstream releases.</p>
       <div class="log-panel">
         <div class="log-head">
           <span id="log-meta">spv.log</span>
           <div class="row">
-            <button type="button" class="ghost" id="btn-log-wrap">Toggle wrap</button>
-            <button type="button" class="ghost" id="btn-log-copy">Copy log</button>
-            <button type="button" class="primary" id="btn-diag-refresh">Refresh now</button>
+            <button type="button" class="ghost" id="btn-log-wrap"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">wrap_text</span>Toggle wrap</span></button>
+            <button type="button" class="ghost" id="btn-log-copy"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">content_copy</span>Copy log</span></button>
+            <button type="button" class="primary" id="btn-diag-refresh"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">refresh</span>Refresh now</span></button>
           </div>
         </div>
         <pre class="log-body" id="diag-spv-log" role="log" aria-live="polite">Loading…</pre>
@@ -91,25 +201,31 @@
       <div id="diag-error" class="bad mono" style="display:none;margin-top:.5rem"></div>
     </section>
 
-    <section class="card">
-      <h2>Service controls</h2>
+    <section class="card panel" id="panel-controls">
+      <h2><span class="material-symbols-outlined title-ico" aria-hidden="true">tune</span>Service controls</h2>
       <p class="muted" style="margin-top:0">PostgreSQL is external — only diagnostics here. Restart = stop → short delay → start.</p>
       <h3>Mempool (P2P)</h3>
       <div class="row" style="margin-bottom:.65rem">
-        <button type="button" id="m-start">Start</button>
-        <button type="button" id="m-stop">Stop</button>
-        <button type="button" class="warn" id="m-restart">Restart</button>
+        <button type="button" id="m-start"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">play_arrow</span>Start</span></button>
+        <button type="button" id="m-stop"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">stop</span>Stop</span></button>
+        <button type="button" class="warn" id="m-restart"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">restart_alt</span>Restart</span></button>
       </div>
       <h3>SPV (spvnode)</h3>
       <div class="row">
-        <button type="button" id="s-start">Start</button>
-        <button type="button" id="s-stop">Stop</button>
-        <button type="button" class="warn" id="s-restart">Restart</button>
+        <button type="button" id="s-start"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">play_arrow</span>Start</span></button>
+        <button type="button" id="s-stop"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">stop</span>Stop</span></button>
+        <button type="button" class="warn" id="s-restart"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">restart_alt</span>Restart</span></button>
+      </div>
+      <h3>Core backfill indexer</h3>
+      <div class="row">
+        <button type="button" id="c-start"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">play_arrow</span>Start</span></button>
+        <button type="button" id="c-stop"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">stop</span>Stop</span></button>
+        <button type="button" id="c-status"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">info</span>Status</span></button>
       </div>
     </section>
 
-    <section class="card">
-      <h2>Diagnostics</h2>
+    <section class="card panel" id="panel-diagnostics">
+      <h2><span class="material-symbols-outlined title-ico" aria-hidden="true">troubleshoot</span>Diagnostics</h2>
       <div class="grid2">
         <div>
           <h3>Mempool</h3>
@@ -131,16 +247,53 @@
       </details>
     </section>
 
-    <section class="card">
-      <h2>Checkpoint (reference only)</h2>
+    <section class="card panel" id="panel-access">
+      <h2><span class="material-symbols-outlined title-ico" aria-hidden="true">vpn_key</span>Access control (admin-managed)</h2>
+      <p class="muted" style="margin-top:0">Set tokens and IP policies here. Changes are persisted and applied without restarting the service.</p>
+      <div class="grid2">
+        <div>
+          <h3>Admin allowlist IPs (comma-separated)</h3>
+          <input id="ac-admin-ips" placeholder="1.2.3.4,5.6.7.8" />
+          <h3>Global public token (optional)</h3>
+          <input id="ac-public-token" placeholder="token for protected routes" />
+          <h3>Global public allowlist IPs (optional)</h3>
+          <input id="ac-public-ips" placeholder="1.2.3.4,8.8.8.8" />
+          <h3>Protected public paths</h3>
+          <input id="ac-protected-paths" placeholder="/api/public/core/search,/api/public/core/summary" />
+          <h3>Rate limit</h3>
+          <div class="row">
+            <input id="ac-rate-limit" type="number" placeholder="120" />
+            <input id="ac-rate-window" type="number" placeholder="60" />
+          </div>
+        </div>
+        <div>
+          <h3>Per-user API clients JSON</h3>
+          <p class="muted" style="margin-top:0">Each user can have its own token and IP allowlist.</p>
+          <textarea id="ac-clients-json" class="mono" style="width:100%;min-height:190px;background:#0c121a;color:var(--txt);border:1px solid var(--line);border-radius:12px;padding:.6rem"></textarea>
+          <pre class="diag-mini mono" style="margin-top:.55rem">[
+  {"name":"alice","token":"TOKEN_ALICE","allowlist":["1.2.3.4"]},
+  {"name":"bob","token":"TOKEN_BOB","allowlist":[]}
+]</pre>
+          <div class="row" style="margin-top:.6rem">
+            <button type="button" id="ac-refresh"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">download</span>Load current</span></button>
+            <button type="button" class="primary" id="ac-save"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">save</span>Save access policy</span></button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card panel" id="panel-checkpoint">
+      <h2><span class="material-symbols-outlined title-ico" aria-hidden="true">flag</span>Checkpoint (reference only)</h2>
       <div class="row">
         <input id="cp-height" type="number" placeholder="Height" />
         <input id="cp-hash" placeholder="Block hash" />
         <input id="cp-time" placeholder="Timestamp RFC3339" />
-        <button type="button" id="cp-save">Save</button>
+        <button type="button" id="cp-save"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">save</span>Save</span></button>
       </div>
       <p class="muted">Not passed to spvnode. Embedded checkpoints are compiled into libdogecoin (-p/-q).</p>
     </section>
+  </div>
+  </main>
   </div>
 
   <script>
@@ -183,6 +336,7 @@
       const el = document.getElementById("status");
       if(!r.ok){ el.innerHTML = `<div class="status-item">Error ${r.s}: ${esc(JSON.stringify(r.d))}</div>`; return; }
       const d = r.d || {};
+      const core = d.core_rpc || {};
       setPills(d);
       const hint = (d.spv_checkpoint_help || "").replace(/</g, "");
       el.innerHTML = [
@@ -196,6 +350,8 @@
         kv("SPV err", d.spv_start_error || "—"),
         kv("Log ingest err", d.last_spv_log_err || "—"),
         kv("Embedded -p/-q", d.spv_use_checkpoint ? "on" : "off", d.spv_use_checkpoint),
+        kv("Core RPC", core.connected ? "connected" : (core.enabled ? "configured (offline)" : "disabled"), core.connected),
+        kv("Core endpoint", core.rpc_url || "—"),
         kv("Network", d.network || "—"),
       ].join("") + (hint ? `<div class="status-item" style="grid-column:1/-1"><strong>SPV sync note</strong>${esc(hint)}</div>` : "");
       const cp = d.checkpoint || {};
@@ -222,6 +378,9 @@
       document.getElementById("diag-env").textContent = JSON.stringify(d.env || {}, null, 2);
       document.getElementById("diag-mem").textContent = JSON.stringify(d.mempool_tracker || {}, null, 2);
       document.getElementById("diag-chain").textContent = JSON.stringify(d.chain_index || {}, null, 2);
+      const cidx = d.core_indexer || {};
+      document.getElementById("diag-chain").textContent =
+        JSON.stringify({ chain_index: d.chain_index || {}, core_indexer: cidx }, null, 2);
       const spv = d.spv || {};
       const path = spv.log_path || "spv.log";
       const tailLen = typeof spv.log_tail === "string" ? spv.log_tail.length : 0;
@@ -246,12 +405,52 @@
       await loadDiagnostics();
     }
 
+    function splitCSV(v){
+      return String(v || "").split(",").map(x => x.trim()).filter(Boolean);
+    }
+
+    async function loadAccessControl(){
+      const r = await j(`${API_BASE}/access`);
+      if (!r.ok) return;
+      const d = r.d || {};
+      document.getElementById("ac-admin-ips").value = (d.admin_allowlist || []).join(",");
+      document.getElementById("ac-public-ips").value = (d.public_api_allowlist || []).join(",");
+      document.getElementById("ac-protected-paths").value = (d.public_protected_paths || []).join(",");
+      document.getElementById("ac-rate-limit").value = String(d.public_rate_limit || 120);
+      document.getElementById("ac-rate-window").value = String(d.public_rate_window_sec || 60);
+      document.getElementById("ac-clients-json").value = JSON.stringify(d.public_api_clients || [], null, 2);
+    }
+
+    async function saveAccessControl(){
+      let clients = [];
+      try {
+        clients = JSON.parse(document.getElementById("ac-clients-json").value || "[]");
+        if (!Array.isArray(clients)) clients = [];
+      } catch (e) {
+        toast("Invalid per-user clients JSON");
+        return;
+      }
+      await call(`${API_BASE}/access`, {
+        admin_allowlist: splitCSV(document.getElementById("ac-admin-ips").value),
+        public_api_token: String(document.getElementById("ac-public-token").value || "").trim(),
+        public_api_allowlist: splitCSV(document.getElementById("ac-public-ips").value),
+        public_protected_paths: splitCSV(document.getElementById("ac-protected-paths").value),
+        public_rate_limit: Number(document.getElementById("ac-rate-limit").value || 120),
+        public_rate_window_sec: Number(document.getElementById("ac-rate-window").value || 60),
+        public_api_clients: clients
+      });
+      await loadAccessControl();
+    }
+
     document.getElementById("m-start").onclick = ()=>call(`${API_BASE}/mempool/start`);
     document.getElementById("m-stop").onclick = ()=>call(`${API_BASE}/mempool/stop`);
     document.getElementById("m-restart").onclick = ()=>call(`${API_BASE}/mempool/restart`);
     document.getElementById("s-start").onclick = ()=>call(`${API_BASE}/spv/start`);
     document.getElementById("s-stop").onclick = ()=>call(`${API_BASE}/spv/stop`);
     document.getElementById("s-restart").onclick = ()=>call(`${API_BASE}/spv/restart`);
+    document.getElementById("c-start").onclick = ()=>call(`${API_BASE}/core-indexer/start`);
+    document.getElementById("c-stop").onclick = ()=>call(`${API_BASE}/core-indexer/stop`);
+    document.getElementById("c-status").onclick = ()=>j(`${API_BASE}/core-indexer/status`).then(r=>toast(JSON.stringify(r.d||{})));
     document.getElementById("cp-save").onclick = ()=>call(`${API_BASE}/checkpoint`, {
       height: Number(document.getElementById("cp-height").value || 0),
       hash: String(document.getElementById("cp-hash").value || "").trim(),
@@ -271,9 +470,27 @@
         toast("copy failed");
       }
     };
+    function activatePanel(id){
+      document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+      const target = document.getElementById(id);
+      if (target) target.classList.add("active");
+      document.querySelectorAll(".side-nav button[data-panel]").forEach(b => {
+        b.classList.toggle("active", b.getAttribute("data-panel") === id);
+      });
+      window.scrollTo({top:0, behavior:"smooth"});
+    }
+    document.querySelectorAll(".side-nav button[data-panel]").forEach(btn => {
+      btn.onclick = () => activatePanel(btn.getAttribute("data-panel"));
+    });
+    document.getElementById("btn-sidebar-collapse").onclick = () => {
+      document.getElementById("sidebar").classList.toggle("collapsed");
+    };
+    document.getElementById("ac-refresh").onclick = ()=>loadAccessControl();
+    document.getElementById("ac-save").onclick = ()=>saveAccessControl();
 
     loadStatus();
     loadDiagnostics();
+    loadAccessControl();
     setInterval(loadStatus, 5000);
     setInterval(loadDiagnostics, 15000);
   </script>

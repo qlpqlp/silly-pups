@@ -32,7 +32,7 @@ func (a *app) publicMetrics(w http.ResponseWriter, r *http.Request) {
 	if a.cidx != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
-		if buckets, err := a.cidx.metricBuckets(ctx, hours); err == nil && len(buckets) > 0 {
+		if buckets, err := a.cidx.metricBuckets(ctx, hours); err == nil {
 			writeJSON(w, 200, map[string]any{
 				"hours":   hours,
 				"source":  "core_hourly_metrics",

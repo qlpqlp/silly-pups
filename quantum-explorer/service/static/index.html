@@ -166,7 +166,7 @@
     .modal-card.modal-wide { max-width:960px; }
     .pq-hero { border-radius:14px; padding:.85rem 1rem; margin:0 0 1rem; display:flex; align-items:flex-start; gap:.75rem; border:1px solid var(--line); }
     .pq-hero .material-symbols-outlined { font-size:28px; margin-top:.1rem; }
-    .pq-hero.quantum { background:linear-gradient(135deg,rgba(99,199,255,.18),rgba(15,24,36,.9)); border-color:rgba(99,199,255,.45); }
+    .pq-hero.quantum { background:linear-gradient(135deg,rgba(65,209,142,.22),rgba(15,24,36,.9)); border-color:rgba(65,209,142,.55); }
     .pq-hero.invalid { background:linear-gradient(135deg,rgba(255,143,143,.14),rgba(15,24,36,.9)); border-color:rgba(255,143,143,.4); }
     .pq-hero.standard { background:linear-gradient(135deg,rgba(149,167,194,.12),rgba(15,24,36,.9)); }
     .pq-hero h3 { margin:0 0 .2rem; font-size:1.05rem; }
@@ -183,6 +183,8 @@
     .block-tx-meta div { border:1px solid var(--line); border-radius:10px; padding:.35rem .45rem; background:#111b29; font-size:.78rem; }
     .block-tx-meta strong { display:block; color:var(--muted); font-size:.66rem; text-transform:uppercase; letter-spacing:.04em; margin-bottom:.12rem; }
     .block-tx-actions { display:flex; justify-content:flex-end; margin-top:.35rem; }
+    .section-more { margin:.65rem .9rem .9rem; display:flex; justify-content:center; }
+    .section-more .btn { width:auto; min-width:180px; }
     .json-details-search { margin-top:.55rem; }
     .json-details-search summary { cursor:pointer; color:var(--muted); font-size:.82rem; }
   </style>
@@ -235,21 +237,13 @@
       <div class="pq-block" id="pq-block">
         <div class="pq-block-head">
           <div>
-            <h2><span class="material-symbols-outlined title-icon" aria-hidden="true">token</span>PQ-related transactions</h2>
-            <div class="pq-block-meta" id="pq-block-context">Latest transactions detected by the explorer.</div>
+            <h2><span class="material-symbols-outlined title-icon" aria-hidden="true">token</span>Quantum transactions</h2>
+            <div class="pq-block-meta" id="pq-block-context">Latest flagged quantum transactions.</div>
           </div>
-          <div>
-            <div class="row" style="margin-bottom:.45rem">
-              <select id="pq-mode" style="min-width:170px">
-                <option value="all">All indexed tx</option>
-                <option value="quantum">Quantum only</option>
-                <option value="non-quantum">Non-quantum only</option>
-              </select>
-            </div>
-            <div class="badges" id="pq-block-badges"></div>
-          </div>
+          <div class="badges" id="pq-block-badges"></div>
         </div>
         <div class="pq-block-rows" id="pq-block-rows"></div>
+        <div class="section-more"><button type="button" class="btn" id="btn-pq-more">Show more</button></div>
       </div>
     </section>
 
@@ -262,6 +256,7 @@
 
     <div class="modal-backdrop" id="tx-modal" role="dialog" aria-modal="true" aria-labelledby="tx-modal-title">
       <div class="modal-card modal-wide">
+        <button type="button" class="modal-close" id="tx-modal-back" aria-label="Back" style="margin-right:.4rem;display:none"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>Back</span></button>
         <button type="button" class="modal-close" id="tx-modal-close" aria-label="Close"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">close</span>Close</span></button>
         <h2 id="tx-modal-title">Transaction</h2>
         <div id="tx-modal-body" class="muted">Loading…</div>
@@ -270,6 +265,7 @@
 
     <div class="modal-backdrop" id="block-modal" role="dialog" aria-modal="true" aria-labelledby="block-modal-title">
       <div class="modal-card modal-wide">
+        <button type="button" class="modal-close" id="block-modal-back" aria-label="Back" style="margin-right:.4rem;display:none"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>Back</span></button>
         <button type="button" class="modal-close" id="block-modal-close" aria-label="Close"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">close</span>Close</span></button>
         <h2 id="block-modal-title">Block header</h2>
         <div id="block-modal-body" class="muted">Loading…</div>
@@ -279,7 +275,7 @@
       <div class="docs-panel">
         <div class="docs-head">
           <div>
-            <h2 id="docs-title" style="margin:0"><img src="/logo.png" alt="" class="docs-brand" /><span class="material-symbols-outlined title-icon" aria-hidden="true">menu_book</span>Post-Quantum Documentation</h2>
+            <h2 id="docs-title" style="margin:0"><span class="material-symbols-outlined title-icon" aria-hidden="true">menu_book</span>Post-Quantum Documentation</h2>
             <p class="muted" style="margin:.2rem 0 0">Educational guide: how PQ transactions are created, detected, and independently verified.</p>
           </div>
           <button type="button" class="btn" id="docs-close-btn" style="width:auto"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">close</span>Close</span></button>
@@ -361,6 +357,7 @@
       <h3 class="muted" style="font-size:.95rem;margin:.75rem 0 .4rem">Latest blocks</h3>
       <p class="muted" style="font-size:.78rem;margin:-.2rem 0 .5rem">Tap a row for full block detail and decoded transactions.</p>
       <div id="spv-headers" class="headers"></div>
+      <div class="section-more"><button type="button" class="btn" id="btn-blocks-more">Show more blocks</button></div>
     </section>
 
     <footer class="site-footer">Coded with love for all Dogecoin community</footer>
@@ -404,7 +401,34 @@
       return "Standard";
     }
 
+    let latestPQRows = [];
+    let pqVisibleCount = 3;
+    let blocksVisibleCount = 3;
+    const detailNavStack = [];
+    let currentDetail = null;
+    let searchBackState = null;
+
+    function openDetailFromState(st, pushCurrent){
+      if (!st || !st.kind) return;
+      if (st.kind === "tx" && st.txid) openTxDetail(st.txid, pushCurrent);
+      if (st.kind === "block") openBlockByHeightOrHash(st.height, st.hash, pushCurrent);
+    }
+
+    function updateDetailBackButtons(){
+      const show = detailNavStack.length > 0;
+      const txBack = document.getElementById("tx-modal-back");
+      const bBack = document.getElementById("block-modal-back");
+      if (txBack) txBack.style.display = show ? "" : "none";
+      if (bBack) bBack.style.display = show ? "" : "none";
+    }
+
+    function pushCurrentDetailIfNeeded(pushCurrent){
+      if (pushCurrent && currentDetail && currentDetail.kind) detailNavStack.push({ ...currentDetail });
+      updateDetailBackButtons();
+    }
+
     function renderSearchResults(d){
+      const backBtn = searchBackState ? `<button type="button" class="btn btn-inline" id="search-back-btn" style="margin-bottom:.45rem">Back to previous detail</button>` : "";
       let body = "";
       if (d.kind === "block_height" || d.kind === "block_hash"){
         const b = d.block;
@@ -416,9 +440,6 @@
             <h3><span class="material-symbols-outlined title-icon" aria-hidden="true">view_in_ar</span>Block <span class="muted" style="font-weight:600">#${esc(b.height)}</span></h3>
             <div class="detail-kv mono" style="font-size:.8rem"><strong>Hash</strong> ${esc(b.hash||"—")}</div>
             <div class="detail-kv"><strong>Time (UTC)</strong> ${esc(t)}</div>
-            <div class="result-actions">
-              <button type="button" class="btn primary btn-inline" id="search-open-block">Open block — all transactions</button>
-            </div>
           </div>`;
         }
       } else if (d.kind === "txid" && d.tx){
@@ -468,50 +489,53 @@
           <p class="muted" style="margin:.25rem 0 .35rem">Kind: <strong>${esc(d.kind||"?")}</strong></p></div>`;
       }
       const raw = `<details class="json-details-search"><summary>Technical JSON</summary><pre class="mono muted" style="margin:.5rem 0 0;font-size:.72rem;overflow:auto;max-height:12rem">${esc(JSON.stringify(d,null,2))}</pre></details>`;
-      return body + raw;
+      return backBtn + body + raw;
     }
 
     function bindSearchResultActions(d){
-      const bOpen = document.getElementById("search-open-block");
-      if (bOpen && d.block && d.block.height != null){
-        bOpen.onclick = () => openBlockByHeightOrHash(d.block.height, null);
+      const bBack = document.getElementById("search-back-btn");
+      if (bBack) {
+        bBack.onclick = () => {
+          const st = searchBackState;
+          searchBackState = null;
+          openDetailFromState(st, false);
+        };
+      }
+      const blockCard = document.querySelector("#search-out .result-card");
+      if (blockCard && d.block && d.block.height != null && (d.kind === "block_height" || d.kind === "block_hash")){
+        blockCard.style.cursor = "pointer";
+        blockCard.onclick = () => openBlockByHeightOrHash(d.block.height, null, true);
       }
       const tOpen = document.getElementById("search-open-tx");
       if (tOpen && d.query && d.kind === "txid"){
-        tOpen.onclick = () => openTxDetail(d.query);
+        tOpen.onclick = () => openTxDetail(d.query, true);
       }
       document.querySelectorAll(".search-addr-tx").forEach(btn => {
-        btn.onclick = () => openTxDetail(btn.getAttribute("data-txid"));
+        btn.onclick = () => openTxDetail(btn.getAttribute("data-txid"), true);
       });
     }
 
-    let latestPQRows = [];
-
-    function filterPQRows(rows, mode){
-      if (!Array.isArray(rows)) return [];
-      if (mode === "quantum") return rows.filter(t => t && t.pq_valid);
-      if (mode === "non-quantum") return rows.filter(t => t && !t.pq_valid);
-      return rows;
-    }
-
     function renderPQBlock(rows){
-      const mode = String(document.getElementById("pq-mode").value || "all");
-      const filtered = filterPQRows(rows, mode);
+      const filtered = (Array.isArray(rows) ? rows : []).filter(t => t && t.pq_valid);
       const rowsEl = document.getElementById("pq-block-rows");
       const ctx = document.getElementById("pq-block-context");
       const bb = document.getElementById("pq-block-badges");
-      ctx.textContent = `Filtered ${filtered.length} tx (${mode}) from ${rows.length} total — showing up to 10.`;
-      const showing = Math.min(filtered.length, 10);
+      ctx.textContent = "Showing latest flagged quantum transactions.";
+      const showing = Math.min(filtered.length, pqVisibleCount);
       bb.innerHTML = [
         badge(filtered.length > 0 ? "pq-ok" : "pending", `${filtered.length} match`),
         badge("", `showing ${showing}`),
-        badge("muted", "explorer feed")
+        badge("muted", "quantum only")
       ].join("");
       if (!filtered.length) {
-        rowsEl.innerHTML = '<p class="muted" style="padding:.75rem 1rem;margin:0">No matching transactions in the local PQ list.</p>';
+        rowsEl.innerHTML = '<p class="muted" style="padding:.75rem 1rem;margin:0">No flagged quantum transactions yet.</p>';
+        const moreBtn = document.getElementById("btn-pq-more");
+        if (moreBtn) moreBtn.style.display = "none";
         return;
       }
-      const visibleRows = filtered.slice(0, 10);
+      const visibleRows = filtered.slice(0, pqVisibleCount);
+      const moreBtn = document.getElementById("btn-pq-more");
+      if (moreBtn) moreBtn.style.display = visibleRows.length < filtered.length ? "" : "none";
       rowsEl.innerHTML = visibleRows.map(t => `
         <button type="button" class="pq-tx-row" data-txid="${esc(t.txid)}">
           <div class="mono"><span class="material-symbols-outlined tx-type-ico" title="${esc(txTypeLabel(t))}" aria-hidden="true">${txTypeIcon(t)}</span>${esc(t.txid)}</div>
@@ -524,7 +548,7 @@
           <div class="row-meta pq-bad" style="margin-top:.2rem">${t.pq_reason ? esc(t.pq_reason) : ""}</div>
         </button>`).join("");
       rowsEl.querySelectorAll(".pq-tx-row").forEach(btn => {
-        btn.onclick = () => openTxDetail(btn.getAttribute("data-txid"));
+        btn.onclick = () => openTxDetail(btn.getAttribute("data-txid"), true);
       });
     }
 
@@ -637,13 +661,14 @@
       root.querySelectorAll("[data-open-txid]").forEach(el => {
         el.onclick = () => {
           const id = (el.getAttribute("data-open-txid") || "").trim();
-          if (id) openTxDetail(id);
+          if (id) openTxDetail(id, true);
         };
       });
       root.querySelectorAll("[data-open-address]").forEach(el => {
         el.onclick = () => {
           const addr = (el.getAttribute("data-open-address") || "").trim();
           if (!addr) return;
+          searchBackState = currentDetail ? { ...currentDetail } : null;
           const qEl = document.getElementById("q");
           if (qEl) qEl.value = addr;
           closeTxModal();
@@ -652,8 +677,10 @@
       });
     }
 
-    async function openTxDetail(txid){
+    async function openTxDetail(txid, pushCurrent=true){
       if (!txid) return;
+      pushCurrentDetailIfNeeded(pushCurrent);
+      currentDetail = { kind: "tx", txid: String(txid) };
       openTxModal();
       const body = document.getElementById("tx-modal-body");
       const title = document.getElementById("tx-modal-title");
@@ -684,10 +711,11 @@
               <p>${esc(vis.sub)}</p>
             </div>
           </div>
-          <div class="mono" style="font-size:.84rem;word-break:break-all"><button type="button" class="link-tx" data-open-txid="${esc(tx.txid||"")}">${esc(tx.txid)}</button></div>
+          <div class="mono" style="font-size:.84rem;word-break:break-all">${esc(tx.txid)}</div>
           <div class="tx-kv-grid">
             ${core.block_height != null ? `<div><strong>Block height</strong>${esc(String(core.block_height))}</div>` : ""}
             ${core.block_hash ? `<div style="grid-column:span 2"><strong>Block hash</strong><span class="mono" style="font-size:.76rem">${esc(String(core.block_hash))}</span></div>` : ""}
+            ${core.timestamp ? `<div><strong>Timestamp</strong>${esc(String(core.timestamp))}</div>` : ""}
             ${core.value_out_sats != null && core.value_out_sats !== undefined ? `<div><strong>Total outputs</strong>${esc(satsToDoge(core.value_out_sats))}</div>` : ""}
             ${fromCore && core.quantum_state ? `<div><strong>Quantum state</strong>${esc(String(core.quantum_state))}</div>` : ""}
             <div><strong>Confirmations</strong>${tx.confirmed ? "Included in block" : "Not confirmed (local)"}</div>
@@ -714,7 +742,9 @@
     function closeBlockModal(){ document.getElementById("block-modal").classList.remove("show"); }
     function openBlockModal(){ document.getElementById("block-modal").classList.add("show"); }
 
-    async function openBlockByHeightOrHash(height, hash){
+    async function openBlockByHeightOrHash(height, hash, pushCurrent=true){
+      pushCurrentDetailIfNeeded(pushCurrent);
+      currentDetail = { kind: "block", height, hash };
       const q = height != null && height >= 0
         ? "height=" + encodeURIComponent(String(height))
         : "hash=" + encodeURIComponent(hash || "");
@@ -743,9 +773,9 @@
           const dec = x.decode || {};
           const hasDec = dec && !dec.error && (dec.inputs || dec.outputs);
           const shortReason = (x.pq_reason && String(x.pq_reason).length > 48) ? String(x.pq_reason).slice(0,46) + "…" : (x.pq_reason || "—");
-          return `<div class="block-tx-card ${rowCls}">
+          return `<div class="block-tx-card ${rowCls} blk-tx-open" data-txid="${esc(x.txid)}" style="cursor:pointer">
             <div class="block-tx-head">
-              <div class="mono"><button type="button" class="link-tx blk-tx-open" data-txid="${esc(x.txid)}">${esc(x.txid)}</button></div>
+              <div class="mono">${esc(x.txid)}</div>
               <span class="badge ${vis.cls === "quantum" ? "pq-ok" : vis.cls === "invalid" ? "pq-bad" : ""}" title="${esc(vis.title)}">${esc(quantumShortLabel(st))}</span>
             </div>
             <div class="block-tx-meta">
@@ -753,9 +783,6 @@
               <div><strong>Output sum</strong>${esc(satsToDoge(x.value_out_sats))}</div>
               <div><strong>Decode</strong>${hasDec ? "Available" : "Not available"}</div>
               <div><strong>Details</strong>${esc(shortReason)}</div>
-            </div>
-            <div class="block-tx-actions">
-              <button type="button" class="btn btn-inline blk-tx-open" data-txid="${esc(x.txid)}">View transaction</button>
             </div>
           </div>`;
         }).join("");
@@ -783,14 +810,24 @@
           <div class="detail-kv muted">${esc(b.timestamp||"—")}</div>
         </div>
         <div class="detail-section">${txSection}</div>`;
-      body.querySelectorAll("button[data-txid]").forEach(btn => {
-        btn.onclick = () => { closeBlockModal(); openTxDetail(btn.getAttribute("data-txid")); };
+      body.querySelectorAll("[data-txid]").forEach(btn => {
+        btn.onclick = () => { closeBlockModal(); openTxDetail(btn.getAttribute("data-txid"), true); };
       });
     }
 
     document.getElementById("tx-modal-close").onclick = closeTxModal;
+    document.getElementById("tx-modal-back").onclick = () => {
+      const prev = detailNavStack.pop();
+      updateDetailBackButtons();
+      if (prev) openDetailFromState(prev, false);
+    };
     document.getElementById("tx-modal").addEventListener("click", (e) => { if (e.target.id === "tx-modal") closeTxModal(); });
     document.getElementById("block-modal-close").onclick = closeBlockModal;
+    document.getElementById("block-modal-back").onclick = () => {
+      const prev = detailNavStack.pop();
+      updateDetailBackButtons();
+      if (prev) openDetailFromState(prev, false);
+    };
     document.getElementById("block-modal").addEventListener("click", (e) => { if (e.target.id === "block-modal") closeBlockModal(); });
 
     function renderExplorerBlocks(ex){
@@ -802,18 +839,25 @@
       const sum = (ex && ex.summary) || {};
       const rrows = (sum && sum.rows) || {};
       const pq = (ex && ex.pq) || {};
-      status.textContent = `Blocks ${rrows.blocks ?? "—"} · txs ${rrows.txs ?? "—"} · addresses ${rrows.addresses ?? "—"} · PQ quantum ${pq.quantum ?? 0} / invalid ${pq.invalid_quantum ?? 0}`;
+      status.innerHTML = [
+        badge("confirmed", `Blocks ${rrows.blocks ?? "—"}`),
+        badge("muted", `txs ${rrows.txs ?? "—"}`),
+        badge("muted", `addresses ${rrows.addresses ?? "—"}`),
+        badge((pq.quantum||0) > 0 ? "pq-ok" : "muted", `PQ quantum ${pq.quantum ?? 0}`),
+        badge((pq.invalid_quantum||0) > 0 ? "pq-bad" : "muted", `invalid ${pq.invalid_quantum ?? 0}`)
+      ].join(" ");
       spvBadges.innerHTML = [
         badge("confirmed", "Blockchain data"),
         badge((pq.quantum||0) > 0 ? "pq-ok" : "muted", `PQ ${pq.quantum ?? 0}`)
       ].join("");
-      tipCard.innerHTML = `<div><strong>Sync progress</strong> height ${esc(String(sum.last_height ?? "—"))} / tip ${esc(String(sum.tip_height ?? "—"))}</div>
-        <div class="muted" style="margin-top:.35rem"><strong>Network tip</strong> ${esc(String(window.__coreTip ?? "—"))}</div>`;
+      tipCard.innerHTML = `<div><strong>Sync progress</strong> height ${esc(String(sum.last_height ?? "—"))}</div>
+        <div class="muted" style="margin-top:.35rem"><strong>Network height</strong> ${esc(String(window.__coreTip ?? "—"))}</div>`;
       if (!rows.length) {
         out.innerHTML = '<p class="muted">No blocks available yet — please wait for sync.</p>';
         return;
       }
-      out.innerHTML = rows.map(b => {
+      const shown = rows.slice(0, blocksVisibleCount);
+      out.innerHTML = shown.map(b => {
         const t = b.time_unix ? new Date(b.time_unix*1000).toISOString() : "";
         return `<button type="button" class="head-row clickable" style="width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer" data-height="${esc(String(b.height??""))}" data-hash="${esc(b.hash||"")}">
           <div><strong>Height</strong> ${esc(b.height ?? "-")} · <span class="muted">${esc(String(b.tx_count ?? "?"))} txs</span></div>
@@ -825,10 +869,12 @@
         btn.onclick = () => {
           const ht = parseInt(btn.getAttribute("data-height") || "0", 10);
           const hx = (btn.getAttribute("data-hash") || "").trim();
-          if (!isNaN(ht) && ht >= 0) openBlockByHeightOrHash(ht, null);
-          else if (hx.length === 64) openBlockByHeightOrHash(null, hx);
+          if (!isNaN(ht) && ht >= 0) openBlockByHeightOrHash(ht, null, true);
+          else if (hx.length === 64) openBlockByHeightOrHash(null, hx, true);
         };
       });
+      const moreBtn = document.getElementById("btn-blocks-more");
+      if (moreBtn) moreBtn.style.display = shown.length < rows.length ? "" : "none";
     }
 
     function renderChainIndexFallback(ci){
@@ -856,8 +902,8 @@
         btn.onclick = () => {
           const ht = parseInt(btn.getAttribute("data-height") || "0", 10);
           const hx = (btn.getAttribute("data-hash") || "").trim();
-          if (!isNaN(ht) && ht >= 0) openBlockByHeightOrHash(ht, null);
-          else if (hx.length === 64) openBlockByHeightOrHash(null, hx);
+          if (!isNaN(ht) && ht >= 0) openBlockByHeightOrHash(ht, null, true);
+          else if (hx.length === 64) openBlockByHeightOrHash(null, hx, true);
         };
       });
     }
@@ -934,11 +980,7 @@
               last_seen: when
             };
           });
-        } else {
-          latestPQRows = [];
         }
-      } else {
-        latestPQRows = [];
       }
       renderPQBlock(latestPQRows);
       const mr = await j("/api/public/metrics?hours=24");
@@ -964,8 +1006,13 @@
       out.innerHTML = renderSearchResults(d);
       bindSearchResultActions(d);
     };
-    document.getElementById("pq-mode").onchange = () => {
+    document.getElementById("btn-pq-more").onclick = () => {
+      pqVisibleCount += 10;
       renderPQBlock(latestPQRows);
+    };
+    document.getElementById("btn-blocks-more").onclick = () => {
+      blocksVisibleCount += 10;
+      load();
     };
     document.getElementById("q").addEventListener("keydown", (e) => {
       if (e.key === "Enter") document.getElementById("btn-search").click();

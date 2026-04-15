@@ -890,7 +890,7 @@ func (a *app) publicTxDetail(w http.ResponseWriter, r *http.Request) {
 				"tx":              &cp,
 				"pq_verification": pq,
 				"core": map[string]any{
-					"block_height": blkH, "block_hash": blkHash, "quantum_state": qState, "value_out_sats": vOut,
+					"block_height": blkH, "block_hash": blkHash, "timestamp": seen, "quantum_state": qState, "value_out_sats": vOut,
 				},
 			})
 			return

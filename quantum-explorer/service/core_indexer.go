@@ -703,6 +703,38 @@ func (ix *coreIndexer) recentBlocks(ctx context.Context, limit int) ([]map[strin
 	return out, rows.Err()
 }
 
+func (ix *coreIndexer) recentTransactions(ctx context.Context, limit int) ([]map[string]any, error) {
+	if ix == nil || ix.db == nil {
+		return nil, nil
+	}
+	if limit < 1 || limit > 500 {
+		limit = 100
+	}
+	rows, err := ix.db.QueryContext(ctx, `SELECT txid, block_height, time_unix, quantum_state, pq_reason, value_out_sats
+		FROM qe_core_txs ORDER BY time_unix DESC, txid DESC LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]map[string]any, 0, limit)
+	for rows.Next() {
+		var txid, state, reason string
+		var height, tm, valueOut int64
+		if err := rows.Scan(&txid, &height, &tm, &state, &reason, &valueOut); err != nil {
+			return nil, err
+		}
+		out = append(out, map[string]any{
+			"txid":           txid,
+			"block_height":   height,
+			"time_unix":      tm,
+			"quantum_state":  state,
+			"pq_reason":      reason,
+			"value_out_sats": valueOut,
+		})
+	}
+	return out, rows.Err()
+}
+
 func (ix *coreIndexer) pqAggregates(ctx context.Context) map[string]int64 {
 	out := map[string]int64{"quantum": 0, "non_quantum": 0, "invalid_quantum": 0, "all": 0}
 	if ix == nil || ix.db == nil {
@@ -772,8 +804,8 @@ func (ix *coreIndexer) blockDetail(ctx context.Context, height *int64, hash *str
 		return nil, err
 	}
 	return map[string]any{
-		"found": true,
-		"block": map[string]any{"height": bH, "hash": bHash, "time_unix": bT, "tx_count": txc},
+		"found":        true,
+		"block":        map[string]any{"height": bH, "hash": bHash, "time_unix": bT, "tx_count": txc},
 		"transactions": txs,
 		"decode_limit": decodeLimit,
 		"decode_rows":  min(n, decodeLimit),
@@ -859,6 +891,35 @@ func (ix *coreIndexer) backfillRawHex(ctx context.Context, txid, rawHex string) 
 	_, err := ix.db.ExecContext(ctx, `UPDATE qe_core_txs SET raw_hex=$1, quantum_state=$2, pq_reason=$3 WHERE txid=$4 AND (raw_hex='' OR LENGTH(TRIM(COALESCE(raw_hex,'')))=0)`,
 		rawHex, state, reason, txid)
 	return err
+}
+
+func (ix *coreIndexer) prevoutByTxVout(ctx context.Context, txid string, vout int64) (map[string]any, bool, error) {
+	if ix == nil || ix.db == nil {
+		return nil, false, nil
+	}
+	txid = strings.ToLower(strings.TrimSpace(txid))
+	if len(txid) != 64 || vout < 0 {
+		return nil, false, nil
+	}
+	var addr string
+	var valueSats, blockHeight int64
+	err := ix.db.QueryRowContext(ctx, `SELECT address, value_sats, block_height
+		FROM qe_core_addresses WHERE txid=$1 AND vout_n=$2 LIMIT 1`, txid, int(vout)).
+		Scan(&addr, &valueSats, &blockHeight)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return map[string]any{
+		"address":      addr,
+		"value_sats":   valueSats,
+		"value_doge":   float64(valueSats) / 1e8,
+		"block_height": blockHeight,
+		"txid":         txid,
+		"vout":         vout,
+	}, true, nil
 }
 
 func (ix *coreIndexer) autoStartIfEnabled() {

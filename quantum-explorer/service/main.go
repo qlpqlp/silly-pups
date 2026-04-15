@@ -517,6 +517,81 @@ func buildPQVerificationDetail(rawHex string, network string) map[string]any {
 	return out
 }
 
+func (a *app) enrichDecodeWithPrevouts(ctx context.Context, pq map[string]any) map[string]any {
+	if a == nil || a.cidx == nil || pq == nil {
+		return pq
+	}
+	dec, ok := pq["decode"].(map[string]any)
+	if !ok || dec == nil {
+		return pq
+	}
+	inputs, ok := dec["inputs"].([]map[string]any)
+	if ok {
+		for _, in := range inputs {
+			prevTx := strings.ToLower(strings.TrimSpace(fmt.Sprint(in["prev_txid"])))
+			prevVout := int64(-1)
+			switch v := in["prev_vout"].(type) {
+			case int:
+				prevVout = int64(v)
+			case int64:
+				prevVout = v
+			case float64:
+				prevVout = int64(v)
+			case json.Number:
+				if n, err := v.Int64(); err == nil {
+					prevVout = n
+				}
+			}
+			if len(prevTx) != 64 || prevVout < 0 {
+				continue
+			}
+			prev, found, err := a.cidx.prevoutByTxVout(ctx, prevTx, prevVout)
+			if err != nil || !found || prev == nil {
+				continue
+			}
+			in["prev_output"] = prev
+		}
+		dec["inputs"] = inputs
+		pq["decode"] = dec
+		return pq
+	}
+	rawInputs, ok := dec["inputs"].([]any)
+	if !ok {
+		return pq
+	}
+	for _, row := range rawInputs {
+		in, ok := row.(map[string]any)
+		if !ok {
+			continue
+		}
+		prevTx := strings.ToLower(strings.TrimSpace(fmt.Sprint(in["prev_txid"])))
+		prevVout := int64(-1)
+		switch v := in["prev_vout"].(type) {
+		case int:
+			prevVout = int64(v)
+		case int64:
+			prevVout = v
+		case float64:
+			prevVout = int64(v)
+		case json.Number:
+			if n, err := v.Int64(); err == nil {
+				prevVout = n
+			}
+		}
+		if len(prevTx) != 64 || prevVout < 0 {
+			continue
+		}
+		prev, found, err := a.cidx.prevoutByTxVout(ctx, prevTx, prevVout)
+		if err != nil || !found || prev == nil {
+			continue
+		}
+		in["prev_output"] = prev
+	}
+	dec["inputs"] = rawInputs
+	pq["decode"] = dec
+	return pq
+}
+
 func (a *app) reindexUnsafe() {
 	a.addressIndex = map[string][]string{}
 	for txid, t := range a.txs {
@@ -808,10 +883,12 @@ func (a *app) publicTxDetail(w http.ResponseWriter, r *http.Request) {
 				FirstSeen: seen,
 				LastSeen:  seen,
 			}
+			pq := buildPQVerificationDetail(rawHex, net)
+			pq = a.enrichDecodeWithPrevouts(ctx, pq)
 			writeJSON(w, 200, map[string]any{
 				"source":          "core_index",
 				"tx":              &cp,
-				"pq_verification": buildPQVerificationDetail(rawHex, net),
+				"pq_verification": pq,
 				"core": map[string]any{
 					"block_height": blkH, "block_hash": blkHash, "quantum_state": qState, "value_out_sats": vOut,
 				},
@@ -840,22 +917,29 @@ func (a *app) publicTxDetail(w http.ResponseWriter, r *http.Request) {
 	a.mu.RUnlock()
 	rawHex := a.fetchRawTxHex(q, tpl)
 	cp := *tx
+	pq := buildPQVerificationDetail(rawHex, net)
+	if a.cidx != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		pq = a.enrichDecodeWithPrevouts(ctx, pq)
+		cancel()
+	}
 	writeJSON(w, 200, map[string]any{
 		"tx":              &cp,
-		"pq_verification": buildPQVerificationDetail(rawHex, net),
+		"pq_verification": pq,
 	})
 }
 
 func (a *app) publicSearch(w http.ResponseWriter, r *http.Request) {
-	q := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("q")))
-	if q == "" {
+	rawQ := strings.TrimSpace(r.URL.Query().Get("q"))
+	if rawQ == "" {
 		writeJSON(w, 400, map[string]string{"error": "missing q"})
 		return
 	}
+	qLower := strings.ToLower(rawQ)
 	if a.cidx != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
-		out, err := a.cidx.search(ctx, q, 50)
+		out, err := a.cidx.search(ctx, rawQ, 50)
 		if err == nil && out != nil {
 			if e, ok := out["error"].(string); ok && strings.TrimSpace(e) != "" {
 				// fall through to legacy
@@ -869,7 +953,7 @@ func (a *app) publicSearch(w http.ResponseWriter, r *http.Request) {
 	rows := a.latest(1000)
 	out := make([]*PQTx, 0)
 	a.mu.RLock()
-	txidsByAddr := a.addressIndex[q]
+	txidsByAddr := a.addressIndex[rawQ]
 	a.mu.RUnlock()
 	if len(txidsByAddr) > 0 {
 		a.mu.RLock()
@@ -881,43 +965,43 @@ func (a *app) publicSearch(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		a.mu.RUnlock()
-		writeJSON(w, 200, map[string]any{"query": q, "kind": "address", "results": out})
+		writeJSON(w, 200, map[string]any{"query": rawQ, "kind": "address", "results": out})
 		return
 	}
-	if matched, _ := regexp.MatchString(`^[0-9a-f]{64}$`, q); matched {
-		blk, err := a.chain.GetByHash(q)
+	if matched, _ := regexp.MatchString(`^[0-9a-fA-F]{64}$`, rawQ); matched {
+		blk, err := a.chain.GetByHash(qLower)
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": err.Error()})
 			return
 		}
 		if blk != nil {
 			writeJSON(w, 200, map[string]any{
-				"query":       q,
+				"query":       rawQ,
 				"kind":        "block_hash",
 				"block":       blk,
-				"block_query": "/api/public/block?hash=" + q,
+				"block_query": "/api/public/block?hash=" + qLower,
 			})
 			return
 		}
 		for _, t := range rows {
-			if strings.EqualFold(t.Txid, q) {
+			if strings.EqualFold(t.Txid, qLower) {
 				writeJSON(w, 200, map[string]any{
-					"query":     q,
+					"query":     rawQ,
 					"kind":      "txid",
 					"results":   []*PQTx{t},
-					"tx_detail": "/api/public/tx?txid=" + q,
+					"tx_detail": "/api/public/tx?txid=" + qLower,
 				})
 				return
 			}
 		}
 		writeJSON(w, 200, map[string]any{
-			"query": q,
+			"query": rawQ,
 			"kind":  "unknown_hex64",
 			"note":  "Not a known block hash in the local chain index or a PQ-indexed txid",
 		})
 		return
 	}
-	if h, err := strconv.Atoi(q); err == nil && q == strconv.Itoa(h) && h > 0 {
+	if h, err := strconv.Atoi(rawQ); err == nil && rawQ == strconv.Itoa(h) && h > 0 {
 		blk, err := a.chain.GetByHeight(h)
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": err.Error()})
@@ -925,24 +1009,24 @@ func (a *app) publicSearch(w http.ResponseWriter, r *http.Request) {
 		}
 		if blk != nil {
 			writeJSON(w, 200, map[string]any{
-				"query":       q,
+				"query":       rawQ,
 				"kind":        "block_height",
 				"block":       blk,
-				"block_query": "/api/public/block?height=" + q,
+				"block_query": "/api/public/block?height=" + rawQ,
 			})
 			return
 		}
 	}
 	for _, t := range rows {
-		if containsIgnoreCase(t.Txid, q) {
+		if containsIgnoreCase(t.Txid, rawQ) {
 			out = append(out, t)
 		}
 	}
 	kind := "text"
-	if _, err := strconv.Atoi(q); err == nil {
+	if _, err := strconv.Atoi(rawQ); err == nil {
 		kind = "block-height-no-index"
 	}
-	writeJSON(w, 200, map[string]any{"query": q, "kind": kind, "results": out})
+	writeJSON(w, 200, map[string]any{"query": rawQ, "kind": kind, "results": out})
 }
 
 func (a *app) adminStatus(w http.ResponseWriter, _ *http.Request) {
@@ -1055,6 +1139,7 @@ func main() {
 	publicMux.HandleFunc("/api/public/metrics", a.withRateLimit(a.publicMetrics))
 	publicMux.HandleFunc("/api/public/core/search", a.withRateLimit(a.withPublicAccess(a.publicCoreSearch)))
 	publicMux.HandleFunc("/api/public/core/summary", a.withRateLimit(a.withPublicAccess(a.publicCoreSummary)))
+	publicMux.HandleFunc("/api/public/core/recent-txs", a.withRateLimit(a.withPublicAccess(a.publicCoreRecentTxs)))
 	publicMux.HandleFunc("/admin/", func(w http.ResponseWriter, r *http.Request) {
 		if !a.adminIPAllowed(r) {
 			http.NotFound(w, r)

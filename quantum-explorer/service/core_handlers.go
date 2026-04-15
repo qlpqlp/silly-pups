@@ -69,6 +69,32 @@ func (a *app) publicCoreSummary(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (a *app) publicCoreRecentTxs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if a.cidx == nil {
+		writeJSON(w, 503, map[string]string{"error": "core indexer unavailable (requires postgres backend + rpc)"})
+		return
+	}
+	limit := 100
+	if n, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("limit"))); err == nil && n > 0 && n <= 500 {
+		limit = n
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+	defer cancel()
+	rows, err := a.cidx.recentTransactions(ctx, limit)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]any{
+		"rows":  rows,
+		"limit": limit,
+	})
+}
+
 func (a *app) adminStartCoreIndexer(w http.ResponseWriter) {
 	if a.cidx == nil {
 		writeJSON(w, 503, map[string]string{"error": "core indexer unavailable"})

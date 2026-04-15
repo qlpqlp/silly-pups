@@ -163,6 +163,7 @@ func (ix *coreIndexer) loop() {
 	if ix.lastHeight < ix.startHeight {
 		ix.lastHeight = ix.startHeight
 	}
+	hourlySeeded := false
 
 	for {
 		ix.mu.RLock()
@@ -170,6 +171,11 @@ func (ix *coreIndexer) loop() {
 		ix.mu.RUnlock()
 		if !running {
 			return
+		}
+		if !hourlySeeded {
+			if err := ix.refreshHourlyMetrics(72); err == nil {
+				hourlySeeded = true
+			}
 		}
 
 		ctxTip, cancelTip := context.WithTimeout(context.Background(), 12*time.Second)

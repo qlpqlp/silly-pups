@@ -2,10 +2,10 @@
   "manifestVersion": 1,
   "meta": {
     "name": "Quantum Explorer",
-    "version": "0.1.21",
+    "version": "0.1.22",
     "logoPath": "logo.png",
     "shortDescription": "Dogecoin blockchain explorer with Core RPC indexer and PQ transaction metrics",
-    "longDescription": "Quantum Explorer runs PostgreSQL inside the pup (embedded when QE_POSTGRES_URL is unset), indexes every block and transaction from Dogecoin Core via RPC into local tables, and serves a Comic Neue + Material Icons web UI. Search supports address, txid, block height, and block hash. Post-quantum signals are classified from decoded raw transaction bytes (OP_RETURN markers). Configure Dogecoin Core RPC (QE_CORE_RPC_*) for indexing; link the core-rpc interface from the Dogecoin Core pup when available.",
+    "longDescription": "Quantum Explorer allows you to index all Dogecoin Blockchain and track all Quantum securfe transaction besides any outher transaction. Runs PostgreSQL inside the pup from Dogecoin Core via RPC. Search supports address, txid, block height, and block hash. Post-quantum signals are classified from decoded raw transaction bytes (OP_RETURN markers).",
     "upstreamVersions": {
       "Go": "1.24",
       "PostgreSQL": "16"
@@ -86,7 +86,7 @@
   "interfaces": [
     {
       "name": "quantum-explorer-public",
-      "version": "0.1.21",
+      "version": "0.1.22",
       "permissionGroups": [
         {
           "name": "Quantum Explorer HTTP",

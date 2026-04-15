@@ -29,8 +29,10 @@
     .search-inside-btn { position:absolute; right:.35rem; top:50%; transform:translateY(-50%); width:2.2rem; height:2.2rem; border-radius:9px; border:1px solid #b48a0f; background:linear-gradient(135deg,var(--doge),#e6a317); color:#1a1408; display:flex; align-items:center; justify-content:center; cursor:pointer; }
     .search-inside-btn:hover { filter:brightness(1.05); }
     input,select { background:#0d1622; color:var(--txt); border:1px solid var(--line); border-radius:10px; padding:.6rem .7rem; font:inherit; width:100%; }
-    .btn { border:1px solid var(--line); background:#162232; color:var(--txt); border-radius:10px; padding:.6rem .8rem; font:inherit; cursor:pointer; width:100%; }
+    .btn { border:1px solid var(--line); background:#162232; color:var(--txt); border-radius:10px; padding:.6rem .8rem; font:inherit; cursor:pointer; width:100%; transition:background .15s,border-color .15s,box-shadow .15s,transform .08s; }
     .btn.primary { background:linear-gradient(135deg,var(--doge),#e6a317); color:#1a1408; border-color:transparent; font-weight:700; }
+    .btn:hover, .btn:focus-visible { background:#1a2b40; border-color:rgba(242,203,44,.55); box-shadow:0 0 0 2px rgba(242,203,44,.16); outline:none; }
+    .btn:active { transform:translateY(1px) scale(.995); }
     .kpi { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.55rem; }
     .kpi-card { border:1px solid var(--line); border-radius:12px; padding:.65rem .7rem; background:linear-gradient(180deg,#101b28 0%,#0f1824 100%); }
     .kpi-label { color:var(--muted); font-size:.74rem; text-transform:uppercase; letter-spacing:.05em; }
@@ -70,7 +72,10 @@
     .modal-card::-webkit-scrollbar-track { background:#101a27; border-radius:999px; }
     .modal-card::-webkit-scrollbar-thumb { background:linear-gradient(180deg,#2d4564,#1f3147); border-radius:999px; border:2px solid #101a27; }
     .modal-card h2 { margin:0 0 .5rem; font-size:1.15rem; }
-    .modal-close { float:right; border:1px solid var(--line); background:#162232; color:var(--txt); border-radius:10px; padding:.35rem .75rem; font:inherit; cursor:pointer; }
+    .modal-topbar { display:flex; justify-content:flex-end; align-items:center; gap:.45rem; margin-bottom:.45rem; flex-wrap:wrap; }
+    .modal-close { border:1px solid var(--line); background:#162232; color:var(--txt); border-radius:10px; padding:.35rem .75rem; font:inherit; cursor:pointer; transition:background .15s,border-color .15s,box-shadow .15s,transform .08s; }
+    .modal-close:hover, .modal-close:focus-visible { background:#1a2b40; border-color:rgba(242,203,44,.55); box-shadow:0 0 0 2px rgba(242,203,44,.16); outline:none; }
+    .modal-close:active { transform:translateY(1px) scale(.995); }
     .detail-section { margin:.85rem 0; padding-top:.75rem; border-top:1px solid var(--line); }
     .detail-section h3 { margin:0 0 .45rem; font-size:.95rem; color:var(--muted); font-weight:600; }
     .detail-kv { font-size:.86rem; margin:.25rem 0; }
@@ -152,12 +157,18 @@
     .search-hero-label { font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:0 0 .35rem; }
     .search-hints { font-size:.8rem; color:var(--muted); margin:.45rem 0 0; line-height:1.5; }
     
-    .result-card { border:1px solid var(--line); border-radius:14px; padding:.85rem 1rem; margin-top:.65rem; background:linear-gradient(180deg,#131c2a 0%,#0f1824 100%); }
+    .result-card { border:1px solid var(--line); border-radius:14px; padding:.85rem 1rem; margin-top:.65rem; background:linear-gradient(180deg,#131c2a 0%,#0f1824 100%); transition:background .15s,border-color .15s,box-shadow .15s,transform .08s; }
+    .result-card.clickable { cursor:pointer; }
+    .result-card.clickable:hover, .result-card.clickable:focus-visible { background:linear-gradient(180deg,#172437 0%,#111c2b 100%); border-color:rgba(242,203,44,.45); box-shadow:0 8px 24px rgba(0,0,0,.22); outline:none; }
+    .result-card.clickable:active { transform:translateY(1px) scale(.997); }
     .result-card h3 { margin:0 0 .5rem; font-size:.95rem; font-weight:700; display:flex; align-items:center; gap:.4rem; }
     .result-actions { display:flex; flex-wrap:wrap; gap:.45rem; margin-top:.65rem; }
     .btn-inline { width:auto; padding:.45rem .75rem; font-size:.86rem; }
     .addr-list-modern { display:grid; gap:.5rem; margin-top:.5rem; }
-    .addr-row-card { border:1px solid var(--line); border-radius:12px; padding:.55rem .65rem; background:#0f1824; }
+    .addr-row-card { border:1px solid var(--line); border-radius:12px; padding:.55rem .65rem; background:#0f1824; transition:background .15s,border-color .15s,box-shadow .15s,transform .08s; }
+    .addr-row-card.clickable { cursor:pointer; }
+    .addr-row-card.clickable:hover, .addr-row-card.clickable:focus-visible { background:#132133; border-color:rgba(242,203,44,.4); box-shadow:0 6px 18px rgba(0,0,0,.2); outline:none; }
+    .addr-row-card.clickable:active { transform:translateY(1px) scale(.997); }
     .addr-row-head { display:flex; align-items:center; justify-content:space-between; gap:.4rem; margin-bottom:.3rem; }
     .addr-row-meta { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:.35rem .45rem; }
     .addr-row-meta div { font-size:.78rem; border:1px solid var(--line); border-radius:8px; background:#111b29; padding:.3rem .4rem; }
@@ -175,8 +186,10 @@
     .tx-kv-grid > div { padding:.45rem .5rem; border-radius:10px; border:1px solid var(--line); background:#0f1824; }
     .tx-kv-grid strong { display:block; font-size:.68rem; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin-bottom:.15rem; }
     .block-tx-grid { display:grid; gap:.55rem; margin-top:.65rem; }
-    .block-tx-card { border:1px solid var(--line); border-radius:14px; padding:.7rem .75rem; background:#0f1824; box-shadow:0 6px 20px rgba(0,0,0,.2); }
+    .block-tx-card { border:1px solid var(--line); border-radius:14px; padding:.7rem .75rem; background:#0f1824; box-shadow:0 6px 20px rgba(0,0,0,.2); transition:background .15s,border-color .15s,box-shadow .15s,transform .08s; }
     .block-tx-card.row-pq { box-shadow:inset 3px 0 0 rgba(99,199,255,.75), 0 6px 20px rgba(0,0,0,.2); }
+    .block-tx-card.blk-tx-open:hover, .block-tx-card.blk-tx-open:focus-visible { background:#132133; border-color:rgba(242,203,44,.45); box-shadow:0 10px 24px rgba(0,0,0,.28); outline:none; }
+    .block-tx-card.blk-tx-open:active { transform:translateY(1px) scale(.997); }
     .block-tx-head { display:flex; justify-content:space-between; align-items:flex-start; gap:.45rem; margin-bottom:.35rem; }
     .block-tx-head .mono { font-size:.76rem; line-height:1.35; word-break:break-all; }
     .block-tx-meta { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:.35rem .5rem; margin:.45rem 0; }
@@ -256,8 +269,10 @@
 
     <div class="modal-backdrop" id="tx-modal" role="dialog" aria-modal="true" aria-labelledby="tx-modal-title">
       <div class="modal-card modal-wide">
-        <button type="button" class="modal-close" id="tx-modal-back" aria-label="Back" style="margin-right:.4rem;display:none"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>Back</span></button>
-        <button type="button" class="modal-close" id="tx-modal-close" aria-label="Close"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">close</span>Close</span></button>
+        <div class="modal-topbar">
+          <button type="button" class="modal-close" id="tx-modal-back" aria-label="Back" style="display:none"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>Back</span></button>
+          <button type="button" class="modal-close" id="tx-modal-close" aria-label="Close"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">close</span>Close</span></button>
+        </div>
         <h2 id="tx-modal-title">Transaction</h2>
         <div id="tx-modal-body" class="muted">Loading…</div>
       </div>
@@ -265,8 +280,10 @@
 
     <div class="modal-backdrop" id="block-modal" role="dialog" aria-modal="true" aria-labelledby="block-modal-title">
       <div class="modal-card modal-wide">
-        <button type="button" class="modal-close" id="block-modal-back" aria-label="Back" style="margin-right:.4rem;display:none"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>Back</span></button>
-        <button type="button" class="modal-close" id="block-modal-close" aria-label="Close"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">close</span>Close</span></button>
+        <div class="modal-topbar">
+          <button type="button" class="modal-close" id="block-modal-back" aria-label="Back" style="display:none"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>Back</span></button>
+          <button type="button" class="modal-close" id="block-modal-close" aria-label="Close"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">close</span>Close</span></button>
+        </div>
         <h2 id="block-modal-title">Block header</h2>
         <div id="block-modal-body" class="muted">Loading…</div>
       </div>
@@ -445,7 +462,7 @@
       } else if (d.kind === "txid" && d.tx){
         const tx = d.tx;
         const vis = quantumVisual(tx.quantum_state);
-        body = `<div class="result-card">
+        body = `<div class="result-card clickable" data-open-txid="${esc(tx.txid || d.query || "")}">
           <h3><span class="material-symbols-outlined title-icon" aria-hidden="true">paid</span>Transaction</h3>
           <div class="pq-hero ${vis.cls}" style="margin:.5rem 0">
             <span class="material-symbols-outlined" aria-hidden="true">${esc(vis.icon)}</span>
@@ -454,15 +471,11 @@
           <div class="mono" style="font-size:.82rem;margin:.35rem 0">${esc(tx.txid)}</div>
           <div class="detail-kv"><strong>Block</strong> ${esc(String(tx.block_height ?? "—"))} · <strong>Outputs (indexed)</strong> ${esc(satsToDoge(tx.value_out_sats))}</div>
           ${tx.pq_reason ? `<div class="detail-kv muted" style="font-size:.8rem">${esc(tx.pq_reason)}</div>` : ""}
-          <div class="result-actions">
-            <button type="button" class="btn primary btn-inline" id="search-open-tx">Open full transaction — inputs &amp; outputs</button>
-          </div>
         </div>`;
       } else if (d.kind === "address" && Array.isArray(d.results)){
-        const rows = d.results.map(r => `<div class="addr-row-card">
+        const rows = d.results.map(r => `<div class="addr-row-card clickable search-addr-row" data-txid="${esc(r.txid)}" tabindex="0">
           <div class="addr-row-head">
-            <button type="button" class="link-tx search-addr-tx mono" data-txid="${esc(r.txid)}">${esc(r.txid)}</button>
-            <button type="button" class="btn btn-inline search-addr-tx" data-txid="${esc(r.txid)}">Open tx</button>
+            <div class="mono">${esc(r.txid)}</div>
           </div>
           <div class="addr-row-meta">
             <div><strong>Vout</strong>${esc(String(r.vout_n))}</div>
@@ -479,7 +492,7 @@
       } else if (d.kind === "unknown_hex64"){
         body = `<div class="result-card"><h3><span class="material-symbols-outlined title-icon" aria-hidden="true">help</span>No match</h3><p class="muted">${esc(d.note || "Unknown 64-character hex.")}</p></div>`;
       } else if (Array.isArray(d.results) && d.results.length && d.results[0] && d.results[0].txid){
-        const rows = d.results.map(t => `<div class="addr-row-card"><div class="addr-row-head"><button type="button" class="link-tx search-addr-tx mono" data-txid="${esc(t.txid)}">${esc(t.txid)}</button>${badge(t.pq_valid ? "pq-ok":"pq-bad", t.pq_valid ? "PQ":"—")}</div></div>`).join("");
+        const rows = d.results.map(t => `<div class="addr-row-card clickable search-addr-row" data-txid="${esc(t.txid)}" tabindex="0"><div class="addr-row-head"><div class="mono">${esc(t.txid)}</div>${badge(t.pq_valid ? "pq-ok":"pq-bad", t.pq_valid ? "PQ":"—")}</div></div>`).join("");
         body = `<div class="result-card"><h3><span class="material-symbols-outlined title-icon" aria-hidden="true">search</span>Matching transactions</h3>
           <p class="muted" style="margin:.25rem 0 .45rem">${d.results.length} match(es)</p>
           <div class="addr-list-modern">${rows}</div>
@@ -503,15 +516,21 @@
       }
       const blockCard = document.querySelector("#search-out .result-card");
       if (blockCard && d.block && d.block.height != null && (d.kind === "block_height" || d.kind === "block_hash")){
-        blockCard.style.cursor = "pointer";
+        blockCard.classList.add("clickable");
         blockCard.onclick = () => openBlockByHeightOrHash(d.block.height, null, true);
       }
-      const tOpen = document.getElementById("search-open-tx");
-      if (tOpen && d.query && d.kind === "txid"){
-        tOpen.onclick = () => openTxDetail(d.query, true);
+      const txCard = document.querySelector("#search-out .result-card[data-open-txid]");
+      if (txCard) {
+        txCard.onclick = () => openTxDetail(txCard.getAttribute("data-open-txid"), true);
       }
-      document.querySelectorAll(".search-addr-tx").forEach(btn => {
-        btn.onclick = () => openTxDetail(btn.getAttribute("data-txid"), true);
+      document.querySelectorAll(".search-addr-row").forEach(row => {
+        row.onclick = () => openTxDetail(row.getAttribute("data-txid"), true);
+        row.onkeydown = (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            openTxDetail(row.getAttribute("data-txid"), true);
+          }
+        };
       });
     }
 

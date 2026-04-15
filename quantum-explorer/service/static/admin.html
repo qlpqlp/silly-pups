@@ -107,10 +107,10 @@
     <nav class="side-nav">
       <button type="button" class="active" data-panel="panel-status"><span class="material-symbols-outlined" aria-hidden="true">monitor_heart</span><span class="side-label">Status</span></button>
       <button type="button" data-panel="panel-controls"><span class="material-symbols-outlined" aria-hidden="true">tune</span><span class="side-label">Controls</span></button>
+      <button type="button" data-panel="panel-commands"><span class="material-symbols-outlined" aria-hidden="true">terminal</span><span class="side-label">Commands</span></button>
       <button type="button" data-panel="panel-diagnostics"><span class="material-symbols-outlined" aria-hidden="true">troubleshoot</span><span class="side-label">Diagnostics</span></button>
       <button type="button" data-panel="panel-access"><span class="material-symbols-outlined" aria-hidden="true">vpn_key</span><span class="side-label">Access Policy</span></button>
       <button type="button" data-panel="panel-docs"><span class="material-symbols-outlined" aria-hidden="true">menu_book</span><span class="side-label">Documentation</span></button>
-      <button type="button" data-panel="panel-checkpoint"><span class="material-symbols-outlined" aria-hidden="true">flag</span><span class="side-label">Checkpoint</span></button>
     </nav>
   </aside>
   <main class="main">
@@ -149,6 +149,8 @@
             <li>Configure Core RPC URL/user/password.</li>
             <li>Tune: <span class="docs-kbd">QE_CORE_INDEXER_AUTO_START</span>, <span class="docs-kbd">QE_CORE_BACKFILL_BATCH</span>, <span class="docs-kbd">QE_CORE_START_HEIGHT</span>.</li>
             <li>Monitor via <span class="docs-kbd">/api/admin/&lt;TOKEN&gt;/core-indexer/status</span>.</li>
+            <li>PQ Phase-1 validation uses canonical commitment output: <span class="docs-kbd">6a24 + FLC1/DIL2/RCG4 + 32-byte commitment</span>.</li>
+            <li>Carrier TX_R parsing verifies <span class="docs-kbd">SHA256(pubkey||signature)</span> against matched TX_C commitment when payload is present in the same block.</li>
           </ul>
         </article>
         <article class="docs-modern-card">
@@ -188,13 +190,31 @@
 
     <section class="card panel" id="panel-controls">
       <h2><span class="material-symbols-outlined title-ico" aria-hidden="true">tune</span>Service controls</h2>
-      <p class="muted" style="margin-top:0">PostgreSQL is external — only diagnostics here. Restart = stop → short delay → start.</p>
+      <p class="muted" style="margin-top:0">Core indexer controls and PostgreSQL runtime status.</p>
+      <div class="status-grid mono muted" id="pg-status-grid" style="margin-bottom:.7rem"></div>
       <h3>Core backfill indexer</h3>
       <div class="row">
         <button type="button" id="c-start"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">play_arrow</span>Start</span></button>
         <button type="button" id="c-stop"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">stop</span>Stop</span></button>
         <button type="button" id="c-status"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">info</span>Status</span></button>
       </div>
+      <h3 style="margin-top:.9rem">Core start block</h3>
+      <div class="row">
+        <input id="cp-height" type="number" placeholder="Start block height (default 6147099)" />
+        <button type="button" id="cp-save"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">save</span>Submit start block</span></button>
+      </div>
+      <p class="muted">Submit checks PostgreSQL first. If the block already exists, it will not re-index duplicates and only continues adding missing/new blocks.</p>
+    </section>
+
+    <section class="card panel" id="panel-commands">
+      <h2><span class="material-symbols-outlined title-ico" aria-hidden="true">terminal</span>Commands</h2>
+      <p class="muted" style="margin-top:0">Query Dogecoin Core RPC directly using a block height, block hash, or transaction id. The result verifies each transaction for canonical Phase-1 quantum commitments.</p>
+      <div class="row">
+        <input id="cmd-q" class="mono" placeholder="Block height (e.g. 6156590) or 64-char txid/block hash" style="flex:1 1 520px" />
+        <button type="button" class="primary" id="cmd-run"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">play_arrow</span>Run</span></button>
+      </div>
+      <h3>Result</h3>
+      <pre class="diag-mini mono" id="cmd-out">Awaiting command…</pre>
     </section>
 
     <section class="card panel" id="panel-diagnostics">
@@ -255,16 +275,6 @@
       </div>
     </section>
 
-    <section class="card panel" id="panel-checkpoint">
-      <h2><span class="material-symbols-outlined title-ico" aria-hidden="true">flag</span>Checkpoint (reference only)</h2>
-      <div class="row">
-        <input id="cp-height" type="number" placeholder="Height" />
-        <input id="cp-hash" placeholder="Block hash" />
-        <input id="cp-time" placeholder="Timestamp RFC3339" />
-        <button type="button" id="cp-save"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">save</span>Save</span></button>
-      </div>
-      <p class="muted">Reference checkpoint stored in config JSON for documentation; indexing uses Dogecoin Core RPC.</p>
-    </section>
   </div>
   </main>
   </div>
@@ -306,6 +316,8 @@
       if(!r.ok){ el.innerHTML = `<div class="status-item">Error ${r.s}: ${esc(JSON.stringify(r.d))}</div>`; return; }
       const d = r.d || {};
       const core = d.core_rpc || {};
+      const cidx = d.core_indexer || {};
+      const pg = d.postgres || {};
       setPills(d);
       el.innerHTML = [
         kv("Chain backend", d.chain_index_backend),
@@ -314,10 +326,21 @@
         kv("Core endpoint", core.rpc_url || "—"),
         kv("Network", d.network || "—"),
       ].join("");
-      const cp = d.checkpoint || {};
-      if (cp.height) document.getElementById("cp-height").value = cp.height;
-      if (cp.hash) document.getElementById("cp-hash").value = cp.hash;
-      if (cp.timestamp) document.getElementById("cp-time").value = cp.timestamp;
+      if (cidx.start_height != null) document.getElementById("cp-height").value = String(cidx.start_height);
+      const pgEl = document.getElementById("pg-status-grid");
+      if (pgEl) {
+        const sizeMB = Number(pg.size_mb || 0);
+        pgEl.innerHTML = [
+          kv("PostgreSQL", pg.running ? "running" : (pg.configured ? "stopped/offline" : "not configured"), pg.running),
+          kv("Database", pg.database || "—"),
+          kv("DB size (MB)", pg.running ? (sizeMB ? sizeMB.toFixed(2) : "0.00") : "—"),
+          kv("Indexer", cidx.running ? "running" : "stopped", cidx.running),
+        ].join("");
+      }
+      const startBtn = document.getElementById("c-start");
+      const stopBtn = document.getElementById("c-stop");
+      if (startBtn) startBtn.disabled = !pg.running || !!cidx.running;
+      if (stopBtn) stopBtn.disabled = !cidx.running;
     }
     function kv(label, val, ok){
       const good = ok === true ? " ok" : ok === false ? " bad" : "";
@@ -394,9 +417,7 @@
     document.getElementById("c-stop").onclick = ()=>call(`${API_BASE}/core-indexer/stop`);
     document.getElementById("c-status").onclick = ()=>j(`${API_BASE}/core-indexer/status`).then(r=>toast(JSON.stringify(r.d||{})));
     document.getElementById("cp-save").onclick = ()=>call(`${API_BASE}/checkpoint`, {
-      height: Number(document.getElementById("cp-height").value || 0),
-      hash: String(document.getElementById("cp-hash").value || "").trim(),
-      timestamp: String(document.getElementById("cp-time").value || "").trim()
+      height: Number(document.getElementById("cp-height").value || 0)
     });
     function activatePanel(id){
       document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
@@ -415,6 +436,17 @@
     };
     document.getElementById("ac-refresh").onclick = ()=>loadAccessControl();
     document.getElementById("ac-save").onclick = ()=>saveAccessControl();
+    document.getElementById("cmd-run").onclick = async () => {
+      const q = String(document.getElementById("cmd-q").value || "").trim();
+      const out = document.getElementById("cmd-out");
+      if (!q) {
+        out.textContent = "Please enter a block height/hash or txid.";
+        return;
+      }
+      out.textContent = "Running command against Core RPC…";
+      const r = await j(`${API_BASE}/core/inspect?q=${encodeURIComponent(q)}`);
+      out.textContent = JSON.stringify(r.d || {}, null, 2);
+    };
 
     loadStatus();
     loadDiagnostics();

@@ -2,10 +2,10 @@
   "manifestVersion": 1,
   "meta": {
     "name": "Quantum Explorer",
-    "version": "0.1.22",
+    "version": "0.1.24",
     "logoPath": "logo.png",
     "shortDescription": "Dogecoin blockchain explorer with Core RPC indexer and PQ transaction metrics",
-    "longDescription": "Quantum Explorer allows you to index all Dogecoin Blockchain and track all Quantum securfe transaction besides any outher transaction. Runs PostgreSQL inside the pup from Dogecoin Core via RPC. Search supports address, txid, block height, and block hash. Post-quantum signals are classified from decoded raw transaction bytes (OP_RETURN markers).",
+    "longDescription": "Quantum Explorer indexes Dogecoin blockchain data from Dogecoin Core RPC into local PostgreSQL tables and provides a public web explorer. Users can search by address, transaction id, block height, and block hash, then open detailed block and transaction views with decoded inputs, outputs, and OP_RETURN data. Quantum transactions are classified from decoded raw transaction bytes using OP_RETURN marker checks, with metrics and recent activity available in the interface.",
     "upstreamVersions": {
       "Go": "1.24",
       "PostgreSQL": "16"
@@ -18,17 +18,7 @@
         "description": "HTTP port is inside the container; open the URL Dogebox shows for this pup.",
         "fields": [
           { "name": "PUBLIC_PORT", "label": "HTTP port", "type": "text", "default": "33666" },
-          { "name": "NETWORK", "label": "Network (mainnet/testnet)", "type": "text", "default": "mainnet" },
-          { "name": "QE_EXPLORER_TX_API", "label": "Optional: tx API URL template with {txid} placeholder", "type": "text", "default": "" }
-        ]
-      },
-      {
-        "name": "Embedded PostgreSQL",
-        "description": "Persistent data lives under QE_STORAGE_DIR (same pattern as pq-wallet’s PQ_STORAGE_DIR). If QE_POSTGRES_URL is empty, PostgreSQL data and sockets are created there and database quantum_explorer is created.",
-        "fields": [
-          { "name": "QE_STORAGE_DIR", "label": "Storage directory (default /storage/quantum-explorer)", "type": "text", "default": "/storage/quantum-explorer" },
-          { "name": "QE_POSTGRES_URL", "label": "Optional: override Postgres URL (leave empty for embedded)", "type": "text", "default": "" },
-          { "name": "PGPORT", "label": "Embedded Postgres TCP port", "type": "text", "default": "55432" }
+          { "name": "NETWORK", "label": "Network (mainnet/testnet)", "type": "text", "default": "mainnet" }
         ]
       },
       {
@@ -42,7 +32,7 @@
           { "name": "QE_CORE_INDEXER_AUTO_START", "label": "Start indexer with app (1=yes)", "type": "text", "default": "1" },
           { "name": "QE_CORE_BACKFILL_BATCH", "label": "Blocks per indexer batch", "type": "text", "default": "20" },
           { "name": "QE_CORE_RAW_BACKFILL_BATCH", "label": "Txs per idle pass to store raw hex in Postgres (getrawtransaction)", "type": "text", "default": "40" },
-          { "name": "QE_CORE_START_HEIGHT", "label": "Start height on fresh DB", "type": "text", "default": "0" }
+          { "name": "QE_CORE_START_HEIGHT", "label": "Start height on fresh DB", "type": "text", "default": "6147099" }
         ]
       },
       {
@@ -86,7 +76,7 @@
   "interfaces": [
     {
       "name": "quantum-explorer-public",
-      "version": "0.1.22",
+      "version": "0.1.24",
       "permissionGroups": [
         {
           "name": "Quantum Explorer HTTP",

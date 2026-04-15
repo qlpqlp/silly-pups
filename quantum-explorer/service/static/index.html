@@ -25,9 +25,12 @@
     .card h2 { margin:0 0 .6rem; font-size:1.05rem; }
     .row { display:flex; gap:.5rem; flex-wrap:wrap; }
     .search-wrap { position:relative; max-width:100%; }
-    .search-wrap input { padding-right:2.8rem; }
+    .search-wrap input { padding-right:5.3rem; }
     .search-inside-btn { position:absolute; right:.35rem; top:50%; transform:translateY(-50%); width:2.2rem; height:2.2rem; border-radius:9px; border:1px solid #b48a0f; background:linear-gradient(135deg,var(--doge),#e6a317); color:#1a1408; display:flex; align-items:center; justify-content:center; cursor:pointer; }
     .search-inside-btn:hover { filter:brightness(1.05); }
+    .search-clear-btn { position:absolute; right:2.85rem; top:50%; transform:translateY(-50%); width:2.1rem; height:2.1rem; border-radius:9px; border:1px solid var(--line); background:#162232; color:var(--muted); display:none; align-items:center; justify-content:center; cursor:pointer; }
+    .search-clear-btn.show { display:flex; }
+    .search-clear-btn:hover, .search-clear-btn:focus-visible { color:var(--txt); border-color:rgba(242,203,44,.45); outline:none; }
     input,select { background:#0d1622; color:var(--txt); border:1px solid var(--line); border-radius:10px; padding:.6rem .7rem; font:inherit; width:100%; }
     .btn { border:1px solid var(--line); background:#162232; color:var(--txt); border-radius:10px; padding:.6rem .8rem; font:inherit; cursor:pointer; width:100%; transition:background .15s,border-color .15s,box-shadow .15s,transform .08s; }
     .btn.primary { background:linear-gradient(135deg,var(--doge),#e6a317); color:#1a1408; border-color:transparent; font-weight:700; }
@@ -197,7 +200,7 @@
     .block-tx-meta strong { display:block; color:var(--muted); font-size:.66rem; text-transform:uppercase; letter-spacing:.04em; margin-bottom:.12rem; }
     .block-tx-actions { display:flex; justify-content:flex-end; margin-top:.35rem; }
     .section-more { margin:.65rem .9rem .9rem; display:flex; justify-content:center; }
-    .section-more .btn { width:auto; min-width:180px; }
+    .section-more .btn { width:100%; min-width:0; }
     .json-details-search { margin-top:.55rem; }
     .json-details-search summary { cursor:pointer; color:var(--muted); font-size:.82rem; }
   </style>
@@ -206,7 +209,7 @@
   <div class="wrap">
     <div class="banner" id="runtime-error-banner"></div>
     <div class="hero">
-      <img src="/logo.png" alt="" />
+      <a href="/" id="home-logo-link" aria-label="Go to home"><img src="/logo.png" alt="" /></a>
       <div class="hero-main">
         <h1>Dogecoin Quantum Explorer</h1>
         <p class="sub">Explore blockchain data</p>
@@ -226,6 +229,7 @@
         <h2 style="margin:.1rem 0 .5rem"><span class="material-symbols-outlined title-icon" aria-hidden="true">travel_explore</span>Search the chain</h2>
         <div class="search-wrap">
           <input id="q" placeholder="Address · transaction id · block hash · block height" autocomplete="off" />
+          <button type="button" class="search-clear-btn" id="btn-clear-search" title="Clear search" aria-label="Clear search"><span class="material-symbols-outlined" aria-hidden="true">close</span></button>
           <button class="search-inside-btn" id="btn-search" title="Search" aria-label="Search"><span class="material-symbols-outlined" aria-hidden="true">search</span></button>
         </div>
         <p class="search-hints">Search by address, transaction hash, block hash, or block height.</p>
@@ -310,7 +314,7 @@
               <div class="docs-step">
                 <p><strong>Step 3:</strong> Broadcast to network. Confirmation and inclusion are visible once the transaction is mined.</p>
               </div>
-              <p>This explorer classifies PQ state from raw transaction bytes and marker evidence. It is designed for transparent education, so evidence/reason fields are always exposed.</p>
+              <p>This explorer classifies Phase-1 commitments using canonical tagged OP_RETURN format: <code>6a24 + FLC1/DIL2/RCG4 + 32-byte commitment</code>.</p>
             </div>
             <div class="docs-card">
               <h3>Using Dogecoin Foundation libdogecoin</h3>
@@ -325,8 +329,9 @@
               <h3>Technical verification anyone can do</h3>
               <ul>
                 <li>Fetch raw tx hex (from your node or trusted explorer APIs).</li>
-                <li>Decode outputs and inspect <code>scriptPubKey</code> + <code>OP_RETURN</code> payload bytes.</li>
-                <li>Check recognized PQ commitment markers and parser result.</li>
+                <li>Decode outputs and inspect canonical commitment output: <code>OP_RETURN 0x24 &lt;TAG4&gt; &lt;32-byte-commitment&gt;</code>.</li>
+                <li>Verify TAG4 is one of <code>FLC1</code>, <code>DIL2</code>, <code>RCG4</code>.</li>
+                <li>When TX_R carrier data exists, reconstruct <code>pubkey||signature</code> parts and check <code>SHA256(pubkey||signature)</code> against TX_C commitment.</li>
                 <li>Check block inclusion/confirmations via your node or this explorer’s indexed chain.</li>
               </ul>
               <p>In this UI, open a tx detail to see decode + strict PQ evidence. External verifiers can reproduce the same parsing from raw bytes.</p>
@@ -337,7 +342,7 @@
               <h3>What "proof" means here</h3>
               <p>There are two layers:</p>
               <ul>
-                <li><strong>Commitment proof:</strong> tx data contains expected PQ marker structure.</li>
+                <li><strong>Commitment proof:</strong> tx data contains canonical Phase-1 tagged OP_RETURN commitment structure.</li>
                 <li><strong>Chain proof:</strong> transaction is seen/confirmed in chain context.</li>
               </ul>
               <p>The strict verifier currently proves commitment-level evidence from raw tx bytes. Full cryptographic PQ signature validation can be layered on top as protocol rules evolve.</p>
@@ -356,8 +361,8 @@
               <h3>Important limits and transparency notes</h3>
               <ul>
                 <li>Network and sync availability affect how quickly new blocks and txs appear.</li>
-                <li>No raw hex = no strict marker validation.</li>
-                <li>PQ labeling depends on protocol marker conventions configured by implementation.</li>
+                <li>No raw hex = no strict commitment validation.</li>
+                <li>Only canonical Phase-1 commitment encoding is treated as valid.</li>
               </ul>
               <p>For educational integrity, the explorer shows reason/evidence fields instead of hiding uncertain states.</p>
             </div>
@@ -419,8 +424,13 @@
     }
 
     let latestPQRows = [];
+    let latestBlockRows = [];
     let pqVisibleCount = 3;
     let blocksVisibleCount = 3;
+    let searchVisibleCount = 3;
+    let lastSearchData = null;
+    let searchTimer = null;
+    let activeSearchReq = 0;
     const detailNavStack = [];
     let currentDetail = null;
     let searchBackState = null;
@@ -473,7 +483,9 @@
           ${tx.pq_reason ? `<div class="detail-kv muted" style="font-size:.8rem">${esc(tx.pq_reason)}</div>` : ""}
         </div>`;
       } else if (d.kind === "address" && Array.isArray(d.results)){
-        const rows = d.results.map(r => `<div class="addr-row-card clickable search-addr-row" data-txid="${esc(r.txid)}" tabindex="0">
+        const total = d.results.length;
+        const rowsLimited = d.results.slice(0, searchVisibleCount);
+        const rows = rowsLimited.map(r => `<div class="addr-row-card clickable search-addr-row" data-txid="${esc(r.txid)}" tabindex="0">
           <div class="addr-row-head">
             <div class="mono">${esc(r.txid)}</div>
           </div>
@@ -485,17 +497,21 @@
         </div>`).join("");
         body = `<div class="result-card">
           <h3><span class="material-symbols-outlined title-icon" aria-hidden="true">account_balance_wallet</span>Address activity</h3>
-          <p class="muted" style="margin:.2rem 0 .45rem">Outputs for <span class="mono">${esc(d.query)}</span> · ${d.results.length} row(s)</p>
+          <p class="muted" style="margin:.2rem 0 .45rem">Outputs for <span class="mono">${esc(d.query)}</span> · ${total} row(s)</p>
           <div class="addr-list-modern">${rows || "<p class='muted'>No rows</p>"}</div>
+          ${total > rowsLimited.length ? `<div class="section-more" style="margin:.6rem 0 0"><button type="button" class="btn" id="search-more-btn">Show more</button></div>` : ""}
           <p class="muted" style="font-size:.78rem;margin:.5rem 0 0">Tap a transaction to open full details.</p>
         </div>`;
       } else if (d.kind === "unknown_hex64"){
         body = `<div class="result-card"><h3><span class="material-symbols-outlined title-icon" aria-hidden="true">help</span>No match</h3><p class="muted">${esc(d.note || "Unknown 64-character hex.")}</p></div>`;
       } else if (Array.isArray(d.results) && d.results.length && d.results[0] && d.results[0].txid){
-        const rows = d.results.map(t => `<div class="addr-row-card clickable search-addr-row" data-txid="${esc(t.txid)}" tabindex="0"><div class="addr-row-head"><div class="mono">${esc(t.txid)}</div>${badge(t.pq_valid ? "pq-ok":"pq-bad", t.pq_valid ? "PQ":"—")}</div></div>`).join("");
+        const total = d.results.length;
+        const rowsLimited = d.results.slice(0, searchVisibleCount);
+        const rows = rowsLimited.map(t => `<div class="addr-row-card clickable search-addr-row" data-txid="${esc(t.txid)}" tabindex="0"><div class="addr-row-head"><div class="mono">${esc(t.txid)}</div>${badge(t.pq_valid ? "pq-ok":"pq-bad", t.pq_valid ? "PQ":"—")}</div></div>`).join("");
         body = `<div class="result-card"><h3><span class="material-symbols-outlined title-icon" aria-hidden="true">search</span>Matching transactions</h3>
-          <p class="muted" style="margin:.25rem 0 .45rem">${d.results.length} match(es)</p>
+          <p class="muted" style="margin:.25rem 0 .45rem">${total} match(es)</p>
           <div class="addr-list-modern">${rows}</div>
+          ${total > rowsLimited.length ? `<div class="section-more" style="margin:.6rem 0 0"><button type="button" class="btn" id="search-more-btn">Show more</button></div>` : ""}
         </div>`;
       } else {
         body = `<div class="result-card"><h3><span class="material-symbols-outlined title-icon" aria-hidden="true">manage_search</span>Search result</h3>
@@ -523,6 +539,17 @@
       if (txCard) {
         txCard.onclick = () => openTxDetail(txCard.getAttribute("data-open-txid"), true);
       }
+      const moreBtn = document.getElementById("search-more-btn");
+      if (moreBtn) {
+        moreBtn.onclick = () => {
+          searchVisibleCount += 10;
+          if (lastSearchData) {
+            const out = document.getElementById("search-out");
+            out.innerHTML = renderSearchResults(lastSearchData);
+            bindSearchResultActions(lastSearchData);
+          }
+        };
+      }
       document.querySelectorAll(".search-addr-row").forEach(row => {
         row.onclick = () => openTxDetail(row.getAttribute("data-txid"), true);
         row.onkeydown = (e) => {
@@ -532,6 +559,31 @@
           }
         };
       });
+    }
+
+    function shouldAutoSearch(raw){
+      const q = String(raw || "").trim();
+      if (!q) return false;
+      if (/^\d+$/.test(q)) return q.length >= 1;
+      return q.length >= 3;
+    }
+
+    async function runSearch(query, limit){
+      const q = String(query || "").trim();
+      if (!q) return;
+      const out = document.getElementById("search-out");
+      const reqId = ++activeSearchReq;
+      out.innerHTML = "<p class=\"muted\">Searching…</p>";
+      const r = await j("/api/public/search?q=" + encodeURIComponent(q) + "&limit=" + encodeURIComponent(String(limit || 50)));
+      if (reqId !== activeSearchReq) return;
+      if (!r.ok) {
+        out.innerHTML = `<p class="bad">Search failed ${r.s}</p><pre class="mono muted">${esc(JSON.stringify(r.d,null,2))}</pre>`;
+        return;
+      }
+      lastSearchData = r.d;
+      searchVisibleCount = 3;
+      out.innerHTML = renderSearchResults(lastSearchData);
+      bindSearchResultActions(lastSearchData);
     }
 
     function renderPQBlock(rows){
@@ -628,7 +680,8 @@
           <div class="detail-kv"><strong>Value (koinu)</strong> ${esc(String(o.value_sats ?? ""))}</div>
           <div class="detail-kv"><strong>Type</strong> ${esc(o.script_kind||"")}</div>
           ${o.address ? `<div class="mono" style="margin:.3rem 0;font-size:.8rem"><strong>Address</strong> <button type="button" class="link-tx" data-open-address="${esc(o.address)}">${esc(o.address)}</button></div>` : ""}
-          ${o.op_return_preview ? `<div class="mono muted" style="font-size:.72rem;margin-top:.25rem">OP_RETURN: ${esc(o.op_return_preview)}</div>` : ""}
+          ${o.op_return_hex ? `<div class="detail-kv"><strong>OP_RETURN hex</strong> <span class="mono" style="font-size:.72rem">${esc(o.op_return_hex)}</span></div>` : ""}
+          ${o.op_return_preview ? `<div class="detail-kv muted" style="font-size:.75rem"><strong>OP_RETURN decoded</strong> ${esc(o.op_return_preview)}</div>` : ""}
         </div>`).join("");
       const wit = (dec.witness || []).map(w => {
         const items = (w.stack || []).map(s => `<div class="mono muted" style="font-size:.7rem;margin:.15rem 0">· ${esc(s.hex||"").slice(0,96)}${(s.hex||"").length>96?"…":""}</div>`).join("");
@@ -714,6 +767,9 @@
       const pq = r.d.pq_verification || {};
       const dec = pq.decode || {};
       const strict = pq.strict || {};
+      const carrier = pq.carrier_phase1 || {};
+      const strictReason = strict.reason || "—";
+      const markerText = strict.valid ? "OP_RETURN decoded correctly and commitment markers recognized." : "OP_RETURN markers were not validated.";
       const core = r.d.core || {};
       const fromCore = r.d.source === "core_index";
       const qState = core.quantum_state || (tx.pq_valid ? "quantum" : "non-quantum");
@@ -751,8 +807,22 @@
           <h3><span class="material-symbols-outlined title-icon" aria-hidden="true">shield_lock</span>Post-quantum marker check</h3>
           <p class="muted" style="font-size:.8rem;margin:.2rem 0 .45rem">Strict scan of decoded bytes for OP_RETURN commitment markers (educational verifier).</p>
           <div class="badges" style="margin:.35rem 0">${badge(strict.valid ? "pq-ok" : "pq-bad", strict.valid ? "Markers OK" : "Markers missing or invalid")}</div>
-          <div class="detail-kv"><strong>Reason</strong> ${esc(strict.reason||"—")}</div>
-          <div class="detail-kv muted" style="font-size:.78rem">${esc(JSON.stringify(strict.evidence||[]))}</div>
+          <div class="tx-io-card" style="margin-top:.35rem">
+            <strong>Reason</strong>
+            <div class="detail-kv" style="margin-top:.35rem">${esc(strictReason)}</div>
+            <div class="detail-kv muted" style="font-size:.78rem">${esc(markerText)}</div>
+          </div>
+          ${carrier.present ? `<div class="tx-io-card" style="margin-top:.45rem">
+            <strong>Carrier verification (TX_C/TX_R)</strong>
+            <div class="detail-kv" style="margin-top:.35rem">${carrier.verified ? "Verified against TX_C commitment in same block" : "Carrier payload detected, but commitment match not verified"}</div>
+            ${carrier.algorithm ? `<div class="detail-kv"><strong>Algorithm tag</strong> ${esc(String(carrier.algorithm))}</div>` : ""}
+            ${carrier.carrier_tag ? `<div class="detail-kv"><strong>Carrier tag</strong> ${esc(String(carrier.carrier_tag))}</div>` : ""}
+            ${carrier.commitment32 ? `<div class="detail-kv mono"><strong>Commitment32</strong> ${esc(String(carrier.commitment32))}</div>` : ""}
+            ${carrier.matched_txc_txid ? `<div class="detail-kv mono"><strong>Matched TX_C</strong> <button type="button" class="link-tx" data-open-txid="${esc(String(carrier.matched_txc_txid))}">${esc(String(carrier.matched_txc_txid))}</button></div>` : ""}
+            ${carrier.pk_len ? `<div class="detail-kv"><strong>pk_len</strong> ${esc(String(carrier.pk_len))} bytes</div>` : ""}
+            ${carrier.sig_len ? `<div class="detail-kv"><strong>sig_len</strong> ${esc(String(carrier.sig_len))} bytes</div>` : ""}
+            ${carrier.reason ? `<div class="detail-kv muted" style="font-size:.78rem">${esc(String(carrier.reason))}</div>` : ""}
+          </div>` : ""}
         </div>`;
       initTxTabs(body);
       bindDetailLinks(body);
@@ -854,7 +924,7 @@
       const status=document.getElementById("spv-pq-status");
       const tipCard=document.getElementById("spv-tip-card");
       const spvBadges=document.getElementById("spv-badges");
-      const rows = (ex && ex.recent_blocks) || [];
+      const rows = Array.isArray(latestBlockRows) && latestBlockRows.length ? latestBlockRows : ((ex && ex.recent_blocks) || []);
       const sum = (ex && ex.summary) || {};
       const rrows = (sum && sum.rows) || {};
       const pq = (ex && ex.pq) || {};
@@ -875,8 +945,7 @@
         out.innerHTML = '<p class="muted">No blocks available yet — please wait for sync.</p>';
         return;
       }
-      const shown = rows.slice(0, blocksVisibleCount);
-      out.innerHTML = shown.map(b => {
+      out.innerHTML = rows.map(b => {
         const t = b.time_unix ? new Date(b.time_unix*1000).toISOString() : "";
         return `<button type="button" class="head-row clickable" style="width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer" data-height="${esc(String(b.height??""))}" data-hash="${esc(b.hash||"")}">
           <div><strong>Height</strong> ${esc(b.height ?? "-")} · <span class="muted">${esc(String(b.tx_count ?? "?"))} txs</span></div>
@@ -893,7 +962,7 @@
         };
       });
       const moreBtn = document.getElementById("btn-blocks-more");
-      if (moreBtn) moreBtn.style.display = shown.length < rows.length ? "" : "none";
+      if (moreBtn) moreBtn.style.display = "";
     }
 
     function renderChainIndexFallback(ci){
@@ -981,24 +1050,44 @@
         renderChainIndexFallback(r.d.chain_index || {});
       }
       if (ex.enabled) {
-        const rr = await j("/api/public/core/recent-txs?limit=120");
-        if (rr.ok && Array.isArray(rr.d.rows)) {
-          latestPQRows = rr.d.rows.map(x => {
-            const state = String(x.quantum_state || "non-quantum");
+        const rb = await j("/api/public/core/recent-blocks?limit=" + encodeURIComponent(String(blocksVisibleCount)));
+        if (rb.ok && Array.isArray(rb.d.rows)) {
+          latestBlockRows = rb.d.rows;
+        }
+        const fromStatus = Array.isArray(ex.recent_quantum) ? ex.recent_quantum : [];
+        if (fromStatus.length) {
+          latestPQRows = fromStatus.map(x => {
             const when = x.time_unix ? new Date(Number(x.time_unix) * 1000).toISOString() : "";
-            const isPQ = state === "quantum";
             return {
               txid: x.txid,
               block_height: x.block_height,
               confirmed: true,
-              pq_valid: isPQ,
-              pq_score: isPQ ? 100 : 0,
-              pq_reason: x.pq_reason || (state === "invalid-quantum" ? "PQ marker validation failed" : "No PQ marker"),
+              pq_valid: true,
+              pq_score: 100,
+              pq_reason: x.pq_reason || "PQ marker recognized",
               verifier: "strict-v1",
               first_seen: when,
               last_seen: when
             };
           });
+        } else {
+          const rr = await j("/api/public/core/recent-txs?mode=quantum&limit=500");
+          if (rr.ok && Array.isArray(rr.d.rows)) {
+            latestPQRows = rr.d.rows.map(x => {
+              const when = x.time_unix ? new Date(Number(x.time_unix) * 1000).toISOString() : "";
+              return {
+                txid: x.txid,
+                block_height: x.block_height,
+                confirmed: true,
+                pq_valid: true,
+                pq_score: 100,
+                pq_reason: x.pq_reason || "PQ marker recognized",
+                verifier: "strict-v1",
+                first_seen: when,
+                last_seen: when
+              };
+            });
+          }
         }
       }
       renderPQBlock(latestPQRows);
@@ -1011,19 +1100,20 @@
       }
     }
 
+    function updateSearchClearButton(){
+      const q = document.getElementById("q");
+      const out = document.getElementById("search-out");
+      const clearBtn = document.getElementById("btn-clear-search");
+      if (!q || !out || !clearBtn) return;
+      const show = q.value.trim().length > 0 || out.innerHTML.trim().length > 0;
+      clearBtn.classList.toggle("show", show);
+    }
+
     document.getElementById("btn-search").onclick = async () => {
       const q=document.getElementById("q").value.trim();
       if(!q) return;
-      const out = document.getElementById("search-out");
-      out.innerHTML = "<p class=\"muted\">Searching…</p>";
-      const r=await j("/api/public/search?q="+encodeURIComponent(q));
-      if (!r.ok) {
-        out.innerHTML = `<p class="bad">Search failed ${r.s}</p><pre class="mono muted">${esc(JSON.stringify(r.d,null,2))}</pre>`;
-        return;
-      }
-      const d = r.d;
-      out.innerHTML = renderSearchResults(d);
-      bindSearchResultActions(d);
+      await runSearch(q, 50);
+      updateSearchClearButton();
     };
     document.getElementById("btn-pq-more").onclick = () => {
       pqVisibleCount += 10;
@@ -1033,8 +1123,27 @@
       blocksVisibleCount += 10;
       load();
     };
+    document.getElementById("btn-clear-search").onclick = () => {
+      document.getElementById("q").value = "";
+      document.getElementById("search-out").innerHTML = "";
+      lastSearchData = null;
+      searchVisibleCount = 3;
+      updateSearchClearButton();
+    };
     document.getElementById("q").addEventListener("keydown", (e) => {
       if (e.key === "Enter") document.getElementById("btn-search").click();
+    });
+    document.getElementById("q").addEventListener("input", () => {
+      updateSearchClearButton();
+      if (searchTimer) clearTimeout(searchTimer);
+      const raw = document.getElementById("q").value || "";
+      if (!shouldAutoSearch(raw)) {
+        return;
+      }
+      const lim = 3;
+      searchTimer = setTimeout(() => {
+        runSearch(raw, lim).then(updateSearchClearButton);
+      }, 220);
     });
     const docsModal = document.getElementById("docs-modal");
     document.getElementById("btn-user-docs").onclick = () => {
@@ -1046,6 +1155,7 @@
     docsModal.addEventListener("click", (e) => {
       if (e.target && e.target.id === "docs-modal") docsModal.classList.remove("show");
     });
+    updateSearchClearButton();
     load();
     setInterval(load, 4000);
   </script>

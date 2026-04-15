@@ -24,6 +24,7 @@ var (
 	reSuchPrivWIF     = regexp.MustCompile(`(?i)private key wif:\s*(\S+)`)
 	reSuchPubKeyHex   = regexp.MustCompile(`(?i)public key hex:\s*([0-9a-f]+)`)
 	reSuchP2PKHAddr   = regexp.MustCompile(`(?i)p2pkh address:\s*(\S+)`)
+	reSuchAnyHexValue = regexp.MustCompile(`(?i)\b([0-9a-f]{64,})\b`)
 )
 
 // runSuchP2PKHWallet runs `such -c generate_private_key` then `such -c generate_public_key -p <WIF>` (libdogecoin ECC + base58).
@@ -204,6 +205,75 @@ func (s *Server) runSuchSign(rawHex, scriptPubHex, wif string, inputIndex, sigha
 		return "", fmt.Errorf("signed TX not found in such output: %s", truncateStr(out.String(), 1200))
 	}
 	return m[1], nil
+}
+
+func (s *Server) runSuchTxSighash32(rawHex, scriptPubHex string, inputIndex, hashType int, testnet bool) (string, error) {
+	args := []string{
+		"-c", "tx_sighash32",
+		"-x", strings.TrimSpace(rawHex),
+		"-s", strings.TrimSpace(scriptPubHex),
+		"-i", strconv.Itoa(inputIndex),
+		"-h", strconv.Itoa(hashType),
+	}
+	if testnet {
+		args = append([]string{"-t"}, args...)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, s.suchPath(), args...)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("such tx_sighash32: %w — %s", err, truncateStr(out.String(), 800))
+	}
+	m := reSuchAnyHexValue.FindStringSubmatch(out.String())
+	if len(m) < 2 {
+		return "", fmt.Errorf("sighash32 not found in such output: %s", truncateStr(out.String(), 1200))
+	}
+	h := strings.ToLower(strings.TrimSpace(m[1]))
+	if len(h) < 64 {
+		return "", fmt.Errorf("invalid sighash length from such")
+	}
+	return h[:64], nil
+}
+
+func (s *Server) runSuchFalconSign(msgHex, privHex string, testnet bool) (string, error) {
+	args := []string{
+		"-c", "falcon_sign",
+		"-x", strings.TrimSpace(msgHex),
+		"-p", strings.TrimSpace(privHex),
+	}
+	if testnet {
+		args = append([]string{"-t"}, args...)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, s.suchPath(), args...)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("such falcon_sign: %w — %s", err, truncateStr(out.String(), 800))
+	}
+	matches := reSuchAnyHexValue.FindAllStringSubmatch(out.String(), -1)
+	if len(matches) == 0 {
+		return "", fmt.Errorf("falcon signature hex not found in such output: %s", truncateStr(out.String(), 1200))
+	}
+	// Keep longest hex value as signature.
+	best := ""
+	for _, m := range matches {
+		if len(m) < 2 {
+			continue
+		}
+		if len(m[1]) > len(best) {
+			best = m[1]
+		}
+	}
+	if best == "" {
+		return "", fmt.Errorf("falcon signature parse failed")
+	}
+	return strings.ToLower(strings.TrimSpace(best)), nil
 }
 
 // runSendtx broadcasts a signed raw hex transaction via libdogecoin P2P.

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"math/big"
@@ -52,14 +51,15 @@ func selectUTXOs(utxos []ExplorerUTXO, need int64) ([]ExplorerUTXO, int64, error
 }
 
 // buildUnsignedDogeP2PKH creates an unsigned legacy transaction spending selected P2PKH UTXOs.
-// recipientValue and changeValue are in koinu. pqCommitment adds optional OP_RETURN output when non-empty (hex pubkey material to hash).
+// recipientValue and changeValue are in koinu. pqCommitment32Hex adds optional canonical Phase-1 OP_RETURN commitment:
+// OP_RETURN 0x24 "FLC1" <32-byte-commitment>.
 func buildUnsignedDogeP2PKH(
 	selected []ExplorerUTXO,
 	recipientScript []byte,
 	recipientValue int64,
 	changeScript []byte,
 	changeValue int64,
-	pqCommitmentPubHex string,
+	pqCommitment32Hex string,
 ) ([]byte, error) {
 	if recipientValue <= 0 {
 		return nil, fmt.Errorf("recipient value must be positive")
@@ -69,12 +69,16 @@ func buildUnsignedDogeP2PKH(
 	if changeValue > dustLimitKoinu {
 		outputs = append(outputs, txOutWire{Value: changeValue, PkScript: changeScript})
 	}
-	pqHex := strings.TrimSpace(strings.ToLower(pqCommitmentPubHex))
+	pqHex := strings.TrimSpace(strings.ToLower(pqCommitment32Hex))
 	if pqHex != "" {
 		b, err := hex.DecodeString(pqHex)
-		if err == nil && len(b) > 0 {
-			h := sha256.Sum256(b)
-			scr := append([]byte{0x6a, 0x20}, h[:]...)
+		if err == nil && len(b) == 32 {
+			// Canonical Phase-1 commitment output:
+			// 0x6a 0x24 "FLC1" <32-byte commitment>
+			scr := make([]byte, 0, 38)
+			scr = append(scr, 0x6a, 0x24)
+			scr = append(scr, []byte("FLC1")...)
+			scr = append(scr, b...)
 			outputs = append(outputs, txOutWire{Value: 0, PkScript: scr})
 		}
 	}

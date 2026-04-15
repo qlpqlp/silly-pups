@@ -82,9 +82,37 @@ func (a *app) publicCoreRecentTxs(w http.ResponseWriter, r *http.Request) {
 	if n, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("limit"))); err == nil && n > 0 && n <= 500 {
 		limit = n
 	}
+	mode := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("mode")))
 	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
 	defer cancel()
-	rows, err := a.cidx.recentTransactions(ctx, limit)
+	rows, err := a.cidx.recentTransactions(ctx, limit, mode)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]any{
+		"rows":  rows,
+		"limit": limit,
+		"mode":  mode,
+	})
+}
+
+func (a *app) publicCoreRecentBlocks(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if a.cidx == nil {
+		writeJSON(w, 503, map[string]string{"error": "core indexer unavailable (requires postgres backend + rpc)"})
+		return
+	}
+	limit := 30
+	if n, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("limit"))); err == nil && n > 0 && n <= 500 {
+		limit = n
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+	defer cancel()
+	rows, err := a.cidx.recentBlocks(ctx, limit)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return

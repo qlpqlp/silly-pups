@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"embed"
 	"encoding/binary"
 	"encoding/hex"
@@ -257,6 +258,13 @@ type txOutput struct {
 	script    []byte
 }
 
+type txInput struct {
+	prevTxidLE []byte
+	prevVout   uint32
+	scriptSig  []byte
+	sequence   uint32
+}
+
 func readVarInt(data []byte, off *int) (uint64, error) {
 	if *off < 0 || *off >= len(data) {
 		return 0, io.EOF
@@ -342,6 +350,233 @@ func parseTxOutputs(raw []byte) ([]txOutput, error) {
 	return outs, nil
 }
 
+func parseTxInputs(raw []byte) ([]txInput, error) {
+	if len(raw) < 10 {
+		return nil, errors.New("short tx")
+	}
+	off := 4 // version
+	segwit := off+2 <= len(raw) && raw[off] == 0 && raw[off+1] == 1
+	if segwit {
+		off += 2
+	}
+	nin, err := readVarInt(raw, &off)
+	if err != nil {
+		return nil, err
+	}
+	ins := make([]txInput, 0, nin)
+	for i := 0; i < int(nin); i++ {
+		if off+36 > len(raw) {
+			return nil, errors.New("truncated input")
+		}
+		in := txInput{
+			prevTxidLE: append([]byte(nil), raw[off:off+32]...),
+			prevVout:   binary.LittleEndian.Uint32(raw[off+32 : off+36]),
+		}
+		off += 36
+		slen, err := readVarInt(raw, &off)
+		if err != nil || off+int(slen) > len(raw) {
+			return nil, errors.New("truncated scriptsig")
+		}
+		in.scriptSig = append([]byte(nil), raw[off:off+int(slen)]...)
+		off += int(slen)
+		if off+4 > len(raw) {
+			return nil, errors.New("truncated sequence")
+		}
+		in.sequence = binary.LittleEndian.Uint32(raw[off:])
+		off += 4
+		ins = append(ins, in)
+	}
+	return ins, nil
+}
+
+type carrierPart struct {
+	algo      string
+	tag       string
+	partIndex int
+	partTotal int
+	pkLen     int
+	fullLen   int
+	payload   []byte
+}
+
+func parsePushOnlyScript(script []byte) ([][]byte, bool) {
+	parts := make([][]byte, 0, 8)
+	for i := 0; i < len(script); {
+		op := script[i]
+		i++
+		switch {
+		case op == 0x00:
+			parts = append(parts, []byte{})
+		case op >= 0x01 && op <= 0x4b:
+			n := int(op)
+			if i+n > len(script) {
+				return nil, false
+			}
+			parts = append(parts, append([]byte(nil), script[i:i+n]...))
+			i += n
+		case op == 0x4c:
+			if i+1 > len(script) {
+				return nil, false
+			}
+			n := int(script[i])
+			i++
+			if i+n > len(script) {
+				return nil, false
+			}
+			parts = append(parts, append([]byte(nil), script[i:i+n]...))
+			i += n
+		case op == 0x4d:
+			if i+2 > len(script) {
+				return nil, false
+			}
+			n := int(binary.LittleEndian.Uint16(script[i:]))
+			i += 2
+			if i+n > len(script) {
+				return nil, false
+			}
+			parts = append(parts, append([]byte(nil), script[i:i+n]...))
+			i += n
+		default:
+			return nil, false
+		}
+	}
+	return parts, true
+}
+
+func parseCarrierPartFromScriptSig(script []byte) (carrierPart, bool) {
+	pushes, ok := parsePushOnlyScript(script)
+	if !ok || len(pushes) < 6 {
+		return carrierPart{}, false
+	}
+	tag8 := pushes[0]
+	hdr8 := pushes[1]
+	if len(tag8) != 8 || len(hdr8) != 8 {
+		return carrierPart{}, false
+	}
+	tag := string(tag8)
+	algo := ""
+	switch tag {
+	case "FLC1FULL":
+		algo = "FLC1"
+	case "DIL2FULL", "DL21FULL":
+		algo = "DIL2"
+	case "RCG4FULL":
+		algo = "RCG4"
+	default:
+		return carrierPart{}, false
+	}
+	if hdr8[0] != 0x01 {
+		return carrierPart{}, false
+	}
+	partIdx := int(hdr8[1])
+	partTot := int(hdr8[2])
+	pkLen := int(binary.BigEndian.Uint16(hdr8[4:6]))
+	fullLen := int(binary.BigEndian.Uint16(hdr8[6:8]))
+	if partTot < 1 || partIdx < 0 || partIdx >= partTot || pkLen < 1 || fullLen < pkLen {
+		return carrierPart{}, false
+	}
+	payload := make([]byte, 0, len(pushes[2])+len(pushes[3])+len(pushes[4]))
+	payload = append(payload, pushes[2]...)
+	payload = append(payload, pushes[3]...)
+	payload = append(payload, pushes[4]...)
+	return carrierPart{
+		algo:      algo,
+		tag:       tag,
+		partIndex: partIdx,
+		partTotal: partTot,
+		pkLen:     pkLen,
+		fullLen:   fullLen,
+		payload:   payload,
+	}, true
+}
+
+func verifyCarrierPhase1(rawHex string, commitments map[string]map[string]any) map[string]any {
+	raw, err := hex.DecodeString(strings.TrimSpace(rawHex))
+	if err != nil {
+		return map[string]any{"present": false, "verified": false}
+	}
+	ins, err := parseTxInputs(raw)
+	if err != nil || len(ins) == 0 {
+		return map[string]any{"present": false, "verified": false}
+	}
+	parts := make([]carrierPart, 0, len(ins))
+	for _, in := range ins {
+		if p, ok := parseCarrierPartFromScriptSig(in.scriptSig); ok {
+			parts = append(parts, p)
+		}
+	}
+	if len(parts) == 0 {
+		return map[string]any{"present": false, "verified": false}
+	}
+	byKey := map[string][]carrierPart{}
+	for _, p := range parts {
+		k := fmt.Sprintf("%s|%d|%d|%d", p.algo, p.partTotal, p.pkLen, p.fullLen)
+		byKey[k] = append(byKey[k], p)
+	}
+	for _, group := range byKey {
+		if len(group) == 0 {
+			continue
+		}
+		partTotal := group[0].partTotal
+		slots := make([][]byte, partTotal)
+		for _, p := range group {
+			if p.partIndex >= 0 && p.partIndex < partTotal {
+				slots[p.partIndex] = p.payload
+			}
+		}
+		okAll := true
+		for i := 0; i < partTotal; i++ {
+			if slots[i] == nil {
+				okAll = false
+				break
+			}
+		}
+		if !okAll {
+			continue
+		}
+		full := make([]byte, 0, group[0].fullLen+64)
+		for _, chunk := range slots {
+			full = append(full, chunk...)
+		}
+		if len(full) < group[0].fullLen {
+			continue
+		}
+		full = full[:group[0].fullLen]
+		if group[0].pkLen >= len(full) {
+			continue
+		}
+		pk := full[:group[0].pkLen]
+		sig := full[group[0].pkLen:]
+		buf := make([]byte, 0, len(pk)+len(sig))
+		buf = append(buf, pk...)
+		buf = append(buf, sig...)
+		sum := sha256.Sum256(buf)
+		commitHex := strings.ToLower(hex.EncodeToString(sum[:]))
+		if m, ok := commitments[commitHex]; ok {
+			return map[string]any{
+				"present":          true,
+				"verified":         true,
+				"source":           "carrier_scriptsig",
+				"algorithm":        group[0].algo,
+				"carrier_tag":      group[0].tag,
+				"part_total":       group[0].partTotal,
+				"pk_len":           len(pk),
+				"sig_len":          len(sig),
+				"commitment32":     commitHex,
+				"matched_txc_txid": m["txid"],
+				"matched_txc_tag":  m["tag"],
+			}
+		}
+	}
+	return map[string]any{
+		"present":   true,
+		"verified":  false,
+		"source":    "carrier_scriptsig",
+		"reason":    "carrier payload found but commitment did not match block commitments",
+		"part_count": len(parts),
+	}
+}
+
 func extractOpReturnData(script []byte) ([]byte, bool) {
 	if len(script) < 2 || script[0] != 0x6a {
 		return nil, false
@@ -354,6 +589,20 @@ func extractOpReturnData(script []byte) ([]byte, bool) {
 		}
 	}
 	return nil, false
+}
+
+func parseCanonicalPQCommitment(script []byte) (algoTag string, commitHex string, ok bool) {
+	// Canonical Phase-1: OP_RETURN (0x6a) + push-36 (0x24) + 4-byte tag + 32-byte commitment.
+	if len(script) != 38 || script[0] != 0x6a || script[1] != 0x24 {
+		return "", "", false
+	}
+	tag := string(script[2:6])
+	switch tag {
+	case "FLC1", "DIL2", "RCG4":
+		return tag, strings.ToLower(hex.EncodeToString(script[6:38])), true
+	default:
+		return "", "", false
+	}
 }
 
 func scriptAddressTag(script []byte) string {
@@ -440,42 +689,40 @@ func verifyPQStrict(rawHex string) (valid bool, reason string, evidence []string
 	if err != nil {
 		return false, "raw tx parse failed", []string{"parse_error"}, nil
 	}
-	markers := []string{"falcon", "dilithium", "raccoon", "raccoon-g", "tx_c", "tx_r", "pq", "commit"}
-	var foundMarkers []string
 	hasOpRet := false
+	canonicalMatches := make([]string, 0, 2)
 	for _, o := range outs {
 		if tag := scriptAddressTag(o.script); tag != "" {
 			outputTags = append(outputTags, tag)
+		}
+		if len(o.script) > 0 && o.script[0] == 0x6a {
+			hasOpRet = true
+		}
+		if algoTag, commitHex, ok := parseCanonicalPQCommitment(o.script); ok {
+			canonicalMatches = append(canonicalMatches, algoTag+":"+commitHex)
+			continue
 		}
 		d, ok := extractOpReturnData(o.script)
 		if !ok {
 			continue
 		}
-		hasOpRet = true
-		txt := strings.ToLower(string(d))
-		hexTxt := strings.ToLower(hex.EncodeToString(d))
-		for _, m := range markers {
-			if strings.Contains(txt, m) || strings.Contains(hexTxt, hex.EncodeToString([]byte(m))) {
-				foundMarkers = append(foundMarkers, m)
-			}
-		}
+		_ = d
 	}
 	if !hasOpRet {
 		return false, "no OP_RETURN commitment detected", []string{"missing_op_return"}, outputTags
 	}
-	if len(foundMarkers) == 0 {
-		return false, "OP_RETURN present but no recognized PQ commitment marker", []string{"op_return_without_pq_marker"}, outputTags
+	if len(canonicalMatches) == 0 {
+		return false, "OP_RETURN present but not canonical Phase-1 PQ commitment (need 6a24 + FLC1/DIL2/RCG4 + 32-byte commitment)", []string{"op_return_non_canonical_pq"}, outputTags
 	}
-	uniq := map[string]struct{}{}
-	ev := make([]string, 0, len(foundMarkers))
-	for _, m := range foundMarkers {
-		if _, ok := uniq[m]; ok {
+	ev := make([]string, 0, len(canonicalMatches))
+	for _, m := range canonicalMatches {
+		parts := strings.SplitN(m, ":", 2)
+		if len(parts) != 2 {
 			continue
 		}
-		uniq[m] = struct{}{}
-		ev = append(ev, "marker:"+m)
+		ev = append(ev, "phase1_tag:"+parts[0], "commitment32:"+parts[1])
 	}
-	return true, "recognized PQ commitment markers in OP_RETURN", ev, outputTags
+	return true, "recognized canonical Phase-1 PQ commitment in OP_RETURN (tag + commitment32)", ev, outputTags
 }
 
 // buildPQVerificationDetail parses raw tx hex for UI: full decode + PQ strict verifier (see decode map).
@@ -515,6 +762,55 @@ func buildPQVerificationDetail(rawHex string, network string) map[string]any {
 		"output_tags": tags,
 	}
 	return out
+}
+
+func (a *app) enrichCarrierVerification(ctx context.Context, pq map[string]any, txid string, blockHeight int64, rawHex string) map[string]any {
+	if a == nil || a.cidx == nil || pq == nil || blockHeight < 0 {
+		return pq
+	}
+	if _, ok := pq["decode"].(map[string]any); !ok {
+		return pq
+	}
+	rawHex = strings.TrimSpace(rawHex)
+	if rawHex == "" {
+		return pq
+	}
+	rows, err := a.cidx.blockTxRows(ctx, blockHeight)
+	if err != nil || len(rows) == 0 {
+		return pq
+	}
+	commitments := map[string]map[string]any{}
+	for _, row := range rows {
+		rh := strings.TrimSpace(fmt.Sprint(row["raw_hex"]))
+		rxid := strings.ToLower(strings.TrimSpace(fmt.Sprint(row["txid"])))
+		if rh == "" || rxid == "" {
+			continue
+		}
+		b, err := hex.DecodeString(rh)
+		if err != nil {
+			continue
+		}
+		outs, err := parseTxOutputs(b)
+		if err != nil {
+			continue
+		}
+		for _, o := range outs {
+			if tag, commit, ok := parseCanonicalPQCommitment(o.script); ok {
+				commitments[commit] = map[string]any{"txid": rxid, "tag": tag}
+			}
+		}
+	}
+	if len(commitments) == 0 {
+		return pq
+	}
+	carrier := verifyCarrierPhase1(rawHex, commitments)
+	if cm, ok := carrier["commitment32"].(string); ok && cm != "" {
+		if txid == strings.ToLower(strings.TrimSpace(fmt.Sprint(carrier["matched_txc_txid"]))) {
+			carrier["self_commitment"] = true
+		}
+	}
+	pq["carrier_phase1"] = carrier
+	return pq
 }
 
 func (a *app) enrichDecodeWithPrevouts(ctx context.Context, pq map[string]any) map[string]any {
@@ -634,16 +930,26 @@ func (a *app) latest(limit int) []*PQTx {
 
 func (a *app) publicStatus(w http.ResponseWriter, r *http.Request) {
 	rows := a.latest(100)
-	m := map[string]int{"pq_seen": len(rows), "confirmed": 0, "invalid": 0, "pq_valid": 0, "non_quantum": 0}
+	m := map[string]int{
+		"pq_seen":      len(rows),
+		"pq_confirmed": 0,
+		"pq_invalid":   0,
+		"confirmed":    0,
+		"invalid":      0,
+		"pq_valid":     0,
+		"non_quantum":  0,
+	}
 	for _, t := range rows {
 		if t.Confirmed {
 			m["confirmed"]++
 		}
 		if !t.PQValid {
 			m["invalid"]++
+			m["pq_invalid"]++
 			m["non_quantum"]++
 		} else {
 			m["pq_valid"]++
+			m["pq_confirmed"]++
 		}
 	}
 	latestPQ := rows
@@ -675,8 +981,16 @@ func (a *app) publicStatus(w http.ResponseWriter, r *http.Request) {
 			"summary": a.cidx.summary(ctx),
 			"pq":      a.cidx.pqAggregates(ctx),
 		}
+		if pqAgg, ok := ex["pq"].(map[string]int64); ok {
+			m["pq_seen"] = int(pqAgg["all"])
+			m["pq_confirmed"] = int(pqAgg["quantum"])
+			m["pq_invalid"] = int(pqAgg["invalid_quantum"])
+		}
 		if rb, err := a.cidx.recentBlocks(ctx, 15); err == nil {
 			ex["recent_blocks"] = rb
+		}
+		if rq, err := a.cidx.recentTransactions(ctx, 500, "quantum"); err == nil {
+			ex["recent_quantum"] = rq
 		}
 		status["explorer"] = ex
 	} else {
@@ -885,6 +1199,7 @@ func (a *app) publicTxDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			pq := buildPQVerificationDetail(rawHex, net)
 			pq = a.enrichDecodeWithPrevouts(ctx, pq)
+			pq = a.enrichCarrierVerification(ctx, pq, q, blkH, rawHex)
 			writeJSON(w, 200, map[string]any{
 				"source":          "core_index",
 				"tx":              &cp,
@@ -921,6 +1236,10 @@ func (a *app) publicTxDetail(w http.ResponseWriter, r *http.Request) {
 	if a.cidx != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		pq = a.enrichDecodeWithPrevouts(ctx, pq)
+		_, _, _, blkH, _, _, _, okRow, _ := a.cidx.txRowByID(ctx, q)
+		if okRow {
+			pq = a.enrichCarrierVerification(ctx, pq, q, blkH, rawHex)
+		}
 		cancel()
 	}
 	writeJSON(w, 200, map[string]any{
@@ -939,7 +1258,11 @@ func (a *app) publicSearch(w http.ResponseWriter, r *http.Request) {
 	if a.cidx != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
-		out, err := a.cidx.search(ctx, rawQ, 50)
+		limit := envIntBounded("QE_PUBLIC_SEARCH_LIMIT", 50, 1, 200)
+		if n, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("limit"))); err == nil && n > 0 && n <= 200 {
+			limit = n
+		}
+		out, err := a.cidx.search(ctx, rawQ, limit)
 		if err == nil && out != nil {
 			if e, ok := out["error"].(string); ok && strings.TrimSpace(e) != "" {
 				// fall through to legacy
@@ -1029,17 +1352,129 @@ func (a *app) publicSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"query": rawQ, "kind": kind, "results": out})
 }
 
+func (a *app) adminCoreInspect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if a.core == nil || !a.core.enabled() {
+		writeJSON(w, 503, map[string]string{"error": "core rpc is not configured"})
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q == "" {
+		writeJSON(w, 400, map[string]string{"error": "missing q"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+	net := strings.ToLower(strings.TrimSpace(a.cfg.Network))
+
+	buildTxRow := func(txid, rawHex string) map[string]any {
+		rawHex = strings.TrimSpace(rawHex)
+		valid, reason, ev, _ := verifyPQStrict(rawHex)
+		pq := buildPQVerificationDetail(rawHex, net)
+		return map[string]any{
+			"txid":            strings.ToLower(strings.TrimSpace(txid)),
+			"raw_hex_len":     len(rawHex),
+			"pq_valid":        valid,
+			"pq_reason":       reason,
+			"pq_evidence":     ev,
+			"pq_verification": pq,
+		}
+	}
+
+	inspectBlock := func(blockHash string, blk map[string]any, kind string) {
+		txidsAny, _ := blk["tx"].([]any)
+		rows := make([]map[string]any, 0, len(txidsAny))
+		pqCount := 0
+		for _, v := range txidsAny {
+			txid := strings.ToLower(strings.TrimSpace(fmt.Sprint(v)))
+			if len(txid) != 64 || !isHex64String(txid) {
+				continue
+			}
+			rawHex, err := a.core.getRawTransactionHex(ctx, txid, blockHash)
+			if err != nil || strings.TrimSpace(rawHex) == "" {
+				rows = append(rows, map[string]any{"txid": txid, "error": "raw tx unavailable from core rpc"})
+				continue
+			}
+			row := buildTxRow(txid, rawHex)
+			if row["pq_valid"] == true {
+				pqCount++
+			}
+			rows = append(rows, row)
+		}
+		writeJSON(w, 200, map[string]any{
+			"kind":               kind,
+			"query":              q,
+			"block_hash":         strings.ToLower(strings.TrimSpace(blockHash)),
+			"block":              blk,
+			"tx_count":           len(rows),
+			"quantum_tx_count":   pqCount,
+			"has_quantum_tx":     pqCount > 0,
+			"transactions_check": rows,
+		})
+	}
+
+	if h, err := strconv.ParseInt(q, 10, 64); err == nil && h >= 0 {
+		var blockHash string
+		if err := a.core.call(ctx, "getblockhash", []any{h}, &blockHash); err != nil {
+			writeJSON(w, 500, map[string]string{"error": err.Error()})
+			return
+		}
+		var blk map[string]any
+		if err := a.core.call(ctx, "getblock", []any{blockHash, 1}, &blk); err != nil {
+			writeJSON(w, 500, map[string]string{"error": err.Error()})
+			return
+		}
+		inspectBlock(strings.ToLower(strings.TrimSpace(blockHash)), blk, "block_height")
+		return
+	}
+
+	qLower := strings.ToLower(q)
+	if len(qLower) == 64 && isHex64String(qLower) {
+		var blk map[string]any
+		if err := a.core.call(ctx, "getblock", []any{qLower, 1}, &blk); err == nil && blk != nil {
+			inspectBlock(qLower, blk, "block_hash")
+			return
+		}
+		rawHex, err := a.core.getRawTransactionHex(ctx, qLower, "")
+		if err != nil || strings.TrimSpace(rawHex) == "" {
+			writeJSON(w, 404, map[string]string{"error": "not found as block hash or txid via core rpc"})
+			return
+		}
+		row := buildTxRow(qLower, rawHex)
+		isPQ := row["pq_valid"] == true
+		writeJSON(w, 200, map[string]any{
+			"kind":             "txid",
+			"query":            q,
+			"has_quantum_tx":   isPQ,
+			"quantum_tx_count": map[bool]int{true: 1, false: 0}[isPQ],
+			"transaction":      row,
+		})
+		return
+	}
+
+	writeJSON(w, 400, map[string]string{"error": "q must be block height or 64-char txid/block hash"})
+}
+
 func (a *app) adminStatus(w http.ResponseWriter, _ *http.Request) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
+	pg := map[string]any{"configured": false, "running": false}
+	if a.cidx != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		pg = a.cidx.postgresStatus(ctx)
+		cancel()
+	}
 	writeJSON(w, 200, map[string]any{
-		"checkpoint":          a.cfg.Checkpoint,
 		"network":             a.cfg.Network,
 		"chain_index_backend": a.chain.Kind(),
 		"storage_dir":         a.storageDir,
 		"diagnostics_api":     "GET /api/admin/<token>/diagnostics",
 		"core_rpc":            a.core.snapshot(),
 		"core_indexer":        a.coreIndexerStatus(),
+		"postgres":            pg,
 		"admin_allowlist_set": len(a.adminAllowlist) > 0,
 		"public_protection": map[string]any{
 			"token_set":       a.publicToken != "",
@@ -1052,24 +1487,39 @@ func (a *app) adminStatus(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (a *app) adminCheckpoint(w http.ResponseWriter, r *http.Request) {
-	var cp Checkpoint
-	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&cp); err != nil {
+	var body struct {
+		Height int64 `json:"height"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
 		writeJSON(w, 400, map[string]string{"error": "invalid json"})
 		return
 	}
-	if cp.Height <= 0 || strings.TrimSpace(cp.Hash) == "" {
-		writeJSON(w, 400, map[string]string{"error": "height/hash required"})
+	if body.Height < 0 {
+		writeJSON(w, 400, map[string]string{"error": "height must be >= 0"})
+		return
+	}
+	if a.cidx == nil {
+		writeJSON(w, 503, map[string]string{"error": "core indexer unavailable"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	res, err := a.cidx.setStartHeightIfNeeded(ctx, body.Height)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
 	}
 	a.mu.Lock()
-	a.cfg.Checkpoint = cp
 	cfg := a.cfg
+	cfg.Checkpoint.Height = int(body.Height)
+	cfg.Checkpoint.Hash = ""
+	cfg.Checkpoint.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	a.mu.Unlock()
 	if err := saveJSON(a.cfgPath, cfg); err != nil {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true, "checkpoint": cp})
+	writeJSON(w, 200, map[string]any{"ok": true, "core_start_height": body.Height, "result": res})
 }
 
 func must(err error) {
@@ -1140,6 +1590,7 @@ func main() {
 	publicMux.HandleFunc("/api/public/core/search", a.withRateLimit(a.withPublicAccess(a.publicCoreSearch)))
 	publicMux.HandleFunc("/api/public/core/summary", a.withRateLimit(a.withPublicAccess(a.publicCoreSummary)))
 	publicMux.HandleFunc("/api/public/core/recent-txs", a.withRateLimit(a.withPublicAccess(a.publicCoreRecentTxs)))
+	publicMux.HandleFunc("/api/public/core/recent-blocks", a.withRateLimit(a.withPublicAccess(a.publicCoreRecentBlocks)))
 	publicMux.HandleFunc("/admin/", func(w http.ResponseWriter, r *http.Request) {
 		if !a.adminIPAllowed(r) {
 			http.NotFound(w, r)
@@ -1195,6 +1646,8 @@ func main() {
 			a.adminStopCoreIndexer(w)
 		case "/core-indexer/status":
 			a.adminCoreIndexerStatus(w)
+		case "/core/inspect":
+			a.adminCoreInspect(w, r)
 		default:
 			http.NotFound(w, r)
 		}

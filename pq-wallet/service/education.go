@@ -12,7 +12,7 @@ func educationPayload() map[string]any {
 				"title": "Two layers: chain signatures vs PQ attestations",
 				"body": []string{
 					"**On-chain spend authorization** is still the usual Dogecoin-style ECDSA signature over the sighash, using your P2PKH key. The `such -c sign` command in this wallet performs that ECDSA signing step.",
-					"**Post-quantum (PQ) keys** (e.g. Falcon-512 generated with `such -c falcon_keygen`) are separate material. They are used in research flows to produce commitments or signatures that can be referenced in OP_RETURN or follow-up transactions (TX_C / TX_R style experiments).",
+					"**Post-quantum (PQ) keys** (e.g. Falcon-512 generated with `such -c falcon_keygen`) are separate material. Phase-1 commitment format is canonical tagged OP_RETURN: `6a24 + TAG4 + 32-byte commitment` where TAG4 is `FLC1`, `DIL2`, or `RCG4`.",
 					"So: **spending DOGE** = ECDSA. **PQ** = additional proof or attestation layer described in libdogecoin experiments, not a drop-in replacement for ECDSA on the base layer.",
 				},
 			},
@@ -31,7 +31,7 @@ func educationPayload() map[string]any {
 				"title": "What “verification” means here",
 				"body": []string{
 					"**Consensus verification** happens on every node: ECDSA signatures must validate, scripts must succeed, balances must add up.",
-					"**PQ “hints” in this UI** use heuristics on explorer data (e.g. presence of OP_RETURN script patterns). That is **not** a full cryptographic proof that a specific Falcon/Dilithium signature matches a commitment, it is a **UX hint** that something in the tx might relate to experimental PQ data.",
+					"**PQ verification in this UI** checks canonical Phase-1 OP_RETURN commitment layout and tags (`FLC1`/`DIL2`/`RCG4`). Full cryptographic proof still requires verifier material (`pubkey || signature`) and signature validation flow.",
 					"A serious audit would decode the transaction, parse outputs, and verify commitments against published PQ keys and schemes, beyond what this lightweight wallet does automatically.",
 				},
 			},
@@ -39,7 +39,7 @@ func educationPayload() map[string]any {
 				"id":    "tx_c_tx_r",
 				"title": "TX_C and TX_R (high level)",
 				"body": []string{
-					"**TX_C** often carries a **commitment** (fingerprint) tied to PQ signing material in an OP_RETURN (small footprint).",
+					"**TX_C** carries canonical Phase-1 commitment output: `OP_RETURN 0x24 <TAG4><32-byte-commitment>`.",
 					"An optional **carrier** output can hold value while a follow-up **TX_R** reveals more PQ data on-chain and returns funds minus fees, depending on the exact experiment.",
 					"For many tests, the commitment alone is enough; the carrier/reveal path is optional.",
 				},
@@ -67,8 +67,8 @@ func educationPayload() map[string]any {
 			},
 			{
 				"step":   "2",
-				"name":   "Optional OP_RETURN commitment (TX_C)",
-				"detail": "Add a small **OP_RETURN** carrying a **commitment** (fingerprint) to Falcon or other PQ material if you are running an experiment.",
+				"name":   "Canonical commitment output (TX_C)",
+				"detail": "Add canonical Phase-1 OP_RETURN commitment: **`6a24 + TAG4 + commitment32`** (`FLC1`, `DIL2`, `RCG4`).",
 			},
 			{
 				"step":   "3",

@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -129,8 +131,42 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	if change <= dustLimitKoinu {
 		changeOut = 0
 	}
-	pqHex := strings.TrimSpace(wf.PQPublicHex)
-	unsigned, err := buildUnsignedDogeP2PKH(selected, toScript, sendKoinu, changeScript, changeOut, pqHex)
+	pqCommitment32Hex := ""
+	pqMode := "none"
+	// Build canonical Phase-1 commitment when Falcon material is available.
+	// Preferred: SHA256(pubkey || signature(sighash32)).
+	if strings.TrimSpace(wf.PQPublicHex) != "" && strings.TrimSpace(wf.PQPrivateHex) != "" && len(selected) > 0 {
+		if scr, err := s.scriptPubHexForUTXO(wf, &selected[0]); err == nil {
+			// Build first without commitment to derive base tx sighash32.
+			unsignedBase, err := buildUnsignedDogeP2PKH(selected, toScript, sendKoinu, changeScript, changeOut, "")
+			if err == nil {
+				baseHex := hexMsgTx(unsignedBase)
+				if sighashHex, err := s.runSuchTxSighash32(baseHex, scr, 0, 1, testnet); err == nil {
+					if sigHex, err := s.runSuchFalconSign(sighashHex, wf.PQPrivateHex, testnet); err == nil {
+						pubB, pubErr := hex.DecodeString(strings.TrimSpace(wf.PQPublicHex))
+						sigB, sigErr := hex.DecodeString(strings.TrimSpace(sigHex))
+						if pubErr == nil && sigErr == nil && len(pubB) > 0 && len(sigB) > 0 {
+							buf := make([]byte, 0, len(pubB)+len(sigB))
+							buf = append(buf, pubB...)
+							buf = append(buf, sigB...)
+							h := sha256.Sum256(buf)
+							pqCommitment32Hex = hex.EncodeToString(h[:])
+							pqMode = "phase1_canonical_falcon"
+						}
+					}
+				}
+			}
+		}
+	}
+	// Safe fallback for compatibility: SHA256(pubkey) if signing material is unavailable.
+	if pqCommitment32Hex == "" {
+		if pubB, err := hex.DecodeString(strings.TrimSpace(wf.PQPublicHex)); err == nil && len(pubB) > 0 {
+			h := sha256.Sum256(pubB)
+			pqCommitment32Hex = hex.EncodeToString(h[:])
+			pqMode = "legacy_pubkey_hash_fallback"
+		}
+	}
+	unsigned, err := buildUnsignedDogeP2PKH(selected, toScript, sendKoinu, changeScript, changeOut, pqCommitment32Hex)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -167,8 +203,10 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		"fee_koinu":        fee,
 		"change_koinu":     change,
 		"inputs_used":      len(selected),
-		"pq_commitment":    pqHex != "",
-		"signing_note":     "ECDSA P2PKH via such -c sign; optional OP_RETURN commits SHA256(PQ public key) when Falcon/PQ keys exist.",
+		"pq_commitment":    pqCommitment32Hex != "",
+		"pq_commitment_32": pqCommitment32Hex,
+		"pq_mode":          pqMode,
+		"signing_note":     "ECDSA P2PKH via such -c sign. PQ commitment output uses canonical Phase-1 OP_RETURN tag (FLC1) with 32-byte commitment.",
 		"transport":        "libdogecoin_sendtx_p2p",
 	})
 }

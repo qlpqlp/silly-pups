@@ -31,8 +31,8 @@ func newCoreIndexer(db *sql.DB, rpc *coreRPCClient, network string) *coreIndexer
 	if n, err := strconv.Atoi(strings.TrimSpace(env("QE_CORE_BACKFILL_BATCH", "20"))); err == nil && n > 0 && n <= 500 {
 		batch = n
 	}
-	start := int64(0)
-	if n, err := strconv.ParseInt(strings.TrimSpace(env("QE_CORE_START_HEIGHT", "0")), 10, 64); err == nil && n >= 0 {
+	start := int64(6147099)
+	if n, err := strconv.ParseInt(strings.TrimSpace(env("QE_CORE_START_HEIGHT", "6147099")), 10, 64); err == nil && n >= 0 {
 		start = n
 	}
 	return &coreIndexer{
@@ -561,6 +561,77 @@ func (ix *coreIndexer) status() map[string]any {
 	}
 }
 
+func (ix *coreIndexer) postgresStatus(ctx context.Context) map[string]any {
+	out := map[string]any{
+		"configured": ix != nil && ix.db != nil,
+		"running":    false,
+	}
+	if ix == nil || ix.db == nil {
+		return out
+	}
+	if err := ix.db.PingContext(ctx); err != nil {
+		out["error"] = err.Error()
+		return out
+	}
+	out["running"] = true
+	var dbName string
+	_ = ix.db.QueryRowContext(ctx, `SELECT current_database()`).Scan(&dbName)
+	var sizeBytes int64
+	if dbName != "" {
+		_ = ix.db.QueryRowContext(ctx, `SELECT pg_database_size($1)`, dbName).Scan(&sizeBytes)
+	}
+	out["database"] = dbName
+	out["size_bytes"] = sizeBytes
+	if sizeBytes > 0 {
+		out["size_mb"] = float64(sizeBytes) / (1024.0 * 1024.0)
+	}
+	return out
+}
+
+func (ix *coreIndexer) setStartHeightIfNeeded(ctx context.Context, height int64) (map[string]any, error) {
+	if ix == nil || ix.db == nil {
+		return nil, fmt.Errorf("core indexer unavailable")
+	}
+	if height < 0 {
+		return nil, fmt.Errorf("height must be >= 0")
+	}
+	existingHash, err := ix.blockHashAtHeight(height)
+	if err != nil {
+		return nil, err
+	}
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	ix.startHeight = height
+	// If height already exists in DB, do not rewind state; continue from current indexed progress.
+	if strings.TrimSpace(existingHash) != "" {
+		return map[string]any{
+			"updated":            true,
+			"height":             height,
+			"already_in_db":      true,
+			"existing_block_hash": strings.ToLower(strings.TrimSpace(existingHash)),
+			"note":               "block already indexed; no rewind performed",
+		}, nil
+	}
+	// If missing, start from just before requested height so next loop adds new rows from requested block onward.
+	targetLast := height - 1
+	if targetLast < 0 {
+		targetLast = 0
+	}
+	if ix.lastHeight < targetLast {
+		ix.lastHeight = targetLast
+	}
+	if err := ix.saveState(ctx); err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"updated":       true,
+		"height":        height,
+		"already_in_db": false,
+		"next_from":     targetLast + 1,
+		"note":          "start height set; indexer will only append missing/new blocks",
+	}, nil
+}
+
 func (ix *coreIndexer) summary(ctx context.Context) map[string]any {
 	out := ix.status()
 	if ix == nil || ix.db == nil {
@@ -709,15 +780,22 @@ func (ix *coreIndexer) recentBlocks(ctx context.Context, limit int) ([]map[strin
 	return out, rows.Err()
 }
 
-func (ix *coreIndexer) recentTransactions(ctx context.Context, limit int) ([]map[string]any, error) {
+func (ix *coreIndexer) recentTransactions(ctx context.Context, limit int, mode string) ([]map[string]any, error) {
 	if ix == nil || ix.db == nil {
 		return nil, nil
 	}
 	if limit < 1 || limit > 500 {
 		limit = 100
 	}
-	rows, err := ix.db.QueryContext(ctx, `SELECT txid, block_height, time_unix, quantum_state, pq_reason, value_out_sats
-		FROM qe_core_txs ORDER BY time_unix DESC, txid DESC LIMIT $1`, limit)
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	query := `SELECT txid, block_height, time_unix, quantum_state, pq_reason, value_out_sats
+		FROM qe_core_txs ORDER BY time_unix DESC, txid DESC LIMIT $1`
+	args := []any{limit}
+	if mode == "quantum" {
+		query = `SELECT txid, block_height, time_unix, quantum_state, pq_reason, value_out_sats
+			FROM qe_core_txs WHERE quantum_state='quantum' ORDER BY time_unix DESC, txid DESC LIMIT $1`
+	}
+	rows, err := ix.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -881,6 +959,29 @@ func (ix *coreIndexer) txRowByID(ctx context.Context, txid string) (rawHex, quan
 	return rawHex, quantumState, pqReason, blockH, timeUnix, valueOut, strings.ToLower(strings.TrimSpace(blockHash)), true, nil
 }
 
+func (ix *coreIndexer) blockTxRows(ctx context.Context, blockHeight int64) ([]map[string]any, error) {
+	if ix == nil || ix.db == nil || blockHeight < 0 {
+		return nil, nil
+	}
+	rows, err := ix.db.QueryContext(ctx, `SELECT txid, raw_hex FROM qe_core_txs WHERE block_height=$1 ORDER BY txid`, blockHeight)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]map[string]any, 0, 64)
+	for rows.Next() {
+		var txid, raw string
+		if err := rows.Scan(&txid, &raw); err != nil {
+			return nil, err
+		}
+		out = append(out, map[string]any{
+			"txid":    strings.ToLower(strings.TrimSpace(txid)),
+			"raw_hex": strings.TrimSpace(raw),
+		})
+	}
+	return out, rows.Err()
+}
+
 func (ix *coreIndexer) backfillRawHex(ctx context.Context, txid, rawHex string) error {
 	if ix == nil || ix.db == nil || strings.TrimSpace(rawHex) == "" {
 		return nil
@@ -926,6 +1027,32 @@ func (ix *coreIndexer) prevoutByTxVout(ctx context.Context, txid string, vout in
 		"txid":         txid,
 		"vout":         vout,
 	}, true, nil
+}
+
+func (ix *coreIndexer) blockRawTransactions(ctx context.Context, height int64) ([]map[string]string, error) {
+	if ix == nil || ix.db == nil || height < 0 {
+		return nil, nil
+	}
+	rows, err := ix.db.QueryContext(ctx, `SELECT txid, raw_hex
+		FROM qe_core_txs
+		WHERE block_height=$1 AND LENGTH(TRIM(COALESCE(raw_hex,'')))>0
+		ORDER BY txid`, height)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]map[string]string, 0, 64)
+	for rows.Next() {
+		var txid, raw string
+		if err := rows.Scan(&txid, &raw); err != nil {
+			return nil, err
+		}
+		out = append(out, map[string]string{
+			"txid": strings.ToLower(strings.TrimSpace(txid)),
+			"raw":  strings.ToLower(strings.TrimSpace(raw)),
+		})
+	}
+	return out, rows.Err()
 }
 
 func (ix *coreIndexer) autoStartIfEnabled() {

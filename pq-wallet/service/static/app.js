@@ -33,7 +33,33 @@ function $(id) {
   return document.getElementById(id);
 }
 
+function closeSpvRepairModal() {
+  const m = $("spv-repair-modal");
+  if (m) m.classList.add("hidden");
+}
+
+async function openSpvRepairModal() {
+  const m = $("spv-repair-modal");
+  const line = $("spv-repair-storage-line");
+  if (!m) return;
+  if (line) line.textContent = "Loading storage path…";
+  try {
+    const st = await api("/api/spv/status");
+    if (line) {
+      const dir = st.storage_dir != null ? String(st.storage_dir) : "—";
+      const hp = st.headers_db_present === true;
+      const path = st.headers_db ? String(st.headers_db) : `${dir}/headers.db`;
+      const fmt = st.headers_db_format ? ` [${String(st.headers_db_format)}]` : "";
+      line.textContent = `Storage: ${dir} — headers.db ${hp ? "present (" + path + ")" + fmt : "not present yet (expected " + path + ")"}`;
+    }
+  } catch {
+    if (line) line.textContent = "Could not load /api/spv/status.";
+  }
+  m.classList.remove("hidden");
+}
+
 function showView(name) {
+  closeSpvRepairModal();
   state.view = name;
   document.querySelectorAll(".nav-item").forEach((b) => {
     b.classList.toggle("active", b.dataset.view === name);
@@ -1075,7 +1101,11 @@ if (btnSpvFull) {
       body: JSON.stringify({ confirm: "RESCAN", mode: "full" }),
     });
     if (out) out.textContent = JSON.stringify(res, null, 2);
-    if (res.error) alert(res.error);
+    if (res.error) {
+      let msg = res.error;
+      if (res.hint) msg += "\n\n" + res.hint;
+      alert(msg);
+    }
     await refreshDashboard();
   });
 }
@@ -1095,10 +1125,21 @@ if (btnSpvRb) {
     const out = $("spv-rescan-out");
     const res = await api("/api/spv/rescan", { method: "POST", body: JSON.stringify(body) });
     if (out) out.textContent = JSON.stringify(res, null, 2);
-    if (res.error) alert(res.error);
+    if (res.error) {
+      let msg = res.error;
+      if (res.hint) msg += "\n\n" + res.hint;
+      alert(msg);
+    }
     await refreshDashboard();
   });
 }
+
+const btnOpenSpvRepair = $("btn-open-spv-repair");
+if (btnOpenSpvRepair) btnOpenSpvRepair.addEventListener("click", () => openSpvRepairModal());
+const spvRepairBackdrop = $("spv-repair-backdrop");
+if (spvRepairBackdrop) spvRepairBackdrop.addEventListener("click", closeSpvRepairModal);
+const btnSpvRepairClose = $("btn-spv-repair-close");
+if (btnSpvRepairClose) btnSpvRepairClose.addEventListener("click", closeSpvRepairModal);
 
 document.getElementById("btn-backup").addEventListener("click", async () => {
   const data = await api("/api/wallet");
@@ -1364,5 +1405,21 @@ if (btnTxCopyRaw) {
 if (typeof Notification !== "undefined" && Notification.permission === "default") {
   Notification.requestPermission().catch(() => {});
 }
+
+(async function initFooterVersion() {
+  try {
+    const r = await fetch("/api/health");
+    const d = await r.json();
+    const el = $("pq-footer-version");
+    if (el && d.app_version) {
+      const bh = d.build_hash != null ? String(d.build_hash) : "";
+      const short = bh.length >= 12 ? bh.slice(0, 12) + "…" : bh;
+      el.textContent = "v" + d.app_version + (short ? " · " + short : "");
+      el.title = "PQ Wallet v" + d.app_version + (bh ? " — " + bh : "");
+    }
+  } catch {
+    /* ignore */
+  }
+})();
 
 refreshWallet();

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,6 +54,7 @@ func (ix *coreIndexer) ensureSchema(ctx context.Context) error {
 			tx_count INTEGER NOT NULL DEFAULT 0,
 			created_at BIGINT NOT NULL DEFAULT 0
 		)`,
+		`CREATE INDEX IF NOT EXISTS qe_core_blocks_time_unix ON qe_core_blocks (time_unix)`,
 		`CREATE TABLE IF NOT EXISTS qe_core_txs (
 			txid TEXT PRIMARY KEY,
 			block_height BIGINT NOT NULL,
@@ -719,39 +721,41 @@ func (ix *coreIndexer) activityBuckets(ctx context.Context, hours int) ([]map[st
 	} else {
 		cutoff = latestHour - int64((hours-1)*3600)
 	}
+	// Cap hourly series length so generate_series + joins stay fast on large chains.
+	const maxActivitySeriesHours = 4000 // ~166 days; wider "all time" views show the latest window only
+	if span := (latestHour-cutoff)/3600 + 1; span > maxActivitySeriesHours {
+		cutoff = latestHour - int64(maxActivitySeriesHours-1)*3600
+	}
+	tEnd := latestHour + 3599
 	rows, err := ix.db.QueryContext(ctx, `
 		WITH txs AS (
 		  SELECT (time_unix/3600)*3600 AS h, COUNT(*)::bigint AS tx_count
 		  FROM qe_core_txs
-		  WHERE time_unix >= $1 AND time_unix <= $2 + 3599
+		  WHERE time_unix >= $1 AND time_unix <= $2
 		  GROUP BY 1
 		),
 		blks AS (
 		  SELECT (time_unix/3600)*3600 AS h, COUNT(*)::bigint AS block_count
 		  FROM qe_core_blocks
-		  WHERE time_unix >= $1 AND time_unix <= $2 + 3599
+		  WHERE time_unix >= $1 AND time_unix <= $2
 		  GROUP BY 1
 		),
 		wallets AS (
-		  SELECT ((b.time_unix/3600)*3600) AS h, COUNT(*)::bigint AS wallet_count
-		  FROM (
-		    SELECT address, MIN(block_height) AS first_height
-		    FROM qe_core_addresses
-		    GROUP BY address
-		  ) f
-		  JOIN qe_core_blocks b ON b.height = f.first_height
-		  WHERE b.time_unix >= $1 AND b.time_unix <= $2 + 3599
+		  SELECT ((b.time_unix/3600)*3600) AS h, COUNT(DISTINCT a.address)::bigint AS wallet_count
+		  FROM qe_core_addresses a
+		  INNER JOIN qe_core_blocks b ON b.height = a.block_height
+		  WHERE b.time_unix >= $1 AND b.time_unix <= $2
 		  GROUP BY 1
 		)
 		SELECT g.h,
 		  COALESCE(txs.tx_count,0) AS tx_count,
 		  COALESCE(blks.block_count,0) AS block_count,
 		  COALESCE(wallets.wallet_count,0) AS wallet_count
-		FROM generate_series($1::bigint, $2::bigint, 3600) AS g(h)
+		FROM generate_series($3::bigint, $4::bigint, 3600) AS g(h)
 		LEFT JOIN txs ON txs.h = g.h
 		LEFT JOIN blks ON blks.h = g.h
 		LEFT JOIN wallets ON wallets.h = g.h
-		ORDER BY g.h`, cutoff, latestHour)
+		ORDER BY g.h`, cutoff, tEnd, cutoff, latestHour)
 	if err != nil {
 		return nil, err
 	}
@@ -1058,6 +1062,79 @@ func (ix *coreIndexer) txRowByID(ctx context.Context, txid string) (rawHex, quan
 		return "", "", "", 0, 0, 0, "", false, err
 	}
 	return rawHex, quantumState, pqReason, blockH, timeUnix, valueOut, strings.ToLower(strings.TrimSpace(blockHash)), true, nil
+}
+
+// pqCarrierCommitmentLookbackBlocks bounds how far back TX_C OP_RETURN commitments are loaded
+// when matching a TX_R in block txRHeight (QE_PQ_CARRIER_COMMITMENT_LOOKBACK_BLOCKS, default 750000).
+func pqCarrierCommitmentLookbackBlocks() int64 {
+	s := strings.TrimSpace(env("QE_PQ_CARRIER_COMMITMENT_LOOKBACK_BLOCKS", "750000"))
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || n < 1440 {
+		return 750000
+	}
+	if n > 5_000_000 {
+		return 5_000_000
+	}
+	return n
+}
+
+// commitmentMapForCarrierVerify indexes Phase-1 OP_RETURN commitments from txs stored as
+// quantum_state=quantum with block_height in [txRHeight-lookback, txRHeight]. First (oldest)
+// occurrence of each commitment hex wins for stable matched_txc_txid.
+func (ix *coreIndexer) commitmentMapForCarrierVerify(ctx context.Context, txRBlockHeight int64) (map[string]map[string]any, error) {
+	if ix == nil || ix.db == nil || txRBlockHeight < 0 {
+		return nil, nil
+	}
+	lb := pqCarrierCommitmentLookbackBlocks()
+	minH := txRBlockHeight - lb
+	if minH < 0 {
+		minH = 0
+	}
+	rows, err := ix.db.QueryContext(ctx, `SELECT txid, raw_hex, block_height FROM qe_core_txs
+		WHERE quantum_state = 'quantum'
+		AND block_height <= $1 AND block_height >= $2
+		AND LENGTH(TRIM(COALESCE(raw_hex,''))) > 0
+		ORDER BY block_height ASC, txid ASC`, txRBlockHeight, minH)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]map[string]any)
+	for rows.Next() {
+		var txid, raw string
+		var bh int64
+		if err := rows.Scan(&txid, &raw, &bh); err != nil {
+			return nil, err
+		}
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		b, err := hex.DecodeString(raw)
+		if err != nil {
+			continue
+		}
+		outs, err := parseTxOutputs(b)
+		if err != nil {
+			continue
+		}
+		for _, o := range outs {
+			if tag, commit, ok := parseCanonicalPQCommitment(o.script); ok {
+				ch := strings.ToLower(strings.TrimSpace(commit))
+				if ch == "" {
+					continue
+				}
+				if _, exists := out[ch]; !exists {
+					out[ch] = map[string]any{
+						"txid":         strings.ToLower(strings.TrimSpace(txid)),
+						"tag":          tag,
+						"block_height": bh,
+					}
+				}
+			}
+		}
+	}
+	return out, rows.Err()
 }
 
 func (ix *coreIndexer) blockTxRows(ctx context.Context, blockHeight int64) ([]map[string]any, error) {

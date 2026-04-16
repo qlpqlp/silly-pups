@@ -10,9 +10,35 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
+
+// migrateLegacyHeadersDB stops spvnode, then if headers.db exists but is not SQLite (older libdogecoin layouts),
+// renames it aside, removes spv_wallet.db and the watch-list file so the next spvnode start creates a fresh SQLite header store.
+func (s *Server) migrateLegacyHeadersDB() (migrated bool, backupPath string, err error) {
+	headersPath := filepath.Join(s.storageDir, "headers.db")
+	st, statErr := os.Stat(headersPath)
+	if statErr != nil {
+		return false, "", nil
+	}
+	if st.IsDir() {
+		return false, "", fmt.Errorf("headers.db is a directory")
+	}
+	if isSQLiteDBFile(headersPath) {
+		return false, "", nil
+	}
+	s.stopSPVNode()
+	backupPath = headersPath + ".legacy." + strconv.FormatInt(time.Now().Unix(), 10)
+	if err := os.Rename(headersPath, backupPath); err != nil {
+		return false, "", fmt.Errorf("backup legacy headers.db: %w", err)
+	}
+	walletDB := filepath.Join(s.storageDir, "spv_wallet.db")
+	_ = os.Remove(walletDB)
+	_ = os.Remove(s.spvWatchAddrPath())
+	return true, backupPath, nil
+}
 
 func isSQLiteDBFile(path string) bool {
 	b := make([]byte, 16)
@@ -151,17 +177,29 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.stopSPVNode()
+		migrated, legacyBackup, migErr := s.migrateLegacyHeadersDB()
+		if migErr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": migErr.Error()})
+			return
+		}
 		_ = os.Remove(walletDB)
-		_ = os.Remove(headersPath)
+		if !migrated {
+			_ = os.Remove(headersPath)
+		}
 		_ = os.Remove(s.spvWatchAddrPath())
 		s.startSPVNode(wf)
-		writeJSON(w, http.StatusOK, map[string]any{
+		out := map[string]any{
 			"ok":              true,
 			"action":          "full_rescan",
 			"removed_headers": headersPath,
 			"removed_wallet":  walletDB,
 			"note":            "SPV will rebuild headers from the bundled checkpoint and rescan watched addresses.",
-		})
+		}
+		if migrated && legacyBackup != "" {
+			out["legacy_headers_renamed_to"] = legacyBackup
+			out["note"] = "Non-SQLite headers.db (legacy install) was renamed aside; SPV will create a new SQLite header store from the bundled checkpoint and rescan watched addresses."
+		}
+		writeJSON(w, http.StatusOK, out)
 		return
 
 	case "ROLLBACK":
@@ -196,11 +234,35 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if _, err := os.Stat(headersPath); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "headers.db missing — use RESCAN (full) instead"})
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"error":        "headers.db missing — rollback needs the SQLite header store on disk",
+				"headers_path": headersPath,
+				"storage_dir":  s.storageDir,
+				"hint": "Dashboard chain tip can come from spv.log (and metrics) before spvnode creates headers.db, or if SPV never wrote this file. Use Full SPV rescan (RESCAN), or wait until GET /api/spv/status shows headers_db_present true. Headers resume in the same directory: headers.db next to spv_wallet.db and spv.log (PQ_STORAGE_DIR, default /storage/pq-wallet in the pup).",
+			})
 			return
 		}
 		if !isSQLiteDBFile(headersPath) {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "headers.db is not a SQLite file; use RESCAN (full) to reset SPV storage"})
+			migrated, legacyBackup, migErr := s.migrateLegacyHeadersDB()
+			if migErr != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": migErr.Error()})
+				return
+			}
+			if !migrated {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "headers.db was not SQLite but disappeared before backup; retry or use RESCAN (full)"})
+				return
+			}
+			_ = os.Remove(walletDB)
+			s.startSPVNode(wf)
+			writeJSON(w, http.StatusOK, map[string]any{
+				"ok":                        true,
+				"action":                    "legacy_headers_migrated",
+				"legacy_headers_renamed_to": legacyBackup,
+				"requested_keep_height":     keepHeight,
+				"height_source":             heightSource,
+				"rollback_block_hash":       hash,
+				"note":                      "headers.db was not SQLite (legacy install). SPV was stopped, the file renamed aside, spv_wallet.db removed, and spvnode restarted. SQLite rollback was not applied to the old file. After headers sync, run rollback again if you still need to trim the new SQLite header chain.",
+			})
 			return
 		}
 		sqlite3Bin, err := exec.LookPath("sqlite3")

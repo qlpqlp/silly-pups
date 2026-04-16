@@ -3,8 +3,36 @@ package main
 import (
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
+
+// trustworthyOriginForCOOP avoids sending COOP/CORP on plain HTTP LAN hosts (browser ignores them and logs noise).
+func trustworthyOriginForCOOP(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		return true
+	}
+	if strings.EqualFold(r.URL.Scheme, "https") {
+		return true
+	}
+	h := strings.ToLower(strings.TrimSpace(r.Host))
+	if h == "" {
+		return false
+	}
+	if strings.HasPrefix(h, "localhost:") || h == "localhost" {
+		return true
+	}
+	if strings.HasPrefix(h, "127.0.0.1:") || h == "127.0.0.1" {
+		return true
+	}
+	if strings.HasPrefix(h, "[::1]:") || h == "[::1]" {
+		return true
+	}
+	return false
+}
 
 type statusWriter struct {
 	http.ResponseWriter
@@ -32,8 +60,10 @@ func withSecurityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
-		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
-		w.Header().Set("Cross-Origin-Resource-Policy", "same-site")
+		if trustworthyOriginForCOOP(r) {
+			w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+			w.Header().Set("Cross-Origin-Resource-Policy", "same-site")
+		}
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'")
 		next.ServeHTTP(w, r)

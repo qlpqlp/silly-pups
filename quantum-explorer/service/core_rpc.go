@@ -120,6 +120,38 @@ func (c *coreRPCClient) call(ctx context.Context, method string, params any, out
 
 // getRawTransactionHex returns raw tx hex via getrawtransaction (verbosity false).
 // For confirmed txs, pass blockHash when the node has no -txindex so Core can locate the tx.
+// getRawTransactionVerboseWithHeight calls getrawtransaction with verbosity true.
+// When the transaction is confirmed, it loads the enclosing block to return height.
+// Unconfirmed or non-indexed transactions return height -1 (caller may still use hex from getRawTransactionHex).
+func (c *coreRPCClient) getRawTransactionVerboseWithHeight(ctx context.Context, txid string) (rawHex string, blockHash string, height int64, err error) {
+	height = -1
+	txid = strings.ToLower(strings.TrimSpace(txid))
+	if len(txid) != 64 || !isHex64String(txid) {
+		return "", "", -1, fmt.Errorf("invalid txid")
+	}
+	var obj map[string]any
+	if err := c.call(ctx, "getrawtransaction", []any{txid, true}, &obj); err != nil {
+		return "", "", -1, err
+	}
+	if h, ok := obj["hex"].(string); ok {
+		rawHex = strings.TrimSpace(h)
+	}
+	if bh, ok := obj["blockhash"].(string); ok {
+		bh = strings.ToLower(strings.TrimSpace(bh))
+		if len(bh) == 64 && isHex64String(bh) {
+			blockHash = bh
+			var blk map[string]any
+			if err := c.call(ctx, "getblock", []any{blockHash, 1}, &blk); err == nil && blk != nil {
+				height = anyInt64(blk["height"])
+			}
+		}
+	}
+	if rawHex == "" {
+		return "", blockHash, height, fmt.Errorf("getrawtransaction: missing hex field")
+	}
+	return rawHex, blockHash, height, nil
+}
+
 func (c *coreRPCClient) getRawTransactionHex(ctx context.Context, txid, blockHash string) (string, error) {
 	if c == nil || !c.enabled() {
 		return "", errors.New("core rpc is not configured")
@@ -138,6 +170,55 @@ func (c *coreRPCClient) getRawTransactionHex(ctx context.Context, txid, blockHas
 		return "", err
 	}
 	return strings.TrimSpace(hexStr), nil
+}
+
+// getVoutScriptPubKeyHex returns the prevout's scriptPubKey hex from a verbose getrawtransaction.
+func (c *coreRPCClient) getVoutScriptPubKeyHex(ctx context.Context, txid string, vout int64) (string, error) {
+	if c == nil || !c.enabled() {
+		return "", errors.New("core rpc is not configured")
+	}
+	txid = strings.ToLower(strings.TrimSpace(txid))
+	if len(txid) != 64 || !isHex64String(txid) || vout < 0 {
+		return "", fmt.Errorf("invalid txid or vout")
+	}
+	var obj map[string]any
+	if err := c.call(ctx, "getrawtransaction", []any{txid, true}, &obj); err != nil {
+		return "", err
+	}
+	vouts, ok := obj["vout"].([]any)
+	if !ok {
+		return "", fmt.Errorf("getrawtransaction: missing vout")
+	}
+	for _, vv := range vouts {
+		vm, ok := vv.(map[string]any)
+		if !ok {
+			continue
+		}
+		var n int64 = -1
+		switch v := vm["n"].(type) {
+		case float64:
+			n = int64(v)
+		case int:
+			n = int64(v)
+		case int64:
+			n = v
+		case json.Number:
+			if x, err := v.Int64(); err == nil {
+				n = x
+			}
+		}
+		if n != vout {
+			continue
+		}
+		spk, ok := vm["scriptPubKey"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if hexStr, ok := spk["hex"].(string); ok && strings.TrimSpace(hexStr) != "" {
+			return strings.ToLower(strings.TrimSpace(hexStr)), nil
+		}
+	}
+	return "", fmt.Errorf("vout %d scriptPubKey.hex not found", vout)
 }
 
 func (c *coreRPCClient) snapshot() map[string]any {

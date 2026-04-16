@@ -168,21 +168,7 @@
               <span class="pill" id="pill-height">height —</span>
             </div>
             <p class="mono hash" id="hdr-hash">—</p>
-          </div>
-          <div class="card spv-rescan-card">
-            <h2><span class="material-symbols-outlined icon-inline">restart_alt</span> SPV repair &amp; rescan</h2>
-            <p class="small muted">If a new receive address is not picking up coins, try <strong>Sync with explorer</strong> on Transactions, then use these controls. Full rescan deletes <code class="mono">headers.db</code> and <code class="mono">spv_wallet.db</code> so <code class="mono">spvnode</code> rebuilds from its embedded checkpoint. Rollback keeps older headers: paste a <strong>block header hash</strong> that already appears in <code class="mono">spv.log</code> as <code class="mono">hash|height|…</code>, or enter a <strong>rollback height</strong> (headers above that height are removed). Rollback needs the <code class="mono">sqlite3</code> tool on the container PATH (included in this pup).</p>
-            <label class="field"><span class="field-label">Block header hash (64 hex, optional if height set)</span>
-              <input type="text" class="input-modern mono" id="spv-rescan-hash" placeholder="0000…" autocomplete="off" spellcheck="false" />
-            </label>
-            <label class="field"><span class="field-label">Rollback height (optional if hash is in spv.log)</span>
-              <input type="text" class="input-modern" id="spv-rescan-height" inputmode="numeric" placeholder="e.g. 4500000" autocomplete="off" />
-            </label>
-            <div class="toolbar toolbar-actions spv-rescan-actions">
-              <button type="button" class="btn" id="btn-spv-rollback"><span class="material-symbols-outlined btn-ico">vertical_align_top</span> Rollback headers &amp; rescan wallet DB</button>
-              <button type="button" class="btn primary" id="btn-spv-full-rescan"><span class="material-symbols-outlined btn-ico">delete_sweep</span> Full SPV rescan</button>
-            </div>
-            <pre id="spv-rescan-out" class="mono small out" aria-live="polite"></pre>
+            <p class="small muted" style="margin:.5rem 0 0">Tip height/hash are parsed from <code class="mono">spv.log</code> (and recent metrics). The on-disk header database <code class="mono">headers.db</code> may appear later — SPV repair lives under <strong>Transactions</strong> (<span class="material-symbols-outlined" style="font-size:1rem;vertical-align:text-bottom" aria-hidden="true">settings_backup_restore</span>).</p>
           </div>
           <div class="charts charts-fullwidth">
             <div class="card chart-card chart-card-wide">
@@ -226,9 +212,14 @@
         </section>
 
         <section id="view-transactions" class="view hidden">
-          <div class="toolbar toolbar-actions">
-            <button type="button" class="btn primary" id="btn-sync-tx"><span class="material-symbols-outlined btn-ico">swap_horiz</span> Sync with explorer</button>
-            <span class="small muted tx-sync-hint" id="tx-sync-hint"></span>
+          <div class="toolbar toolbar-actions tx-toolbar-row">
+            <div class="tx-toolbar-left">
+              <button type="button" class="btn primary" id="btn-sync-tx"><span class="material-symbols-outlined btn-ico">swap_horiz</span> Sync with explorer</button>
+              <span class="small muted tx-sync-hint" id="tx-sync-hint"></span>
+            </div>
+            <button type="button" class="icon-btn tx-spv-repair-btn" id="btn-open-spv-repair" title="SPV repair &amp; rescan" aria-label="SPV repair and rescan">
+              <span class="material-symbols-outlined" aria-hidden="true">settings_backup_restore</span>
+            </button>
           </div>
           <div class="card tx-list-card">
             <div class="tx-list" id="tx-list" role="list" aria-label="Transactions"></div>
@@ -354,9 +345,35 @@
         </button>
       </nav>
 
-      <footer class="footer">
+      <footer class="footer footer-with-version">
         <span>Coded with love to all Dogecoin Community</span>
+        <span class="footer-version mono" id="pq-footer-version" title="PQ Wallet">—</span>
       </footer>
+    </div>
+  </div>
+
+  <div id="spv-repair-modal" class="tx-detail-modal hidden" role="dialog" aria-modal="true" aria-labelledby="spv-repair-title">
+    <div class="tx-detail-modal-backdrop" id="spv-repair-backdrop"></div>
+    <div class="tx-detail-modal-panel card spv-repair-modal-panel">
+      <div class="spv-repair-modal-head">
+        <h2 id="spv-repair-title" style="margin:0;font-size:1.05rem"><span class="material-symbols-outlined icon-inline">restart_alt</span> SPV repair &amp; rescan</h2>
+        <button type="button" class="icon-btn" id="btn-spv-repair-close" aria-label="Close SPV repair dialog">
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
+        </button>
+      </div>
+      <p class="small muted" id="spv-repair-storage-line" style="margin:.35rem 0 .5rem">Loading storage path…</p>
+      <p class="small muted">If a new receive address is not picking up coins, try <strong>Sync with explorer</strong> above, then use these controls. <strong>Full rescan</strong> clears header + wallet scan state so <code class="mono">spvnode</code> rebuilds from its embedded checkpoint (legacy non-SQLite <code class="mono">headers.db</code> is renamed aside automatically). <strong>Rollback</strong> uses <code class="mono">sqlite3</code> on the SQLite header DB: hash from <code class="mono">spv.log</code> or rollback height. If <code class="mono">headers.db</code> was an old non-SQLite format, the server stops SPV, backs it up, clears <code class="mono">spv_wallet.db</code>, and restarts so a new SQLite store can grow; run rollback again after sync if you still need a trimmed chain. The dashboard chain tip can advance from <code class="mono">spv.log</code> before <code class="mono">headers.db</code> exists — use full rescan or wait (<code class="mono">/api/spv/status</code> → <code class="mono">headers_db_present</code>).</p>
+      <label class="field"><span class="field-label">Block header hash (64 hex, optional if height set)</span>
+        <input type="text" class="input-modern mono" id="spv-rescan-hash" placeholder="0000…" autocomplete="off" spellcheck="false" />
+      </label>
+      <label class="field"><span class="field-label">Rollback height (optional if hash is in spv.log)</span>
+        <input type="text" class="input-modern" id="spv-rescan-height" inputmode="numeric" placeholder="e.g. 4500000" autocomplete="off" />
+      </label>
+      <div class="toolbar toolbar-actions spv-rescan-actions">
+        <button type="button" class="btn" id="btn-spv-rollback"><span class="material-symbols-outlined btn-ico">vertical_align_top</span> Rollback headers &amp; rescan wallet DB</button>
+        <button type="button" class="btn primary" id="btn-spv-full-rescan"><span class="material-symbols-outlined btn-ico">delete_sweep</span> Full SPV rescan</button>
+      </div>
+      <pre id="spv-rescan-out" class="mono small out" aria-live="polite"></pre>
     </div>
   </div>
 

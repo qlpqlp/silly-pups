@@ -364,6 +364,23 @@ body {
   border-top: 1px solid var(--border);
 }
 
+.footer-with-version {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.footer-with-version .footer-version {
+  flex: 0 0 auto;
+  margin-left: auto;
+  text-align: right;
+  font-size: 0.76rem;
+  letter-spacing: 0.02em;
+  opacity: 0.92;
+}
+
 .card {
   background: var(--card);
   border: 1px solid var(--border);
@@ -1772,6 +1789,45 @@ a {
   border-radius: 6px;
 }
 
+.tx-toolbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.tx-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.tx-spv-repair-btn {
+  flex-shrink: 0;
+  opacity: 0.72;
+}
+
+.tx-spv-repair-btn:hover {
+  opacity: 1;
+}
+
+.spv-repair-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.spv-repair-modal-panel {
+  max-height: min(88vh, 720px);
+  overflow-y: auto;
+}
+
 /* Mobile bottom tab bar */
 .mobile-tabbar {
   display: none;
@@ -1867,6 +1923,11 @@ a {
   #view-transactions .toolbar-actions {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  #view-transactions .tx-spv-repair-btn {
+    align-self: flex-end;
+    width: auto;
   }
 
   #view-addresses .toolbar-actions .btn,

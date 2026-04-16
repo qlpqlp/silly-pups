@@ -12,280 +12,590 @@
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@400" rel="stylesheet" />
   <style>
     :root {
-      --bg:#070b10; --surface:#0f1620; --card:#121a26; --txt:#e8eef8; --muted:#8b9cb8;
-      --line:#2a3a52; --ok:#3dd68f; --bad:#ff7a7a; --doge:#f2cb2c; --term-bg:#0a0e14; --term-fg:#b8e7c8; --accent:#5ecfff;
+      --bg: #070b10;
+      --surface: #0f1620;
+      --card: #121a26;
+      --txt: #e8eef8;
+      --muted: #8b9cb8;
+      --line: #2a3a52;
+      --ok: #3dd68f;
+      --bad: #ff7a7a;
+      --doge: #f2cb2c;
+      --term-bg: #0a0e14;
+      --term-fg: #b8e7c8;
+      --accent: #5ecfff;
+      --border: var(--line);
+      --text: var(--txt);
+      --sidebar-w: 260px;
+      --sidebar-collapsed: 72px;
     }
-    * { box-sizing:border-box; }
-    body { margin:0; font-family:"DM Sans",system-ui,sans-serif; background:radial-gradient(1200px 800px at 100% -20%,#1a2840 0,var(--bg) 55%); color:var(--txt); min-height:100vh; }
-    .layout { display:flex; min-height:100vh; }
-    .sidebar { width:250px; border-right:1px solid var(--line); background:rgba(10,15,23,.9); backdrop-filter:blur(6px); padding:.8rem .65rem; transition:width .18s ease; position:sticky; top:0; height:100vh; overflow:auto; }
-    .sidebar.collapsed { width:78px; }
-    .sidebar-head { display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin-bottom:.8rem; }
-    .side-logo { display:flex; align-items:center; gap:.45rem; font-weight:700; }
-    .side-logo img { width:26px; height:26px; border-radius:7px; border:1px solid var(--line); background:#0b121a; object-fit:cover; }
-    .side-nav { display:grid; gap:.35rem; }
-    .side-nav button { width:100%; text-align:left; display:flex; align-items:center; gap:.5rem; background:#0f1620; border:1px solid var(--line); border-radius:10px; padding:.52rem .58rem; color:var(--txt); }
-    .side-nav button.active { border-color:var(--accent); background:#122033; }
-    .sidebar.collapsed .side-label, .sidebar.collapsed .side-logo span:last-child { display:none; }
-    .main { flex:1; min-width:0; }
-    .topbar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.75rem; padding:1rem 1.25rem; border-bottom:1px solid var(--line); background:rgba(15,22,32,.85); backdrop-filter:blur(8px); position:sticky; top:0; z-index:10; }
-    .topbar h1 { margin:0; font-size:1.25rem; font-weight:700; letter-spacing:-.02em; display:flex; align-items:center; gap:.45rem; }
-    .brand-icon { width:26px; height:26px; border-radius:8px; border:1px solid var(--line); background:#0b121a; object-fit:cover; }
-    .pills { display:flex; flex-wrap:wrap; gap:.4rem; }
-    .pill { font-size:.72rem; font-weight:600; padding:.28rem .55rem; border-radius:999px; border:1px solid var(--line); background:var(--surface); }
-    .pill.ok { border-color:rgba(61,214,143,.5); color:var(--ok); }
-    .pill.bad { border-color:rgba(255,122,122,.5); color:var(--bad); }
-    .wrap { max-width:1100px; margin:0 auto; padding:1rem 1.25rem 2.5rem; min-width:0; }
-    .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:1rem 1.15rem; margin-bottom:1rem; box-shadow:0 8px 32px rgba(0,0,0,.25); min-width:0; overflow:hidden; }
-    h2 { margin:0 0 .65rem; font-size:1.05rem; font-weight:700; }
-    h3 { margin:.85rem 0 .45rem; font-size:.88rem; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.06em; }
-    .muted { color:var(--muted); font-size:.88rem; line-height:1.45; }
-    .row { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
-    input,button { font:inherit; border-radius:12px; border:1px solid var(--line); padding:.55rem .75rem; }
-    input { background:#0c121a; color:var(--txt); min-width:180px; }
-    button { background:var(--surface); color:var(--txt); cursor:pointer; transition:transform .1s, border-color .15s; }
-    button:hover { border-color:var(--accent); }
-    button:active { transform:scale(.98); }
-    button.warn { border-color:#a65; background:#2a1a12; color:#ffd7b0; }
-    button.primary { border:none; background:linear-gradient(135deg,var(--doge),#c49a12); color:#1a1408; font-weight:700; }
-    button.ghost { background:transparent; border-color:var(--line); color:var(--muted); font-size:.82rem; padding:.4rem .6rem; }
-    .mono { font-family:"JetBrains Mono",ui-monospace,monospace; overflow-wrap:anywhere; word-break:break-word; }
-    .status-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:.5rem; font-size:.82rem; }
-    .status-item { padding:.5rem .6rem; border-radius:12px; border:1px solid var(--line); background:#0c121a; }
-    .status-item strong { display:block; font-size:.65rem; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:.2rem; }
-    /* Terminal log */
-    .log-panel { border:1px solid #1e3d2f; border-radius:14px; overflow:hidden; background:var(--term-bg); }
-    .log-head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.5rem; padding:.55rem .75rem; background:linear-gradient(90deg,rgba(94,207,255,.08),transparent); border-bottom:1px solid #1a3028; }
-    .log-head span { font-size:.75rem; color:#6a9e8a; font-family:"JetBrains Mono",monospace; }
-    .log-body { margin:0; padding:.85rem 1rem; max-height:min(70vh,520px); overflow:auto; font-family:"JetBrains Mono",monospace; font-size:.72rem; line-height:1.5; color:var(--term-fg); white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; tab-size:4; }
-    .log-body.wrap-off { white-space:pre; overflow-x:auto; }
-    details.json-details { margin:.5rem 0; border:1px solid var(--line); border-radius:12px; padding:0 .65rem; background:#0c121a; }
-    details.json-details summary { cursor:pointer; padding:.6rem 0; font-weight:600; font-size:.85rem; color:var(--accent); }
-    details.json-details pre { margin:0 0 .65rem; font-size:.72rem; max-height:14rem; overflow:auto; color:var(--muted); white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; }
-    .grid2 { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:.65rem; min-width:0; }
-    @media (max-width:800px){ .grid2 { grid-template-columns:1fr; } }
-    .diag-mini { font-size:.72rem; max-height:12rem; overflow:auto; padding:.6rem; border-radius:10px; border:1px solid var(--line); background:#0c121a; color:var(--muted); white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; min-width:0; }
-    #diag-error { padding:.6rem; border-radius:10px; background:rgba(255,100,100,.1); border:1px solid rgba(255,100,100,.35); }
-    .title-ico { font-size:18px; vertical-align:middle; margin-right:.35rem; color:var(--doge); }
-    .btn-ico { display:inline-flex; align-items:center; gap:.32rem; }
-    .btn-ico .material-symbols-outlined { font-size:17px; line-height:1; }
-    .panel { display:none; }
-    .panel.active { display:block; }
-    .docs-modern { padding:1.05rem; background:linear-gradient(180deg,#111c2b 0%,#0f1724 100%); }
-    .docs-modern-head { display:flex; align-items:center; gap:.6rem; margin-bottom:.75rem; }
-    .docs-modern-head .material-symbols-outlined { color:var(--doge); }
-    .docs-modern-head h2 { margin:0; }
-    .docs-modern-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:.7rem; }
-    .docs-modern-card { border:1px solid var(--line); border-radius:14px; background:#0d1521; padding:.7rem .75rem; }
-    .docs-modern-card h3 { margin:.1rem 0 .35rem; color:var(--accent); font-size:.86rem; text-transform:none; letter-spacing:0; }
-    .docs-modern-list { margin:.25rem 0 0 1rem; padding:0; }
-    .docs-modern-list li { color:var(--muted); font-size:.81rem; line-height:1.4; margin:.2rem 0; }
-    .docs-kbd { font-family:"JetBrains Mono",ui-monospace,monospace; font-size:.73rem; border:1px solid var(--line); border-radius:8px; padding:.1rem .35rem; background:#0b121a; color:#cce4ff; }
-    textarea { max-width:100%; }
-    @media (max-width:980px){
-      .sidebar { width:78px; }
-      .sidebar .side-label, .sidebar .side-logo span:last-child { display:none; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "DM Sans", system-ui, sans-serif; background: radial-gradient(1200px 800px at 100% -20%, #1a2840 0, var(--bg) 55%); color: var(--txt); min-height: 100vh; }
+    .material-symbols-outlined {
+      font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+      vertical-align: middle;
     }
-    @media (max-width:620px){
-      .wrap { padding:.8rem .65rem 1.4rem; }
-      .card { padding:.8rem .75rem; }
-      .status-grid { grid-template-columns:1fr; }
-      .log-body { padding:.7rem .72rem; }
+    .icon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.35rem;
+    }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    .app { display: flex; min-height: 100vh; }
+    .sidebar {
+      width: var(--sidebar-w);
+      min-height: 100vh;
+      height: 100vh;
+      position: sticky;
+      top: 0;
+      align-self: flex-start;
+      background: linear-gradient(180deg, #121a26 0%, #0d1218 100%);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      transition: width 0.22s ease, transform 0.22s ease;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+    @media (min-width: 901px) {
+      .sidebar.collapsed { width: var(--sidebar-collapsed); }
+      .sidebar.collapsed .sidebar-titles,
+      .sidebar.collapsed .nav-txt,
+      .sidebar.collapsed .sidebar-sub,
+      .sidebar.collapsed .sidebar-foot { display: none; }
+      .sidebar.collapsed .sidebar-logo { display: none; }
+      .sidebar.collapsed .sidebar-brand {
+        justify-content: center;
+        padding: 0.85rem 0.35rem;
+        gap: 0;
+      }
+      .sidebar.collapsed .sidebar-toggle { margin-left: 0; }
+    }
+    .sidebar-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      padding: 1rem 0.85rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-logo {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: #0b121a;
+      object-fit: cover;
+      flex-shrink: 0;
+    }
+    .sidebar-titles { display: flex; flex-direction: column; min-width: 0; }
+    .sidebar-name { font-weight: 700; font-size: 0.95rem; letter-spacing: -0.02em; }
+    .sidebar-sub { font-size: 0.72rem; color: var(--muted); }
+    .sidebar-toggle {
+      margin-left: auto;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 8px;
+      width: 2rem;
+      height: 2rem;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .sidebar-toggle:hover { color: var(--txt); }
+    .sidebar-nav {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      padding: 0.75rem 0.5rem;
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      width: 100%;
+      text-align: left;
+      padding: 0.55rem 0.65rem;
+      border-radius: 10px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.92rem;
+      font-family: inherit;
+    }
+    .nav-item:hover { background: rgba(255, 255, 255, 0.04); color: var(--txt); }
+    .nav-item.active {
+      background: rgba(242, 203, 44, 0.12);
+      border-color: rgba(242, 203, 44, 0.35);
+      color: var(--txt);
+    }
+    .nav-ico { width: 1.5rem; text-align: center; opacity: 0.9; font-size: 1.25rem !important; }
+    .sidebar-foot {
+      flex-shrink: 0;
+      margin-top: auto;
+      padding: 0.75rem 0.65rem 0.85rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+    .sidebar-foot-row {
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+      gap: 0.5rem;
+    }
+    .sidebar-foot .sidebar-foundation {
+      display: flex;
+      justify-content: flex-start;
+      align-items: center;
+      line-height: 0;
+      opacity: 0.92;
+      flex: 0 0 auto;
+      width: auto;
+    }
+    .sidebar-foot .sidebar-foundation:hover {
+      opacity: 1;
+    }
+    .sidebar-foundation-logo {
+      display: block;
+      height: 22px;
+      width: auto;
+      max-width: min(130px, 48vw);
+      object-fit: contain;
+      object-position: left center;
+      filter: invert(1) brightness(1.15);
+    }
+    .sidebar-pup-version {
+      flex: 0 0 auto;
+      font-size: 0.72rem;
+      color: var(--muted);
+      text-align: right;
+      letter-spacing: 0.02em;
+      opacity: 0.92;
+    }
+    .main-wrap {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      background: radial-gradient(900px 500px at 80% -10%, #1a2334 0%, var(--bg) 55%);
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1.25rem 1.5rem 0.5rem;
+      gap: 1rem;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .topbar-titles {
+      flex: 1;
+      min-width: 0;
+    }
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-shrink: 0;
+    }
+    .page-title-row {
+      margin: 0;
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      min-width: 0;
+      cursor: default;
+    }
+    .page-title-ico {
+      font-size: 1.45rem !important;
+      flex-shrink: 0;
+      opacity: 0.95;
+      color: var(--doge);
+    }
+    .page-title-row #page-title-text {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .page-sub {
+      margin: 0.25rem 0 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .page-sub.sr-only {
+      margin: 0;
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.25rem 0.6rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .mobile-menu-btn {
+      display: none;
+      flex-shrink: 0;
+      align-items: center;
+      justify-content: center;
+      width: 2.5rem;
+      height: 2.5rem;
+      margin-top: 0.15rem;
+      padding: 0;
+      border-radius: 10px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--doge);
+      cursor: pointer;
+    }
+    .mobile-menu-btn:hover {
+      color: var(--txt);
+      border-color: var(--accent);
+    }
+    @media (max-width: 900px) {
+      .mobile-menu-btn {
+        display: inline-flex;
+      }
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 1rem 1.25rem 2.5rem; min-width: 0; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 1rem 1.15rem; margin-bottom: 1rem; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25); min-width: 0; overflow: hidden; }
+    h2 { margin: 0 0 0.65rem; font-size: 1.05rem; font-weight: 700; }
+    h3 { margin: 0.85rem 0 0.45rem; font-size: 0.88rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+    .muted { color: var(--muted); font-size: 0.88rem; line-height: 1.45; }
+    .row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+    input, button { font: inherit; border-radius: 12px; border: 1px solid var(--line); padding: 0.55rem 0.75rem; }
+    input { background: #0c121a; color: var(--txt); min-width: 180px; }
+    button { background: var(--surface); color: var(--txt); cursor: pointer; transition: transform 0.1s, border-color 0.15s; }
+    button:hover { border-color: var(--accent); }
+    button:active { transform: scale(0.98); }
+    button.warn { border-color: #a65; background: #2a1a12; color: #ffd7b0; }
+    button.primary { border: none; background: linear-gradient(135deg, var(--doge), #c49a12); color: #1a1408; font-weight: 700; }
+    button.ghost { background: transparent; border-color: var(--line); color: var(--muted); font-size: 0.82rem; padding: 0.4rem 0.6rem; }
+    .mono { font-family: "JetBrains Mono", ui-monospace, monospace; overflow-wrap: anywhere; word-break: break-word; }
+    .status-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.5rem; font-size: 0.82rem; }
+    .status-item { padding: 0.5rem 0.6rem; border-radius: 12px; border: 1px solid var(--line); background: #0c121a; }
+    .status-item strong { display: block; font-size: 0.65rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.2rem; }
+    .log-panel { border: 1px solid #1e3d2f; border-radius: 14px; overflow: hidden; background: var(--term-bg); }
+    .log-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.55rem 0.75rem; background: linear-gradient(90deg, rgba(94, 207, 255, 0.08), transparent); border-bottom: 1px solid #1a3028; }
+    .log-head span { font-size: 0.75rem; color: #6a9e8a; font-family: "JetBrains Mono", monospace; }
+    .log-body { margin: 0; padding: 0.85rem 1rem; max-height: min(70vh, 520px); overflow: auto; font-family: "JetBrains Mono", monospace; font-size: 0.72rem; line-height: 1.5; color: var(--term-fg); white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; tab-size: 4; }
+    .log-body.wrap-off { white-space: pre; overflow-x: auto; }
+    details.json-details { margin: 0.5rem 0; border: 1px solid var(--line); border-radius: 12px; padding: 0 0.65rem; background: #0c121a; }
+    details.json-details summary { cursor: pointer; padding: 0.6rem 0; font-weight: 600; font-size: 0.85rem; color: var(--accent); }
+    details.json-details pre { margin: 0 0 0.65rem; font-size: 0.72rem; max-height: 14rem; overflow: auto; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+    .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.65rem; min-width: 0; }
+    @media (max-width: 800px) { .grid2 { grid-template-columns: 1fr; } }
+    .diag-mini { font-size: 0.72rem; max-height: 12rem; overflow: auto; padding: 0.6rem; border-radius: 10px; border: 1px solid var(--line); background: #0c121a; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; min-width: 0; }
+    #diag-error { padding: 0.6rem; border-radius: 10px; background: rgba(255, 100, 100, 0.1); border: 1px solid rgba(255, 100, 100, 0.35); }
+    .title-ico { font-size: 18px; vertical-align: middle; margin-right: 0.35rem; color: var(--doge); }
+    .btn-ico { display: inline-flex; align-items: center; gap: 0.32rem; }
+    .btn-ico .material-symbols-outlined { font-size: 17px; line-height: 1; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .docs-modern { padding: 1.05rem; background: linear-gradient(180deg, #111c2b 0%, #0f1724 100%); }
+    .docs-modern-head { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.75rem; }
+    .docs-modern-head .material-symbols-outlined { color: var(--doge); }
+    .docs-modern-head h2 { margin: 0; }
+    .docs-modern-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.7rem; }
+    .docs-modern-card { border: 1px solid var(--line); border-radius: 14px; background: #0d1521; padding: 0.7rem 0.75rem; }
+    .docs-modern-card h3 { margin: 0.1rem 0 0.35rem; color: var(--accent); font-size: 0.86rem; text-transform: none; letter-spacing: 0; }
+    .docs-modern-list { margin: 0.25rem 0 0 1rem; padding: 0; }
+    .docs-modern-list li { color: var(--muted); font-size: 0.81rem; line-height: 1.4; margin: 0.2rem 0; }
+    .docs-kbd { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.73rem; border: 1px solid var(--line); border-radius: 8px; padding: 0.1rem 0.35rem; background: #0b121a; color: #cce4ff; }
+    textarea { max-width: 100%; }
+    @media (max-width: 900px) {
+      .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        z-index: 40;
+        width: var(--sidebar-w) !important;
+        height: 100svh;
+        max-height: 100svh;
+        min-height: 0;
+        box-shadow: 8px 0 32px rgba(0, 0, 0, 0.35);
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+      }
+      @supports (height: 100dvh) {
+        .sidebar { height: 100dvh; max-height: 100dvh; }
+      }
+      .sidebar .sidebar-nav { flex: 1 1 0%; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+      .sidebar .sidebar-foot { flex-shrink: 0; margin-top: auto; }
+      .sidebar.sidebar-drawer-closed { transform: translateX(-100%); pointer-events: none; }
+      .sidebar:not(.sidebar-drawer-closed) { pointer-events: auto; z-index: 60; }
+      .main-wrap { margin-left: 0; }
+    }
+    @media (max-width: 620px) {
+      .wrap { padding: 0.8rem 0.65rem 1.4rem; }
+      .card { padding: 0.8rem 0.75rem; }
+      .status-grid { grid-template-columns: 1fr; }
+      .log-body { padding: 0.7rem 0.72rem; }
     }
   </style>
 </head>
 <body>
-  <div class="layout">
-  <aside class="sidebar" id="sidebar">
-    <div class="sidebar-head">
-      <div class="side-logo">
-        <img src="/logo.png" alt="Quantum Explorer logo" />
-        <span>QE Admin</span>
-      </div>
-      <button type="button" class="ghost" id="btn-sidebar-collapse" title="Collapse sidebar"><span class="material-symbols-outlined" aria-hidden="true">left_panel_close</span></button>
-    </div>
-    <nav class="side-nav">
-      <button type="button" class="active" data-panel="panel-status"><span class="material-symbols-outlined" aria-hidden="true">monitor_heart</span><span class="side-label">Status</span></button>
-      <button type="button" data-panel="panel-controls"><span class="material-symbols-outlined" aria-hidden="true">tune</span><span class="side-label">Controls</span></button>
-      <button type="button" data-panel="panel-commands"><span class="material-symbols-outlined" aria-hidden="true">terminal</span><span class="side-label">Commands</span></button>
-      <button type="button" data-panel="panel-diagnostics"><span class="material-symbols-outlined" aria-hidden="true">troubleshoot</span><span class="side-label">Diagnostics</span></button>
-      <button type="button" data-panel="panel-access"><span class="material-symbols-outlined" aria-hidden="true">vpn_key</span><span class="side-label">Access Policy</span></button>
-      <button type="button" data-panel="panel-docs"><span class="material-symbols-outlined" aria-hidden="true">menu_book</span><span class="side-label">Documentation</span></button>
-    </nav>
-  </aside>
-  <main class="main">
-  <header class="topbar">
-    <h1><img src="/logo.png" alt="" class="brand-icon" />Quantum Explorer — Admin</h1>
-    <div class="row">
-      <div class="pills" id="pill-wrap">
-        <span class="pill" id="pill-backend">…</span>
-        <span class="pill" id="pill-core">Core …</span>
-      </div>
-    </div>
-  </header>
-
-  <div class="wrap">
-    <p class="muted" style="margin:0 0 1rem">Token in URL path. Logs below refresh automatically; use <strong>Copy log</strong> for support tickets.</p>
-    <section class="card panel docs-modern" id="panel-docs">
-      <div class="docs-modern-head">
-        <span class="material-symbols-outlined" aria-hidden="true">menu_book</span>
-        <h2>Admin documentation</h2>
-      </div>
-      <p class="muted" style="margin-top:0">Operational runbook for secure deployment and maintenance.</p>
-      <div class="docs-modern-grid">
-        <article class="docs-modern-card">
-          <h3>Baseline setup</h3>
-          <ul class="docs-modern-list">
-            <li>Set <span class="docs-kbd">QE_ADMIN_TOKEN</span> to a strong random value.</li>
-            <li>Use <span class="docs-kbd">QE_ADMIN_ALLOWLIST</span> for office/VPN IP access.</li>
-            <li>Set <span class="docs-kbd">NETWORK</span> and <span class="docs-kbd">PUBLIC_PORT</span> correctly.</li>
-            <li>Keep <span class="docs-kbd">QE_CORE_INDEXER_AUTO_START=1</span> for unattended indexing when Core RPC is set.</li>
-          </ul>
-        </article>
-        <article class="docs-modern-card">
-          <h3>Core indexing</h3>
-          <ul class="docs-modern-list">
-            <li>Set <span class="docs-kbd">QE_POSTGRES_URL</span> for production backend.</li>
-            <li>Configure Core RPC URL/user/password.</li>
-            <li>Tune: <span class="docs-kbd">QE_CORE_INDEXER_AUTO_START</span>, <span class="docs-kbd">QE_CORE_BACKFILL_BATCH</span>, <span class="docs-kbd">QE_CORE_START_HEIGHT</span>.</li>
-            <li>Monitor via <span class="docs-kbd">/api/admin/&lt;TOKEN&gt;/core-indexer/status</span>.</li>
-            <li>PQ Phase-1 validation uses canonical commitment output: <span class="docs-kbd">6a24 + FLC1/DIL2/RCG4 + 32-byte commitment</span>.</li>
-            <li>Carrier TX_R parsing verifies <span class="docs-kbd">SHA256(pubkey||signature)</span> against matched TX_C commitment when payload is present in the same block.</li>
-          </ul>
-        </article>
-        <article class="docs-modern-card">
-          <h3>Public API security</h3>
-          <ul class="docs-modern-list">
-            <li>Protect endpoints with token + allowlist policy in Access panel.</li>
-            <li>Use per-user tokens in client JSON for traceability.</li>
-            <li>Harden with rate limits (<span class="docs-kbd">QE_PUBLIC_RATE_LIMIT</span>, <span class="docs-kbd">QE_PUBLIC_RATE_WINDOW_SEC</span>).</li>
-          </ul>
-        </article>
-        <article class="docs-modern-card">
-          <h3>Service controls</h3>
-          <ul class="docs-modern-list">
-            <li>Core indexer controls backfill/search ingestion.</li>
-            <li>Validate after actions using Status + Diagnostics panels.</li>
-          </ul>
-        </article>
-        <article class="docs-modern-card">
-          <h3>Troubleshooting flow</h3>
-          <ul class="docs-modern-list">
-            <li>Check <span class="docs-kbd">/healthz</span> and <span class="docs-kbd">/readyz</span>.</li>
-            <li>Inspect diagnostics JSON for Core RPC and indexer state.</li>
-            <li>Review Core RPC and indexer diagnostics state.</li>
-            <li>Verify Postgres and Core RPC credentials/network.</li>
-          </ul>
-        </article>
-      </div>
-    </section>
-
-    <section class="card panel active" id="panel-status">
-      <h2><span class="material-symbols-outlined title-ico" aria-hidden="true">monitor_heart</span>Runtime status</h2>
-      <div id="status" class="status-grid mono muted">Loading…</div>
-      <p class="muted" style="margin:.75rem 0 0">Use <strong>Diagnostics</strong> for sanitized environment and chain/indexer JSON. Status refreshes every few seconds.</p>
-      <p class="muted" id="diag-time" style="margin:.5rem 0 0;font-size:.78rem"></p>
-      <div id="diag-error" class="bad mono" style="display:none;margin-top:.5rem"></div>
-    </section>
-
-    <section class="card panel" id="panel-controls">
-      <h2><span class="material-symbols-outlined title-ico" aria-hidden="true">tune</span>Service controls</h2>
-      <p class="muted" style="margin-top:0">Core indexer controls and PostgreSQL runtime status.</p>
-      <div class="status-grid mono muted" id="pg-status-grid" style="margin-bottom:.7rem"></div>
-      <h3>Core backfill indexer</h3>
-      <div class="row">
-        <button type="button" id="c-start"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">play_arrow</span>Start</span></button>
-        <button type="button" id="c-stop"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">stop</span>Stop</span></button>
-        <button type="button" id="c-status"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">info</span>Status</span></button>
-      </div>
-      <h3 style="margin-top:.9rem">Core start block</h3>
-      <div class="row">
-        <input id="cp-height" type="number" placeholder="Start block height (default 6147099)" />
-        <button type="button" id="cp-save"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">save</span>Submit start block</span></button>
-      </div>
-      <p class="muted">Submit checks PostgreSQL first. If the block already exists, it will not re-index duplicates and only continues adding missing/new blocks.</p>
-    </section>
-
-    <section class="card panel" id="panel-commands">
-      <h2><span class="material-symbols-outlined title-ico" aria-hidden="true">terminal</span>Commands</h2>
-      <p class="muted" style="margin-top:0">Query Dogecoin Core RPC directly using a block height, block hash, or transaction id. The result verifies each transaction for canonical Phase-1 quantum commitments.</p>
-      <div class="row">
-        <input id="cmd-q" class="mono" placeholder="Block height (e.g. 6156590) or 64-char txid/block hash" style="flex:1 1 520px" />
-        <button type="button" class="primary" id="cmd-run"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">play_arrow</span>Run</span></button>
-      </div>
-      <h3>Result</h3>
-      <pre class="diag-mini mono" id="cmd-out">Awaiting command…</pre>
-    </section>
-
-    <section class="card panel" id="panel-diagnostics">
-      <h2><span class="material-symbols-outlined title-ico" aria-hidden="true">troubleshoot</span>Diagnostics</h2>
-      <div class="grid2">
-        <div>
-          <h3>Chain index</h3>
-          <pre class="diag-mini mono" id="diag-chain">…</pre>
+  <div class="app">
+    <aside class="sidebar sidebar-drawer-closed" id="sidebar" aria-label="Admin navigation">
+      <div class="sidebar-brand">
+        <img src="/logo.png" alt="" width="40" height="40" class="sidebar-logo" />
+        <div class="sidebar-titles">
+          <span class="sidebar-name">Quantum Explorer</span>
+          <span class="sidebar-sub">Admin</span>
         </div>
-        <div>
-          <h3>Core indexer</h3>
-          <pre class="diag-mini mono" id="diag-cidx">…</pre>
+        <button type="button" class="sidebar-toggle icon-btn" id="btn-sidebar-toggle" title="Collapse sidebar" aria-expanded="true">
+          <span class="material-symbols-outlined" aria-hidden="true">menu_open</span>
+        </button>
+      </div>
+      <nav class="sidebar-nav">
+        <button type="button" class="nav-item active" data-panel="panel-status" data-page-title="Status" data-page-ico="monitor_heart"><span class="material-symbols-outlined nav-ico" aria-hidden="true">monitor_heart</span><span class="nav-txt">Status</span></button>
+        <button type="button" class="nav-item" data-panel="panel-controls" data-page-title="Controls" data-page-ico="tune"><span class="material-symbols-outlined nav-ico" aria-hidden="true">tune</span><span class="nav-txt">Controls</span></button>
+        <button type="button" class="nav-item" data-panel="panel-commands" data-page-title="Commands" data-page-ico="terminal"><span class="material-symbols-outlined nav-ico" aria-hidden="true">terminal</span><span class="nav-txt">Commands</span></button>
+        <button type="button" class="nav-item" data-panel="panel-diagnostics" data-page-title="Diagnostics" data-page-ico="troubleshoot"><span class="material-symbols-outlined nav-ico" aria-hidden="true">troubleshoot</span><span class="nav-txt">Diagnostics</span></button>
+        <button type="button" class="nav-item" data-panel="panel-access" data-page-title="Access Policy" data-page-ico="vpn_key"><span class="material-symbols-outlined nav-ico" aria-hidden="true">vpn_key</span><span class="nav-txt">Access Policy</span></button>
+        <button type="button" class="nav-item" data-panel="panel-docs" data-page-title="Documentation" data-page-ico="menu_book"><span class="material-symbols-outlined nav-ico" aria-hidden="true">menu_book</span><span class="nav-txt">Documentation</span></button>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="sidebar-foot-row">
+          <a class="sidebar-foundation" href="https://foundation.dogecoin.com/" target="_blank" rel="noopener noreferrer" title="Dogecoin Foundation">
+            <img src="https://lib.dogecoin.org/img/dogecoin-foundation.svg" alt="Dogecoin Foundation" class="sidebar-foundation-logo" />
+          </a>
+          <span class="sidebar-pup-version mono" id="sidebar-pup-version" title="Quantum Explorer pup version">—</span>
         </div>
       </div>
-      <details class="json-details"><summary>Environment (sanitized)</summary>
-        <pre class="mono" id="diag-env">…</pre>
-      </details>
-      <details class="json-details"><summary>PQ tx store file</summary>
-        <pre class="mono" id="diag-pqtx">…</pre>
-      </details>
-      <details class="json-details"><summary>Full JSON bundle (copy)</summary>
-        <pre class="mono" id="diag-full">…</pre>
-      </details>
-    </section>
+    </aside>
 
-    <section class="card panel" id="panel-access">
-      <h2><span class="material-symbols-outlined title-ico" aria-hidden="true">vpn_key</span>Access control (admin-managed)</h2>
-      <p class="muted" style="margin-top:0">Set tokens and IP policies here. Changes are persisted and applied without restarting the service.</p>
-      <div class="grid2">
-        <div>
-          <h3>Admin allowlist IPs (comma-separated)</h3>
-          <input id="ac-admin-ips" placeholder="1.2.3.4,5.6.7.8" />
-          <h3>Global public token (optional)</h3>
-          <input id="ac-public-token" placeholder="token for protected routes" />
-          <h3>Global public allowlist IPs (optional)</h3>
-          <input id="ac-public-ips" placeholder="1.2.3.4,8.8.8.8" />
-          <h3>Protected public paths</h3>
-          <input id="ac-protected-paths" placeholder="/api/public/core/search,/api/public/core/summary" />
-          <h3>Rate limit</h3>
-          <div class="row">
-            <input id="ac-rate-limit" type="number" placeholder="120" />
-            <input id="ac-rate-window" type="number" placeholder="60" />
+    <div class="main-wrap">
+      <header class="topbar">
+        <button type="button" class="mobile-menu-btn icon-btn" id="btn-mobile-menu" aria-label="Open navigation menu" title="Menu">
+          <span class="material-symbols-outlined" aria-hidden="true">menu</span>
+        </button>
+        <div class="topbar-titles">
+          <h1 id="page-title" class="page-title-row" title="">
+            <span class="material-symbols-outlined page-title-ico" id="page-title-ico" aria-hidden="true">monitor_heart</span>
+            <span id="page-title-text">Status</span>
+          </h1>
+          <p class="page-sub sr-only" id="page-sub">Quantum Explorer admin</p>
+        </div>
+        <div class="topbar-actions">
+          <span class="badge" id="net-badge">mainnet</span>
+        </div>
+      </header>
+
+      <div class="wrap">
+        <p class="muted" style="margin: 0 0 1rem">Token in URL path. Logs below refresh automatically; use <strong>Copy log</strong> for support tickets.</p>
+        <section class="card panel docs-modern" id="panel-docs">
+          <div class="docs-modern-head">
+            <span class="material-symbols-outlined" aria-hidden="true">menu_book</span>
+            <h2>Admin documentation</h2>
           </div>
-        </div>
-        <div>
-          <h3>Per-user API clients JSON</h3>
-          <p class="muted" style="margin-top:0">Each user can have its own token and IP allowlist.</p>
-          <textarea id="ac-clients-json" class="mono" style="width:100%;min-height:190px;background:#0c121a;color:var(--txt);border:1px solid var(--line);border-radius:12px;padding:.6rem"></textarea>
-          <pre class="diag-mini mono" style="margin-top:.55rem">[
+          <p class="muted" style="margin-top: 0">Operational runbook for secure deployment and maintenance.</p>
+          <div class="docs-modern-grid">
+            <article class="docs-modern-card">
+              <h3>Baseline setup</h3>
+              <ul class="docs-modern-list">
+                <li>Set <span class="docs-kbd">QE_ADMIN_TOKEN</span> to a strong random value.</li>
+                <li>Use <span class="docs-kbd">QE_ADMIN_ALLOWLIST</span> for office/VPN IP access.</li>
+                <li>Set <span class="docs-kbd">NETWORK</span> and <span class="docs-kbd">PUBLIC_PORT</span> correctly.</li>
+                <li>Keep <span class="docs-kbd">QE_CORE_INDEXER_AUTO_START=1</span> for unattended indexing when Core RPC is set.</li>
+              </ul>
+            </article>
+            <article class="docs-modern-card">
+              <h3>Core indexing</h3>
+              <ul class="docs-modern-list">
+                <li>Set <span class="docs-kbd">QE_POSTGRES_URL</span> for production backend.</li>
+                <li>Configure Core RPC URL/user/password.</li>
+                <li>Tune: <span class="docs-kbd">QE_CORE_INDEXER_AUTO_START</span>, <span class="docs-kbd">QE_CORE_BACKFILL_BATCH</span>, <span class="docs-kbd">QE_CORE_START_HEIGHT</span>.</li>
+                <li>Monitor via <span class="docs-kbd">/api/admin/&lt;TOKEN&gt;/core-indexer/status</span>.</li>
+                <li>PQ Phase-1 validation uses canonical commitment output: <span class="docs-kbd">6a24 + FLC1/DIL2/RCG4 + 32-byte commitment</span>.</li>
+                <li>Libdogecoin PQC tooling (Falcon-512, TX_C/TX_R, <span class="docs-kbd">such</span> commands): <a href="https://github.com/edtubbs/libdogecoin/blob/0.1.5-dev-pqc-carrier/doc/tools.md#falcon-512-post-quantum-cryptography-pqc-commands" target="_blank" rel="noopener noreferrer">doc/tools.md § Falcon-512 PQC</a>.</li>
+                <li>Carrier TX_R verification matches <span class="docs-kbd">SHA256(pubkey||signature)</span> to indexed TX_C Phase-1 <span class="docs-kbd">OP_RETURN</span> commitments within <span class="docs-kbd">QE_PQ_CARRIER_COMMITMENT_LOOKBACK_BLOCKS</span> (default 750000) below the TX_R block, plus same-block txs.</li>
+              </ul>
+            </article>
+            <article class="docs-modern-card">
+              <h3>Public API security</h3>
+              <ul class="docs-modern-list">
+                <li>Protect endpoints with token + allowlist policy in Access panel.</li>
+                <li>Use per-user tokens in client JSON for traceability.</li>
+                <li>Harden with rate limits (<span class="docs-kbd">QE_PUBLIC_RATE_LIMIT</span>, <span class="docs-kbd">QE_PUBLIC_RATE_WINDOW_SEC</span>).</li>
+              </ul>
+            </article>
+            <article class="docs-modern-card">
+              <h3>Service controls</h3>
+              <ul class="docs-modern-list">
+                <li>Core indexer controls backfill/search ingestion.</li>
+                <li>Database: <span class="docs-kbd">POST /db/optimize</span>, <span class="docs-kbd">GET /db/export</span>, <span class="docs-kbd">POST /db/import</span>, <span class="docs-kbd">POST /db/query</span> (under <span class="docs-kbd">/api/admin/&lt;TOKEN&gt;/</span>).</li>
+                <li>Validate after actions using Status + Diagnostics panels.</li>
+              </ul>
+            </article>
+            <article class="docs-modern-card">
+              <h3>Troubleshooting flow</h3>
+              <ul class="docs-modern-list">
+                <li>Check <span class="docs-kbd">/healthz</span> and <span class="docs-kbd">/readyz</span>.</li>
+                <li>Inspect diagnostics JSON for Core RPC and indexer state.</li>
+                <li>Review Core RPC and indexer diagnostics state.</li>
+                <li>Verify Postgres and Core RPC credentials/network.</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="card panel active" id="panel-status">
+          <h2><span class="material-symbols-outlined title-ico" aria-hidden="true">monitor_heart</span>Runtime status</h2>
+          <div id="status" class="status-grid mono muted">Loading…</div>
+          <p class="muted" style="margin: 0.75rem 0 0">Use <strong>Diagnostics</strong> for sanitized environment and chain/indexer JSON. Status refreshes every few seconds.</p>
+          <p class="muted" id="diag-time" style="margin: 0.5rem 0 0; font-size: 0.78rem"></p>
+          <div id="diag-error" class="bad mono" style="display: none; margin-top: 0.5rem"></div>
+        </section>
+
+        <section class="card panel" id="panel-controls">
+          <h2><span class="material-symbols-outlined title-ico" aria-hidden="true">tune</span>Service controls</h2>
+          <p class="muted" style="margin-top: 0">Core indexer controls and PostgreSQL runtime status.</p>
+          <div class="status-grid mono muted" id="pg-status-grid" style="margin-bottom: 0.7rem"></div>
+          <h3>Core backfill indexer</h3>
+          <div class="row">
+            <button type="button" id="c-start"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">play_arrow</span>Start</span></button>
+            <button type="button" id="c-stop"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">stop</span>Stop</span></button>
+            <button type="button" id="c-status"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">info</span>Status</span></button>
+          </div>
+          <h3 style="margin-top: 0.9rem">Core start block</h3>
+          <div class="row">
+            <input id="cp-height" type="number" placeholder="Start block height (default 6147099)" />
+            <button type="button" id="cp-save"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">save</span>Submit start block</span></button>
+          </div>
+          <p class="muted">Submit checks PostgreSQL first. If the block already exists, it will not re-index duplicates and only continues adding missing/new blocks.</p>
+
+          <h3 style="margin-top: 0.9rem">PostgreSQL database</h3>
+          <p class="muted" style="margin-top: 0">Optimize runs <span class="mono">VACUUM (ANALYZE)</span> (can take a long time). Export streams a <span class="mono">pg_dump -Fc</span> archive. Import stops the core indexer (if enabled), then runs <span class="mono">pg_restore</span> for custom-format dumps or <span class="mono">psql -f</span> for SQL text. Server needs client tools on <span class="mono">PATH</span>.</p>
+          <div class="row" style="margin-top: 0.55rem">
+            <button type="button" id="db-optimize"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">auto_fix_high</span>Optimize database</span></button>
+            <button type="button" id="db-export"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">download</span>Export database</span></button>
+          </div>
+          <div style="margin-top: 0.75rem">
+            <label class="muted" for="db-import-file" style="display: block; margin-bottom: 0.35rem">Import file (<span class="mono">.dump</span> custom format or <span class="mono">.sql</span>)</label>
+            <input type="file" id="db-import-file" accept=".dump,.sql,.backup,application/octet-stream,text/plain,*/*" />
+            <label class="row muted" style="margin-top: 0.45rem; cursor: pointer">
+              <input type="checkbox" id="db-import-clean" />
+              <span>Clean restore (<span class="mono">pg_restore --clean --if-exists</span>; drops objects — use with care)</span>
+            </label>
+            <div class="row" style="margin-top: 0.55rem">
+              <button type="button" class="warn" id="db-import-run"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">upload</span>Import database</span></button>
+            </div>
+          </div>
+        </section>
+
+        <section class="card panel" id="panel-commands">
+          <h2><span class="material-symbols-outlined title-ico" aria-hidden="true">terminal</span>Commands</h2>
+          <h3 style="margin-top: 0">Dogecoin Core RPC</h3>
+          <p class="muted" style="margin-top: 0">Query Core by block height, block hash, or transaction id. Output includes Phase-1 quantum commitment checks where applicable.</p>
+          <div class="row">
+            <input id="cmd-q" class="mono" placeholder="Block height (e.g. 6156590) or 64-char txid/block hash" style="flex: 1 1 520px" />
+            <button type="button" class="primary" id="cmd-run"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">play_arrow</span>Run</span></button>
+          </div>
+          <pre class="diag-mini mono" id="cmd-out" style="margin-top: 0.55rem">Awaiting command…</pre>
+
+          <h3>PostgreSQL (read-only)</h3>
+          <p class="muted" style="margin-top: 0">One statement at a time; <span class="mono">SELECT</span> / <span class="mono">WITH</span> / <span class="mono">EXPLAIN</span> (not <span class="mono">EXPLAIN ANALYZE</span>) / <span class="mono">SHOW</span> / <span class="mono">VALUES</span> / <span class="mono">TABLE</span>. Rows are capped (default 200, max 2000).</p>
+          <textarea id="cmd-sql" class="mono" style="width: 100%; min-height: 120px; background: #0c121a; color: var(--txt); border: 1px solid var(--line); border-radius: 12px; padding: 0.6rem" placeholder="SELECT COUNT(*) FROM qe_chain_headers;"></textarea>
+          <div class="row" style="margin-top: 0.5rem">
+            <input id="cmd-sql-limit" type="number" min="1" max="2000" value="200" style="width: 7rem" title="Max rows" />
+            <button type="button" class="primary" id="cmd-sql-run"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">database_search</span>Run SQL</span></button>
+          </div>
+          <pre class="diag-mini mono" id="cmd-sql-out" style="margin-top: 0.55rem; max-height: 24rem">—</pre>
+        </section>
+
+        <section class="card panel" id="panel-diagnostics">
+          <h2><span class="material-symbols-outlined title-ico" aria-hidden="true">troubleshoot</span>Diagnostics</h2>
+          <div class="grid2">
+            <div>
+              <h3>Chain index</h3>
+              <pre class="diag-mini mono" id="diag-chain">…</pre>
+            </div>
+            <div>
+              <h3>Core indexer</h3>
+              <pre class="diag-mini mono" id="diag-cidx">…</pre>
+            </div>
+          </div>
+          <details class="json-details"><summary>Environment (sanitized)</summary>
+            <pre class="mono" id="diag-env">…</pre>
+          </details>
+          <details class="json-details"><summary>PQ tx store file</summary>
+            <pre class="mono" id="diag-pqtx">…</pre>
+          </details>
+          <details class="json-details"><summary>Full JSON bundle (copy)</summary>
+            <pre class="mono" id="diag-full">…</pre>
+          </details>
+        </section>
+
+        <section class="card panel" id="panel-access">
+          <h2><span class="material-symbols-outlined title-ico" aria-hidden="true">vpn_key</span>Access control (admin-managed)</h2>
+          <p class="muted" style="margin-top: 0">Set tokens and IP policies here. Changes are persisted and applied without restarting the service.</p>
+          <div class="grid2">
+            <div>
+              <h3>Admin allowlist IPs (comma-separated)</h3>
+              <input id="ac-admin-ips" placeholder="1.2.3.4,5.6.7.8" />
+              <h3>Global public token (optional)</h3>
+              <input id="ac-public-token" placeholder="token for protected routes" />
+              <h3>Global public allowlist IPs (optional)</h3>
+              <input id="ac-public-ips" placeholder="1.2.3.4,8.8.8.8" />
+              <h3>Protected public paths</h3>
+              <input id="ac-protected-paths" placeholder="/api/public/core/search,/api/public/core/summary" />
+              <h3>Rate limit</h3>
+              <div class="row">
+                <input id="ac-rate-limit" type="number" placeholder="120" />
+                <input id="ac-rate-window" type="number" placeholder="60" />
+              </div>
+            </div>
+            <div>
+              <h3>Per-user API clients JSON</h3>
+              <p class="muted" style="margin-top: 0">Each user can have its own token and IP allowlist.</p>
+              <textarea id="ac-clients-json" class="mono" style="width: 100%; min-height: 190px; background: #0c121a; color: var(--txt); border: 1px solid var(--line); border-radius: 12px; padding: 0.6rem"></textarea>
+              <pre class="diag-mini mono" style="margin-top: 0.55rem">[
   {"name":"alice","token":"TOKEN_ALICE","allowlist":["1.2.3.4"]},
   {"name":"bob","token":"TOKEN_BOB","allowlist":[]}
 ]</pre>
-          <div class="row" style="margin-top:.6rem">
-            <button type="button" id="ac-refresh"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">download</span>Load current</span></button>
-            <button type="button" class="primary" id="ac-save"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">save</span>Save access policy</span></button>
+              <div class="row" style="margin-top: 0.6rem">
+                <button type="button" id="ac-refresh"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">download</span>Load current</span></button>
+                <button type="button" class="primary" id="ac-save"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">save</span>Save access policy</span></button>
+              </div>
+            </div>
           </div>
-        </div>
+        </section>
       </div>
-    </section>
-
-  </div>
-  </main>
+    </div>
   </div>
 
   <script>
-    function esc(s){
-      return String(s ?? "").replace(/[&<>"]/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+    function esc(s) {
+      return String(s ?? "").replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
     }
-    async function j(url, opt){
+    async function j(url, opt, timeoutMs) {
+      const ms = typeof timeoutMs === "number" && timeoutMs > 0 ? timeoutMs : 60000;
       const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 60000);
+      const t = setTimeout(() => ctrl.abort(), ms);
       try {
         const r = await fetch(url, { ...opt, signal: ctrl.signal });
         return { ok: r.ok, s: r.status, d: await r.json().catch(() => ({})) };
@@ -295,34 +605,110 @@
         clearTimeout(t);
       }
     }
-    function toast(msg){ console.log(msg); }
+    function toast(msg) {
+      console.log(msg);
+    }
+    function isNarrowViewport() {
+      if (typeof window === "undefined") return false;
+      const iw = window.innerWidth;
+      const cw = document.documentElement ? document.documentElement.clientWidth : iw;
+      const x = Math.min(typeof iw === "number" ? iw : 9999, typeof cw === "number" ? cw : 9999);
+      if (x <= 900) return true;
+      try {
+        if (window.matchMedia("(max-width: 900px)").matches) return true;
+      } catch {
+        /* ignore */
+      }
+      return false;
+    }
+    function syncSidebarDrawerToggleIcon() {
+      const sb = document.getElementById("sidebar");
+      const btn = document.getElementById("btn-sidebar-toggle");
+      if (!sb || !btn) return;
+      const icon = btn.querySelector(".material-symbols-outlined");
+      if (!icon) return;
+      if (isNarrowViewport()) {
+        const shut = sb.classList.contains("sidebar-drawer-closed");
+        icon.textContent = shut ? "menu" : "menu_open";
+        btn.setAttribute("aria-expanded", shut ? "false" : "true");
+      } else {
+        const collapsed = sb.classList.contains("collapsed");
+        icon.textContent = collapsed ? "menu" : "menu_open";
+        btn.setAttribute("aria-expanded", (!collapsed).toString());
+      }
+    }
+    let lastViewportNarrow = isNarrowViewport();
+    function ensureAdminMobileSidebar() {
+      const sb = document.getElementById("sidebar");
+      if (!sb) return;
+      const narrow = isNarrowViewport();
+      if (narrow) {
+        sb.classList.remove("collapsed");
+        if (lastViewportNarrow === false) sb.classList.add("sidebar-drawer-closed");
+      } else {
+        sb.classList.remove("sidebar-drawer-closed");
+      }
+      lastViewportNarrow = narrow;
+      syncSidebarDrawerToggleIcon();
+    }
+    function openSidebarNav() {
+      const sb = document.getElementById("sidebar");
+      if (!sb) return;
+      sb.classList.remove("collapsed");
+      sb.classList.remove("sidebar-drawer-closed");
+      syncSidebarDrawerToggleIcon();
+    }
+
     const ADMIN_TOKEN = (location.pathname.split("/").filter(Boolean).pop() || "").trim();
     const API_BASE = `/api/admin/${encodeURIComponent(ADMIN_TOKEN)}`;
 
-    function setPills(d){
-      const b = document.getElementById("pill-backend");
-      const c = document.getElementById("pill-core");
-      if (b) b.textContent = d.chain_index_backend || "chain ?";
-      const core = d.core_rpc || {};
-      if (c) {
-        c.textContent = core.connected ? "Core RPC ok" : (core.enabled ? "Core RPC offline" : "Core RPC unset");
-        c.className = "pill " + (core.connected ? "ok" : "bad");
+    function setNetBadgeFromStatus(d) {
+      const el = document.getElementById("net-badge");
+      if (el) el.textContent = String((d && d.network) || "mainnet").toLowerCase();
+    }
+
+    function syncPageTitleFromPanel(panelId) {
+      const btn = document.querySelector('.nav-item[data-panel="' + panelId + '"]');
+      const textEl = document.getElementById("page-title-text");
+      const icoEl = document.getElementById("page-title-ico");
+      const titleRow = document.getElementById("page-title");
+      if (!textEl || !icoEl) return;
+      const t = (btn && btn.getAttribute("data-page-title")) || "";
+      const i = (btn && btn.getAttribute("data-page-ico")) || "deployed_code";
+      textEl.textContent = t || panelId;
+      icoEl.textContent = i;
+      if (titleRow) titleRow.setAttribute("title", t || "");
+    }
+
+    async function loadSidebarPupVersion() {
+      const el = document.getElementById("sidebar-pup-version");
+      if (!el) return;
+      try {
+        const r = await fetch("/api/public/status");
+        const d = await r.json().catch(() => ({}));
+        if (d.app_version != null && String(d.app_version).length) el.textContent = "pup v" + String(d.app_version);
+        else el.textContent = "—";
+      } catch {
+        el.textContent = "—";
       }
     }
 
-    async function loadStatus(){
+    async function loadStatus() {
       const r = await j(`${API_BASE}/status`);
       const el = document.getElementById("status");
-      if(!r.ok){ el.innerHTML = `<div class="status-item">Error ${r.s}: ${esc(JSON.stringify(r.d))}</div>`; return; }
+      if (!r.ok) {
+        el.innerHTML = `<div class="status-item">Error ${r.s}: ${esc(JSON.stringify(r.d))}</div>`;
+        return;
+      }
       const d = r.d || {};
       const core = d.core_rpc || {};
       const cidx = d.core_indexer || {};
       const pg = d.postgres || {};
-      setPills(d);
+      setNetBadgeFromStatus(d);
       el.innerHTML = [
         kv("Chain backend", d.chain_index_backend),
         kv("Storage", d.storage_dir),
-        kv("Core RPC", core.connected ? "connected" : (core.enabled ? "configured (offline)" : "disabled"), core.connected),
+        kv("Core RPC", core.connected ? "connected" : core.enabled ? "configured (offline)" : "disabled", core.connected),
         kv("Core endpoint", core.rpc_url || "—"),
         kv("Network", d.network || "—"),
       ].join("");
@@ -331,7 +717,7 @@
       if (pgEl) {
         const sizeMB = Number(pg.size_mb || 0);
         pgEl.innerHTML = [
-          kv("PostgreSQL", pg.running ? "running" : (pg.configured ? "stopped/offline" : "not configured"), pg.running),
+          kv("PostgreSQL", pg.running ? "running" : pg.configured ? "stopped/offline" : "not configured", pg.running),
           kv("Database", pg.database || "—"),
           kv("DB size (MB)", pg.running ? (sizeMB ? sizeMB.toFixed(2) : "0.00") : "—"),
           kv("Indexer", cidx.running ? "running" : "stopped", cidx.running),
@@ -342,12 +728,12 @@
       if (startBtn) startBtn.disabled = !pg.running || !!cidx.running;
       if (stopBtn) stopBtn.disabled = !cidx.running;
     }
-    function kv(label, val, ok){
+    function kv(label, val, ok) {
       const good = ok === true ? " ok" : ok === false ? " bad" : "";
       return `<div class="status-item${good}"><strong>${esc(label)}</strong><span class="mono">${esc(String(val))}</span></div>`;
     }
 
-    async function loadDiagnostics(){
+    async function loadDiagnostics() {
       const errEl = document.getElementById("diag-error");
       errEl.style.display = "none";
       const r = await j(`${API_BASE}/diagnostics`);
@@ -365,22 +751,25 @@
       document.getElementById("diag-full").textContent = JSON.stringify(d, null, 2);
     }
 
-    async function call(path, body){
+    async function call(path, body) {
       const r = await j(path, {
         method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: body ? JSON.stringify(body) : "{}"
+        headers: { "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : "{}",
       });
       toast(JSON.stringify(r.d || {}));
       await loadStatus();
       await loadDiagnostics();
     }
 
-    function splitCSV(v){
-      return String(v || "").split(",").map(x => x.trim()).filter(Boolean);
+    function splitCSV(v) {
+      return String(v || "")
+        .split(",")
+        .map((x) => x.trim())
+        .filter(Boolean);
     }
 
-    async function loadAccessControl(){
+    async function loadAccessControl() {
       const r = await j(`${API_BASE}/access`);
       if (!r.ok) return;
       const d = r.d || {};
@@ -392,7 +781,7 @@
       document.getElementById("ac-clients-json").value = JSON.stringify(d.public_api_clients || [], null, 2);
     }
 
-    async function saveAccessControl(){
+    async function saveAccessControl() {
       let clients = [];
       try {
         clients = JSON.parse(document.getElementById("ac-clients-json").value || "[]");
@@ -408,34 +797,126 @@
         public_protected_paths: splitCSV(document.getElementById("ac-protected-paths").value),
         public_rate_limit: Number(document.getElementById("ac-rate-limit").value || 120),
         public_rate_window_sec: Number(document.getElementById("ac-rate-window").value || 60),
-        public_api_clients: clients
+        public_api_clients: clients,
       });
       await loadAccessControl();
     }
 
-    document.getElementById("c-start").onclick = ()=>call(`${API_BASE}/core-indexer/start`);
-    document.getElementById("c-stop").onclick = ()=>call(`${API_BASE}/core-indexer/stop`);
-    document.getElementById("c-status").onclick = ()=>j(`${API_BASE}/core-indexer/status`).then(r=>toast(JSON.stringify(r.d||{})));
-    document.getElementById("cp-save").onclick = ()=>call(`${API_BASE}/checkpoint`, {
-      height: Number(document.getElementById("cp-height").value || 0)
-    });
-    function activatePanel(id){
-      document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+    function activatePanel(id) {
+      syncPageTitleFromPanel(id);
+      document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
       const target = document.getElementById(id);
       if (target) target.classList.add("active");
-      document.querySelectorAll(".side-nav button[data-panel]").forEach(b => {
+      document.querySelectorAll(".nav-item[data-panel]").forEach((b) => {
         b.classList.toggle("active", b.getAttribute("data-panel") === id);
       });
-      window.scrollTo({top:0, behavior:"smooth"});
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      if (isNarrowViewport()) {
+        const sb = document.getElementById("sidebar");
+        if (sb) sb.classList.add("sidebar-drawer-closed");
+        syncSidebarDrawerToggleIcon();
+      }
     }
-    document.querySelectorAll(".side-nav button[data-panel]").forEach(btn => {
+
+    document.querySelectorAll(".nav-item[data-panel]").forEach((btn) => {
       btn.onclick = () => activatePanel(btn.getAttribute("data-panel"));
     });
-    document.getElementById("btn-sidebar-collapse").onclick = () => {
-      document.getElementById("sidebar").classList.toggle("collapsed");
+
+    document.getElementById("btn-sidebar-toggle").addEventListener("click", () => {
+      const sb = document.getElementById("sidebar");
+      if (!sb) return;
+      if (isNarrowViewport()) sb.classList.toggle("sidebar-drawer-closed");
+      else sb.classList.toggle("collapsed");
+      syncSidebarDrawerToggleIcon();
+    });
+    const btnMob = document.getElementById("btn-mobile-menu");
+    if (btnMob) btnMob.addEventListener("click", () => openSidebarNav());
+
+    document.getElementById("c-start").onclick = () => call(`${API_BASE}/core-indexer/start`);
+    document.getElementById("c-stop").onclick = () => call(`${API_BASE}/core-indexer/stop`);
+    document.getElementById("c-status").onclick = () => j(`${API_BASE}/core-indexer/status`).then((r) => toast(JSON.stringify(r.d || {})));
+    document.getElementById("cp-save").onclick = () =>
+      call(`${API_BASE}/checkpoint`, {
+        height: Number(document.getElementById("cp-height").value || 0),
+      });
+    document.getElementById("ac-refresh").onclick = () => loadAccessControl();
+    document.getElementById("ac-save").onclick = () => saveAccessControl();
+
+    document.getElementById("db-optimize").onclick = async () => {
+      if (!confirm("Run VACUUM (ANALYZE)? This may take a long time.")) return;
+      const r = await j(
+        `${API_BASE}/db/optimize`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
+        91 * 60 * 1000
+      );
+      toast(JSON.stringify(r.d || {}));
+      alert(r.ok ? "Optimize finished." : `Optimize failed: ${JSON.stringify(r.d)}`);
+      await loadStatus();
+      await loadDiagnostics();
     };
-    document.getElementById("ac-refresh").onclick = ()=>loadAccessControl();
-    document.getElementById("ac-save").onclick = ()=>saveAccessControl();
+
+    document.getElementById("db-export").onclick = async () => {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 130 * 60 * 1000);
+      try {
+        const r = await fetch(`${API_BASE}/db/export`, { signal: ctrl.signal });
+        if (!r.ok) {
+          let msg = await r.text();
+          try {
+            const jx = JSON.parse(msg);
+            msg = jx.error || msg;
+          } catch {
+            /* plain text */
+          }
+          alert(msg);
+          return;
+        }
+        const blob = await r.blob();
+        const cd = r.headers.get("Content-Disposition");
+        let name = "quantum_explorer.dump";
+        if (cd) {
+          const m = /filename="?([^";]+)"?/i.exec(cd);
+          if (m) name = m[1];
+        }
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = name;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        alert(String(e));
+      } finally {
+        clearTimeout(t);
+      }
+    };
+
+    document.getElementById("db-import-run").onclick = async () => {
+      const inp = document.getElementById("db-import-file");
+      if (!inp.files || !inp.files[0]) {
+        alert("Choose an import file.");
+        return;
+      }
+      if (!confirm("Import will stop the core indexer and modify the database. Continue?")) return;
+      const fd = new FormData();
+      fd.append("dump", inp.files[0]);
+      const clean = document.getElementById("db-import-clean").checked;
+      const url = `${API_BASE}/db/import` + (clean ? "?mode=clean" : "");
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 4 * 60 * 60 * 1000);
+      try {
+        const r = await fetch(url, { method: "POST", body: fd, signal: ctrl.signal });
+        const d = await r.json().catch(() => ({}));
+        alert(r.ok ? `Import OK.\n${d.note || ""}` : `Import failed: ${JSON.stringify(d)}`);
+      } catch (e) {
+        alert(String(e));
+      } finally {
+        clearTimeout(t);
+      }
+      await loadStatus();
+      await loadDiagnostics();
+    };
+
     document.getElementById("cmd-run").onclick = async () => {
       const q = String(document.getElementById("cmd-q").value || "").trim();
       const out = document.getElementById("cmd-out");
@@ -448,6 +929,32 @@
       out.textContent = JSON.stringify(r.d || {}, null, 2);
     };
 
+    document.getElementById("cmd-sql-run").onclick = async () => {
+      const sql = String(document.getElementById("cmd-sql").value || "").trim();
+      const out = document.getElementById("cmd-sql-out");
+      if (!sql) {
+        out.textContent = "Enter SQL.";
+        return;
+      }
+      let lim = parseInt(String(document.getElementById("cmd-sql-limit").value || "200"), 10);
+      if (Number.isNaN(lim) || lim < 1) lim = 200;
+      if (lim > 2000) lim = 2000;
+      out.textContent = "Running…";
+      const r = await j(
+        `${API_BASE}/db/query`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sql, limit: lim }) },
+        125000
+      );
+      out.textContent = JSON.stringify(r.d || {}, null, 2);
+    };
+
+    window.addEventListener("resize", () => {
+      ensureAdminMobileSidebar();
+    });
+    ensureAdminMobileSidebar();
+
+    syncPageTitleFromPanel("panel-status");
+    loadSidebarPupVersion();
     loadStatus();
     loadDiagnostics();
     loadAccessControl();

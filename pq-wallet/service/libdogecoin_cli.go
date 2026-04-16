@@ -344,6 +344,12 @@ func (s *Server) startSPVNode(w *WalletFile) {
 	if len(addrs) == 0 {
 		return
 	}
+	if migrated, backup, err := s.migrateLegacyHeadersDB(); err != nil {
+		log.Printf("[pq-wallet] legacy headers.db migrate failed: %v", err)
+		return
+	} else if migrated {
+		log.Printf("[pq-wallet] migrated non-SQLite headers.db to %s", backup)
+	}
 	want := strings.Join(addrs, "\n")
 	prev, _ := os.ReadFile(s.spvWatchAddrPath())
 	pidRunning := false
@@ -413,12 +419,18 @@ func (s *Server) readSPVStatus() map[string]any {
 		"libdogecoin_spvnode": s.spvnodePath(),
 		"pid_file":            pidPath,
 		"log_file":            logPath,
+		"storage_dir":         s.storageDir,
 	}
 	hdb := filepath.Join(s.storageDir, "headers.db")
 	wdb := filepath.Join(s.storageDir, "spv_wallet.db")
 	if _, err := os.Stat(hdb); err == nil {
 		out["headers_db"] = hdb
 		out["headers_db_present"] = true
+		if isSQLiteDBFile(hdb) {
+			out["headers_db_format"] = "sqlite"
+		} else {
+			out["headers_db_format"] = "legacy_non_sqlite"
+		}
 	} else {
 		out["headers_db_present"] = false
 	}

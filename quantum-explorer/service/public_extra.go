@@ -123,7 +123,7 @@ func (a *app) publicActivityBuckets(w http.ResponseWriter, r *http.Request) {
 	} else {
 		hours = parsePositiveInt(hoursRaw, 24, 1, 24*365*25)
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
 	defer cancel()
 	buckets, err := a.cidx.activityBuckets(ctx, hours)
 	if err != nil {

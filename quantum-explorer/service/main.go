@@ -26,7 +26,9 @@ import (
 var staticFS embed.FS
 
 // qeAppVersion is shown in the public UI and /api/public/status (keep in sync with manifest.json).
-const qeAppVersion = "0.1.25"
+const qeAppVersion = "0.1.26"
+// qeAppBuildHash is a release fingerprint (SHA-256 hex of "quantum-explorer-<version>"); bump when cutting a release.
+const qeAppBuildHash = "284c1c5fa1af98bf249fe074954c76f6e1a2dc904bf169d0487c57b0d972f036"
 
 type Checkpoint struct {
 	Height    int    `json:"height"`
@@ -400,6 +402,7 @@ type carrierPart struct {
 	pkLen     int
 	fullLen   int
 	payload   []byte
+	vin       int // input index carrying this carrier chunk
 }
 
 func parsePushOnlyScript(script []byte) ([][]byte, bool) {
@@ -503,8 +506,9 @@ func verifyCarrierPhase1(rawHex string, commitments map[string]map[string]any) m
 		return map[string]any{"present": false, "verified": false}
 	}
 	parts := make([]carrierPart, 0, len(ins))
-	for _, in := range ins {
+	for i, in := range ins {
 		if p, ok := parseCarrierPartFromScriptSig(in.scriptSig); ok {
+			p.vin = i
 			parts = append(parts, p)
 		}
 	}
@@ -527,9 +531,16 @@ func verifyCarrierPhase1(rawHex string, commitments map[string]map[string]any) m
 				slots[p.partIndex] = p.payload
 			}
 		}
+		carrierVin := group[0].vin
 		okAll := true
 		for i := 0; i < partTotal; i++ {
 			if slots[i] == nil {
+				okAll = false
+				break
+			}
+		}
+		for _, p := range group {
+			if p.vin != carrierVin {
 				okAll = false
 				break
 			}
@@ -556,26 +567,37 @@ func verifyCarrierPhase1(rawHex string, commitments map[string]map[string]any) m
 		sum := sha256.Sum256(buf)
 		commitHex := strings.ToLower(hex.EncodeToString(sum[:]))
 		if m, ok := commitments[commitHex]; ok {
-			return map[string]any{
-				"present":          true,
-				"verified":         true,
-				"source":           "carrier_scriptsig",
-				"algorithm":        group[0].algo,
-				"carrier_tag":      group[0].tag,
-				"part_total":       group[0].partTotal,
-				"pk_len":           len(pk),
-				"sig_len":          len(sig),
-				"commitment32":     commitHex,
-				"matched_txc_txid": m["txid"],
-				"matched_txc_tag":  m["tag"],
+			out := map[string]any{
+				"present":             true,
+				"verified":            true,
+				"source":              "carrier_scriptsig",
+				"algorithm":           group[0].algo,
+				"carrier_tag":         group[0].tag,
+				"part_total":          group[0].partTotal,
+				"pk_len":              len(pk),
+				"sig_len":             len(sig),
+				"commitment32":        commitHex,
+				"matched_txc_txid":    m["txid"],
+				"matched_txc_tag":     m["tag"],
+				"carrier_input_index": carrierVin,
+				"pqc_pubkey_hex":      strings.ToLower(hex.EncodeToString(pk)),
+				"pqc_signature_hex":   strings.ToLower(hex.EncodeToString(sig)),
 			}
+			if bh, ok := m["block_height"].(int64); ok {
+				out["matched_txc_block_height"] = bh
+			} else if bh, ok := m["block_height"].(float64); ok {
+				out["matched_txc_block_height"] = int64(bh)
+			} else if bh, ok := m["block_height"].(int); ok {
+				out["matched_txc_block_height"] = int64(bh)
+			}
+			return out
 		}
 	}
 	return map[string]any{
-		"present":   true,
-		"verified":  false,
-		"source":    "carrier_scriptsig",
-		"reason":    "carrier payload found but commitment did not match block commitments",
+		"present":    true,
+		"verified":   false,
+		"source":     "carrier_scriptsig",
+		"reason":     "carrier payload found but SHA256(pk‖sig) did not match any indexed Phase-1 OP_RETURN commitment (expand QE_PQ_CARRIER_COMMITMENT_LOOKBACK_BLOCKS if TX_C is older)",
 		"part_count": len(parts),
 	}
 }
@@ -778,28 +800,37 @@ func (a *app) enrichCarrierVerification(ctx context.Context, pq map[string]any, 
 	if rawHex == "" {
 		return pq
 	}
-	rows, err := a.cidx.blockTxRows(ctx, blockHeight)
-	if err != nil || len(rows) == 0 {
-		return pq
+	commitments, err := a.cidx.commitmentMapForCarrierVerify(ctx, blockHeight)
+	if err != nil || commitments == nil {
+		commitments = make(map[string]map[string]any)
 	}
-	commitments := map[string]map[string]any{}
-	for _, row := range rows {
-		rh := strings.TrimSpace(fmt.Sprint(row["raw_hex"]))
-		rxid := strings.ToLower(strings.TrimSpace(fmt.Sprint(row["txid"])))
-		if rh == "" || rxid == "" {
-			continue
-		}
-		b, err := hex.DecodeString(rh)
-		if err != nil {
-			continue
-		}
-		outs, err := parseTxOutputs(b)
-		if err != nil {
-			continue
-		}
-		for _, o := range outs {
-			if tag, commit, ok := parseCanonicalPQCommitment(o.script); ok {
-				commitments[commit] = map[string]any{"txid": rxid, "tag": tag}
+	// Merge same-block txs (covers TX_C not yet marked quantum_state in DB).
+	rows, err := a.cidx.blockTxRows(ctx, blockHeight)
+	if err == nil {
+		for _, row := range rows {
+			rh := strings.TrimSpace(fmt.Sprint(row["raw_hex"]))
+			rxid := strings.ToLower(strings.TrimSpace(fmt.Sprint(row["txid"])))
+			if rh == "" || rxid == "" {
+				continue
+			}
+			b, err := hex.DecodeString(rh)
+			if err != nil {
+				continue
+			}
+			outs, err := parseTxOutputs(b)
+			if err != nil {
+				continue
+			}
+			for _, o := range outs {
+				if tag, commit, ok := parseCanonicalPQCommitment(o.script); ok {
+					ch := strings.ToLower(strings.TrimSpace(commit))
+					if ch == "" {
+						continue
+					}
+					if _, exists := commitments[ch]; !exists {
+						commitments[ch] = map[string]any{"txid": rxid, "tag": tag, "block_height": blockHeight}
+					}
+				}
 			}
 		}
 	}
@@ -807,11 +838,14 @@ func (a *app) enrichCarrierVerification(ctx context.Context, pq map[string]any, 
 		return pq
 	}
 	carrier := verifyCarrierPhase1(rawHex, commitments)
+	carrier["commitment_lookback_blocks"] = pqCarrierCommitmentLookbackBlocks()
+	carrier["indexed_commitment_count"] = len(commitments)
 	if cm, ok := carrier["commitment32"].(string); ok && cm != "" {
 		if txid == strings.ToLower(strings.TrimSpace(fmt.Sprint(carrier["matched_txc_txid"]))) {
 			carrier["self_commitment"] = true
 		}
 	}
+	a.maybeEnrichFalconCryptoVerify(ctx, carrier, rawHex)
 	pq["carrier_phase1"] = carrier
 	return pq
 }
@@ -966,6 +1000,7 @@ func (a *app) publicStatus(w http.ResponseWriter, r *http.Request) {
 
 	status := map[string]any{
 		"app_version":            qeAppVersion,
+		"build_hash":             qeAppBuildHash,
 		"metrics":                m,
 		"latest":                 rows,
 		"latest_pq_transactions": latestPQ,
@@ -1356,6 +1391,26 @@ func (a *app) publicSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"query": rawQ, "kind": kind, "results": out})
 }
 
+// rowHasQuantumPQ is true when strict OP_RETURN Phase-1 markers match, or when
+// carrier_phase1 verification matched a TX_C commitment (TX_R-style reveal).
+func rowHasQuantumPQ(row map[string]any) bool {
+	if v, ok := row["pq_valid"].(bool); ok && v {
+		return true
+	}
+	pq, ok := row["pq_verification"].(map[string]any)
+	if !ok {
+		return false
+	}
+	car, ok := pq["carrier_phase1"].(map[string]any)
+	if !ok {
+		return false
+	}
+	if v, ok := car["verified"].(bool); ok && v {
+		return true
+	}
+	return false
+}
+
 func (a *app) adminCoreInspect(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
@@ -1392,6 +1447,7 @@ func (a *app) adminCoreInspect(w http.ResponseWriter, r *http.Request) {
 		txidsAny, _ := blk["tx"].([]any)
 		rows := make([]map[string]any, 0, len(txidsAny))
 		pqCount := 0
+		blkHeight := anyInt64(blk["height"])
 		for _, v := range txidsAny {
 			txid := strings.ToLower(strings.TrimSpace(fmt.Sprint(v)))
 			if len(txid) != 64 || !isHex64String(txid) {
@@ -1403,7 +1459,14 @@ func (a *app) adminCoreInspect(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			row := buildTxRow(txid, rawHex)
-			if row["pq_valid"] == true {
+			if a.cidx != nil && blkHeight >= 0 {
+				if pq, ok := row["pq_verification"].(map[string]any); ok {
+					pq = a.enrichDecodeWithPrevouts(ctx, pq)
+					pq = a.enrichCarrierVerification(ctx, pq, txid, blkHeight, rawHex)
+					row["pq_verification"] = pq
+				}
+			}
+			if rowHasQuantumPQ(row) {
 				pqCount++
 			}
 			rows = append(rows, row)
@@ -1447,8 +1510,23 @@ func (a *app) adminCoreInspect(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 404, map[string]string{"error": "not found as block hash or txid via core rpc"})
 			return
 		}
+		blkHeight := int64(-1)
+		if a.cidx != nil {
+			if _, _, h, e := a.core.getRawTransactionVerboseWithHeight(ctx, qLower); e == nil {
+				blkHeight = h
+			}
+		}
 		row := buildTxRow(qLower, rawHex)
-		isPQ := row["pq_valid"] == true
+		if a.cidx != nil {
+			if pq, ok := row["pq_verification"].(map[string]any); ok {
+				pq = a.enrichDecodeWithPrevouts(ctx, pq)
+				if blkHeight >= 0 {
+					pq = a.enrichCarrierVerification(ctx, pq, qLower, blkHeight, rawHex)
+				}
+				row["pq_verification"] = pq
+			}
+		}
+		isPQ := rowHasQuantumPQ(row)
 		writeJSON(w, 200, map[string]any{
 			"kind":             "txid",
 			"query":            q,
@@ -1476,6 +1554,7 @@ func (a *app) adminStatus(w http.ResponseWriter, _ *http.Request) {
 		"chain_index_backend": a.chain.Kind(),
 		"storage_dir":         a.storageDir,
 		"diagnostics_api":     "GET /api/admin/<token>/diagnostics",
+		"database_api":        "POST /db/optimize, GET /db/export, POST /db/import, POST /db/query",
 		"core_rpc":            a.core.snapshot(),
 		"core_indexer":        a.coreIndexerStatus(),
 		"postgres":            pg,
@@ -1653,6 +1732,14 @@ func main() {
 			a.adminCoreIndexerStatus(w)
 		case "/core/inspect":
 			a.adminCoreInspect(w, r)
+		case "/db/optimize":
+			a.adminDBOptimize(w, r)
+		case "/db/export":
+			a.adminDBExport(w, r)
+		case "/db/import":
+			a.adminDBImport(w, r)
+		case "/db/query":
+			a.adminDBQuery(w, r)
 		default:
 			http.NotFound(w, r)
 		}

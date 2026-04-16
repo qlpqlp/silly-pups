@@ -3,7 +3,9 @@ package main
 // educationPayload returns long-form copy for the web UI (How it works).
 func educationPayload() map[string]any {
 	return map[string]any{
-		"title": "How Dogecoin + post-quantum proofs fit together",
+		"app_version": pqWalletAppVersion,
+		"build_hash":  pqWalletBuildHash,
+		"title":       "How Dogecoin + post-quantum proofs fit together",
 		"summary": "Normal Dogecoin spends still use ECDSA (secp256k1) P2PKH. Experimental post-quantum material (e.g. Falcon/Dilithium via liboqs) " +
 			"can be used to add commitments or attestations around a transaction, it does not replace the chain’s ECDSA signatures today.",
 		"sections": []map[string]any{
@@ -37,11 +39,12 @@ func educationPayload() map[string]any {
 			},
 			{
 				"id":    "tx_c_tx_r",
-				"title": "TX_C and TX_R (high level)",
+				"title": "TX_C and TX_R (libdogecoin carrier flow)",
 				"body": []string{
-					"**TX_C** carries canonical Phase-1 commitment output: `OP_RETURN 0x24 <TAG4><32-byte-commitment>`.",
-					"An optional **carrier** output can hold value while a follow-up **TX_R** reveals more PQ data on-chain and returns funds minus fees, depending on the exact experiment.",
-					"For many tests, the commitment alone is enough; the carrier/reveal path is optional.",
+					"See **libdogecoin** `such` PQC tools (Falcon-512, carrier helpers): https://github.com/edtubbs/libdogecoin/blob/0.1.5-dev-pqc-carrier/doc/tools.md#falcon-512-post-quantum-cryptography-pqc-commands — keygen, **falcon_sign**, **falcon_commit**, **falcon_add_commit_and_carrier_tx**, and **pqc_carrier_** helpers.",
+					"**TX_C (commitment tx):** standard spends + **`OP_RETURN`** with `6a24` + **TAG4** (`FLC1` for Falcon-512) + **32-byte commitment**, where **commitment = SHA256(pqc_public_key ‖ pqc_signature)** over the message you signed (commonly **tx sighash32**). Optionally adds the **canonical P2SH carrier** output (fixed redeemScript `OP_DROP×5 OP_TRUE`) so DOGE sits in a known script until reveal.",
+					"**TX_R (reveal tx):** spends the carrier **P2SH**; the **full public key and signature** are embedded in **`scriptSig`** using the tagged carrier layout (**`FLC1FULL`** header + chunked pushes, per `pqc_carrier_mkpart` / `pqc_carrier_parsepart` in that doc).",
+					"**Dogecoin Core (PQC build)** can show the same linkage: TX_C commitment, carrier indices, TX_R txid, `SHA256(pk‖sig)` vs commitment, and `OQS_SIG_verify` — this wallet UI focuses on building/broadcasting compatible txs and educational checks; deep on-chain PQ panels mirror **Quantum Explorer** (carrier match uses a configurable block lookback for TX_C vs TX_R, not only same-block).",
 				},
 			},
 			{

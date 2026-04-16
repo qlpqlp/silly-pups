@@ -27,6 +27,11 @@ import (
 //go:embed static/*
 var staticFS embed.FS
 
+// pqWalletAppVersion is shown in /api/health, education JSON, and the UI footer (keep in sync with manifest.json).
+const pqWalletAppVersion = "0.0.14"
+// pqWalletBuildHash is a release fingerprint (SHA-256 hex of "pq-wallet-<version>"); bump when cutting a release.
+const pqWalletBuildHash = "efa6f5bac2ba6a8e51cbf8eb477dcc9b6b2324990e7c225215d2aa829bc8bbd0"
+
 type Server struct {
 	mu             sync.Mutex
 	storageDir     string
@@ -234,7 +239,11 @@ func main() {
 		_, _ = w.Write(b)
 	})
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status":       "ok",
+			"app_version":  pqWalletAppVersion,
+			"build_hash":   pqWalletBuildHash,
+		})
 	})
 	mux.HandleFunc("/api/security/status", srv.handleSecurityStatus)
 	mux.HandleFunc("/api/security/unlock", srv.handleSecurityUnlock)

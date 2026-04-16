@@ -287,7 +287,7 @@
     </section>
     <section class="card" style="margin-top:.8rem">
       <h2><span class="material-symbols-outlined title-icon" aria-hidden="true">insights</span>Explorer activity over time</h2>
-      <p class="muted">Historical activity from indexed data (anchored on latest stored records).</p>
+      <p class="muted">Historical activity from indexed data (anchored on latest stored records). Address line counts distinct addresses with outputs per hour (fast aggregate).</p>
       <div class="headers" id="activity-wallets"></div>
       <div class="headers" id="activity-transactions"></div>
       <div class="headers" id="activity-blocks"></div>
@@ -344,8 +344,19 @@
               <ul class="docs-links">
                 <li><a href="https://github.com/dogecoinfoundation/libdogecoin" target="_blank" rel="noopener">libdogecoin repository</a></li>
                 <li><a href="https://github.com/dogecoinfoundation/libdogecoin/tree/master/examples" target="_blank" rel="noopener">libdogecoin examples</a></li>
+                <li><a href="https://github.com/edtubbs/libdogecoin/blob/0.1.5-dev-pqc-carrier/doc/tools.md#falcon-512-post-quantum-cryptography-pqc-commands" target="_blank" rel="noopener">PQC <code>such</code> commands (Falcon-512 / carrier tools)</a> — official-style docs for keygen, <code>falcon_commit</code>, TX construction helpers, and the two-step carrier flow.</li>
               </ul>
               <p>Typical workflow is: key management + tx composition in libdogecoin, PQ commitment embedding in tx data, then broadcast/monitoring through node or P2P listeners.</p>
+            </div>
+            <div class="docs-card">
+              <h3>TX_C and TX_R (two-step carrier flow)</h3>
+              <p>Matches the libdogecoin carrier model documented under Falcon-512 PQC commands:</p>
+              <ul>
+                <li><strong>TX_C (commitment):</strong> includes <code>OP_RETURN</code> with <code>6a24</code> + tag (<code>FLC1</code> / <code>DIL2</code> / <code>RCG4</code>) + 32-byte commitment, where <code>commitment = SHA256(pqc_public_key ‖ pqc_signature)</code> over the signing message (e.g. tx sighash).</li>
+                <li><strong>Optional carrier P2SH:</strong> canonical redeemScript <code>OP_DROP ×5 OP_TRUE</code> holds DOGE until reveal; scriptPubKey is the standard P2SH pattern from <code>pqc_carrier_scriptpubkey</code>.</li>
+                <li><strong>TX_R (reveal):</strong> spends the carrier input; Falcon pubkey (~897 B) and signature (~652–666 B) ride in <code>scriptSig</code> using the tagged carrier layout (<code>FLC1FULL</code> / chunking per <code>pqc_carrier_mkpart</code>).</li>
+              </ul>
+              <p class="muted" style="font-size:.82rem;margin:.35rem 0 0">This explorer’s <strong>strict</strong> check only inspects outputs for the canonical <code>OP_RETURN</code> commitment. When the core indexer has the tx’s block, <strong>carrier verification</strong> matches <code>SHA256(pk‖sig)</code> from <code>scriptSig</code> to indexed TX_C commitments: all <code>quantum</code> txs with Phase-1 <code>OP_RETURN</code> from block <code>(TX_R height − lookback)</code> through <code>TX_R height</code>, plus any same-block txs (see <code>carrier_phase1</code> in tx JSON). Tune <code>QE_PQ_CARRIER_COMMITMENT_LOOKBACK_BLOCKS</code> (default 750000) if a TX_C is older than the window. For <code>FLC1</code>, optional <strong>Falcon crypto verify</strong> (<code>such tx_sighash32</code> + <code>such falcon_verify</code>, <code>QE_SUCH_PATH</code>) reproduces Core’s signature check when Dogecoin Core RPC can supply the prevout <code>scriptPubKey</code>; see <code>falcon_crypto_verify</code> in tx JSON.</p>
             </div>
             <div class="docs-card">
               <h3>Technical verification anyone can do</h3>
@@ -354,6 +365,7 @@
                 <li>Decode outputs and inspect canonical commitment output: <code>OP_RETURN 0x24 &lt;TAG4&gt; &lt;32-byte-commitment&gt;</code>.</li>
                 <li>Verify TAG4 is one of <code>FLC1</code>, <code>DIL2</code>, <code>RCG4</code>.</li>
                 <li>When TX_R carrier data exists, reconstruct <code>pubkey||signature</code> parts and check <code>SHA256(pubkey||signature)</code> against TX_C commitment.</li>
+                <li>For Falcon (<code>FLC1</code>), optionally run the same sighash + <code>falcon_verify</code> path as Dogecoin Core (libdogecoin <code>such</code> with <code>liboqs</code>).</li>
                 <li>Check block inclusion/confirmations via your node or this explorer’s indexed chain.</li>
               </ul>
               <p>In this UI, open a tx detail to see decode + strict PQ evidence. External verifiers can reproduce the same parsing from raw bytes.</p>
@@ -413,6 +425,29 @@
   <script>
     function esc(s){return String(s??"").replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));}
     function badge(cls,txt){return `<span class="badge ${cls}">${esc(txt)}</span>`;}
+    function renderFalconCryptoVerify(fcv){
+      if (!fcv || typeof fcv !== "object") return "";
+      const st = String(fcv.status || "skipped").toLowerCase();
+      let badgeHtml = "";
+      if (st === "passed") badgeHtml = badge("pq-ok", "Falcon (liboqs): passed");
+      else if (st === "failed") badgeHtml = badge("pq-bad", "Falcon (liboqs): failed");
+      else if (st === "error") badgeHtml = badge("pq-bad", "Falcon (liboqs): error");
+      else badgeHtml = badge("", "Falcon (liboqs): skipped");
+      const rows = [];
+      if (fcv.reason) rows.push(`<div class="detail-kv muted" style="font-size:.78rem"><strong>Note</strong> ${esc(String(fcv.reason))}</div>`);
+      if (fcv.detail) rows.push(`<div class="detail-kv mono" style="font-size:.72rem;word-break:break-all"><strong>Detail</strong> ${esc(String(fcv.detail))}</div>`);
+      if (fcv.verify_line) rows.push(`<div class="detail-kv mono" style="font-size:.76rem">${esc(String(fcv.verify_line))}</div>`);
+      if (fcv.message_hex) rows.push(`<div class="detail-kv mono" style="font-size:.74rem;word-break:break-all"><strong>Sighash (message)</strong> ${esc(String(fcv.message_hex))}</div>`);
+      if (fcv.such_path) rows.push(`<div class="detail-kv muted" style="font-size:.72rem"><strong>such</strong> ${esc(String(fcv.such_path))}</div>`);
+      if (fcv.prevout_scriptpubkey_hex) rows.push(`<div class="detail-kv mono" style="font-size:.7rem;word-break:break-all;max-height:5rem;overflow:auto"><strong>Prevout scriptPubKey</strong> ${esc(String(fcv.prevout_scriptpubkey_hex))}</div>`);
+      if (fcv.input_index != null && fcv.input_index !== "") rows.push(`<div class="detail-kv"><strong>Carrier input index</strong> ${esc(String(fcv.input_index))}</div>`);
+      return `<div class="tx-io-card" style="margin-top:.35rem;border-left:3px solid var(--line);padding-left:.55rem">
+            <strong>Falcon crypto (Core-aligned)</strong>
+            <p class="muted" style="font-size:.76rem;margin:.25rem 0 .35rem">When Core RPC and a libdogecoin+<code>liboqs</code> <code>such</code> binary are available, the explorer runs <code>such tx_sighash32</code> then <code>such falcon_verify</code> (override path with <code>QE_SUCH_PATH</code>). That matches the Falcon verify step Core uses after the commitment check.</p>
+            <div class="badges" style="margin:.2rem 0">${badgeHtml}</div>
+            ${rows.join("")}
+          </div>`;
+    }
     function txTypeIcon(tx){
       if (!tx) return "help";
       if (tx.pq_valid) return "verified";
@@ -899,14 +934,16 @@
           </div>
           ${carrier.present ? `<div class="tx-io-card" style="margin-top:.45rem">
             <strong>Carrier verification (TX_C/TX_R)</strong>
-            <div class="detail-kv" style="margin-top:.35rem">${carrier.verified ? "Verified against TX_C commitment in same block" : "Carrier payload detected, but commitment match not verified"}</div>
+            <div class="detail-kv" style="margin-top:.35rem">${carrier.verified ? "Verified: SHA256(pk‖sig) matched an indexed TX_C Phase-1 OP_RETURN commitment (lookback window + same block)" : "Carrier payload detected, but no matching indexed TX_C commitment (increase QE_PQ_CARRIER_COMMITMENT_LOOKBACK_BLOCKS or ensure TX_C is indexed as quantum)"}</div>
             ${carrier.algorithm ? `<div class="detail-kv"><strong>Algorithm tag</strong> ${esc(String(carrier.algorithm))}</div>` : ""}
             ${carrier.carrier_tag ? `<div class="detail-kv"><strong>Carrier tag</strong> ${esc(String(carrier.carrier_tag))}</div>` : ""}
             ${carrier.commitment32 ? `<div class="detail-kv mono"><strong>Commitment32</strong> ${esc(String(carrier.commitment32))}</div>` : ""}
-            ${carrier.matched_txc_txid ? `<div class="detail-kv mono"><strong>Matched TX_C</strong> <button type="button" class="link-tx" data-open-txid="${esc(String(carrier.matched_txc_txid))}">${esc(String(carrier.matched_txc_txid))}</button></div>` : ""}
+            ${carrier.matched_txc_txid ? `<div class="detail-kv mono"><strong>Matched TX_C</strong> <button type="button" class="link-tx" data-open-txid="${esc(String(carrier.matched_txc_txid))}">${esc(String(carrier.matched_txc_txid))}</button>${carrier.matched_txc_block_height != null ? ` <span class="muted">(block ${esc(String(carrier.matched_txc_block_height))})</span>` : ""}</div>` : ""}
             ${carrier.pk_len ? `<div class="detail-kv"><strong>pk_len</strong> ${esc(String(carrier.pk_len))} bytes</div>` : ""}
             ${carrier.sig_len ? `<div class="detail-kv"><strong>sig_len</strong> ${esc(String(carrier.sig_len))} bytes</div>` : ""}
+            ${carrier.commitment_lookback_blocks != null ? `<div class="detail-kv muted" style="font-size:.76rem"><strong>TX_C search</strong> last ${esc(String(carrier.commitment_lookback_blocks))} blocks · ${esc(String(carrier.indexed_commitment_count ?? "—"))} commitment(s) in map</div>` : ""}
             ${carrier.reason ? `<div class="detail-kv muted" style="font-size:.78rem">${esc(String(carrier.reason))}</div>` : ""}
+            ${renderFalconCryptoVerify(carrier.falcon_crypto_verify)}
           </div>` : ""}
         </div>`;
       initTxTabs(body);
@@ -1100,7 +1137,12 @@
         return;
       }
       const fv = document.getElementById("qe-footer-version");
-      if (fv && r.d.app_version) fv.textContent = "v" + String(r.d.app_version);
+      if (fv && r.d.app_version) {
+        const bh = r.d.build_hash != null ? String(r.d.build_hash) : "";
+        const short = bh.length >= 12 ? bh.slice(0, 12) + "…" : bh;
+        fv.textContent = "v" + String(r.d.app_version) + (short ? " · " + short : "");
+        fv.title = "Quantum Explorer v" + String(r.d.app_version) + (bh ? " — " + bh : "");
+      }
       const m=r.d.metrics||{};
       const core = r.d.core || {};
       window.__coreTip = (core.blockcount != null && core.blockcount !== "") ? core.blockcount : null;
@@ -1190,7 +1232,7 @@
       const ar = await j("/api/public/activity-buckets?hours=" + encodeURIComponent(String(hours)));
       if (ar.ok) {
         const b = ar.d.buckets || [];
-        renderSimpleSeries("activity-wallets", "Wallet creations during time", b, "wallet_creates", "quantum");
+        renderSimpleSeries("activity-wallets", "Distinct addresses (outputs per hour)", b, "wallet_creates", "quantum");
         renderSimpleSeries("activity-transactions", "Number of transactions during time", b, "transactions", "nonq");
         renderSimpleSeries("activity-blocks", "Number of blocks created during time", b, "blocks", "quantum");
       }

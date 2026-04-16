@@ -194,6 +194,7 @@ func (s *Server) handleWalletNewAddress(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	s.startSPVNode(wf)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "wallet": wf})
 }
 

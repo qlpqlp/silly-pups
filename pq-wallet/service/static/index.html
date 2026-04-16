@@ -169,6 +169,21 @@
             </div>
             <p class="mono hash" id="hdr-hash">—</p>
           </div>
+          <div class="card spv-rescan-card">
+            <h2><span class="material-symbols-outlined icon-inline">restart_alt</span> SPV repair &amp; rescan</h2>
+            <p class="small muted">If a new receive address is not picking up coins, try <strong>Sync with explorer</strong> on Transactions, then use these controls. Full rescan deletes <code class="mono">headers.db</code> and <code class="mono">spv_wallet.db</code> so <code class="mono">spvnode</code> rebuilds from its embedded checkpoint. Rollback keeps older headers: paste a <strong>block header hash</strong> that already appears in <code class="mono">spv.log</code> as <code class="mono">hash|height|…</code>, or enter a <strong>rollback height</strong> (headers above that height are removed). Rollback needs the <code class="mono">sqlite3</code> tool on the container PATH (included in this pup).</p>
+            <label class="field"><span class="field-label">Block header hash (64 hex, optional if height set)</span>
+              <input type="text" class="input-modern mono" id="spv-rescan-hash" placeholder="0000…" autocomplete="off" spellcheck="false" />
+            </label>
+            <label class="field"><span class="field-label">Rollback height (optional if hash is in spv.log)</span>
+              <input type="text" class="input-modern" id="spv-rescan-height" inputmode="numeric" placeholder="e.g. 4500000" autocomplete="off" />
+            </label>
+            <div class="toolbar toolbar-actions spv-rescan-actions">
+              <button type="button" class="btn" id="btn-spv-rollback"><span class="material-symbols-outlined btn-ico">vertical_align_top</span> Rollback headers &amp; rescan wallet DB</button>
+              <button type="button" class="btn primary" id="btn-spv-full-rescan"><span class="material-symbols-outlined btn-ico">delete_sweep</span> Full SPV rescan</button>
+            </div>
+            <pre id="spv-rescan-out" class="mono small out" aria-live="polite"></pre>
+          </div>
           <div class="charts charts-fullwidth">
             <div class="card chart-card chart-card-wide">
               <h3>Mempool <span class="chart-sub">(last 24h, MemeTracker relay)</span></h3>

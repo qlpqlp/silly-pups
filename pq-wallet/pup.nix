@@ -7,7 +7,7 @@ let
 
   pq_bin = pkgs.buildGoModule {
     pname = "pq-wallet";
-    version = "0.0.10";
+    version = "0.0.13";
     src = ./service;
     vendorHash = null;
     go = pkgs.go_1_24;
@@ -28,7 +28,7 @@ let
     STORAGE="''${PQ_STORAGE_DIR:-/storage/pq-wallet}"
     mkdir -p "$STORAGE"
 
-    export PATH="${libdogecoin}/bin:${pkgs.jq}/bin:${pkgs.coreutils}/bin:$PATH"
+    export PATH="${libdogecoin}/bin:${pkgs.jq}/bin:${pkgs.sqlite}/bin:${pkgs.coreutils}/bin:$PATH"
 
     export PUBLIC_PORT
     export PQ_STORAGE_DIR="$STORAGE"
@@ -45,15 +45,19 @@ let
     if [ "$SPVNODE_ENABLE" = "1" ] && [ -f "$STORAGE/wallet.json" ]; then
       if [ ! -f "$STORAGE/spv.pid" ] || ! kill -0 "$(cat "$STORAGE/spv.pid" 2>/dev/null)" 2>/dev/null; then
         rm -f "$STORAGE/spv.pid"
-        ADDR=$(jq -r '.p2pkh_address // empty' "$STORAGE/wallet.json")
         NET=$(jq -r '.network // "mainnet"' "$STORAGE/wallet.json")
-        if [ -n "$ADDR" ]; then
+        mapfile -t SPV_ADDRS < <(jq -r '[ (.p2pkh_address // empty), (.addresses[]? | .p2pkh_address // empty) ] | map(select(type=="string" and length>0)) | unique | .[]' "$STORAGE/wallet.json")
+        if [ "''${#SPV_ADDRS[@]}" -gt 0 ]; then
           TN_FLAG=""
           if [ "$NET" = "testnet" ]; then TN_FLAG="-t"; fi
+          SPV_ARGS=()
+          for a in "''${SPV_ADDRS[@]}"; do
+            SPV_ARGS+=(-a "$a")
+          done
           if command -v stdbuf >/dev/null 2>&1; then
-            nohup stdbuf -oL -eL spvnode $TN_FLAG -f 0 -c -l -a "$ADDR" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >>"$STORAGE/spv.log" 2>&1 &
+            nohup stdbuf -oL -eL spvnode $TN_FLAG -f 0 -c -l "''${SPV_ARGS[@]}" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >>"$STORAGE/spv.log" 2>&1 &
           else
-            nohup spvnode $TN_FLAG -f 0 -c -l -a "$ADDR" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >>"$STORAGE/spv.log" 2>&1 &
+            nohup spvnode $TN_FLAG -f 0 -c -l "''${SPV_ARGS[@]}" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >>"$STORAGE/spv.log" 2>&1 &
           fi
           echo $! >"$STORAGE/spv.pid"
         fi

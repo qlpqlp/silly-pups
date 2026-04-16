@@ -342,21 +342,24 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 func (s *Server) syncTransactionsFromNetwork(ctx context.Context, wf *WalletFile) ([]TxRecord, float64, error) {
 	var out []TxRecord
 	var balance float64
-	p := wf.PrimaryAddress()
-	if p == nil {
-		return out, 0, nil
-	}
-	addr := strings.TrimSpace(p.P2PKH)
-	if addr == "" {
+	addrs := wf.AllDistinctP2PKHAddresses()
+	if len(addrs) == 0 {
 		return out, 0, nil
 	}
 
 	base := strings.TrimSpace(s.explorerAddr)
 	if base != "" {
-		txs, bal, err := s.fetchBlockchairAddress(ctx, base, addr)
-		if err == nil {
+		for _, addr := range addrs {
+			addr = strings.TrimSpace(addr)
+			if addr == "" {
+				continue
+			}
+			txs, bal, err := s.fetchBlockchairAddress(ctx, base, addr)
+			if err != nil {
+				continue
+			}
 			out = append(out, txs...)
-			balance = bal
+			balance += bal
 		}
 	}
 

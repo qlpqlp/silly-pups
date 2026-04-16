@@ -1057,11 +1057,48 @@ document.getElementById("btn-new-addr").addEventListener("click", async () => {
   }
   state.wallet = data.wallet;
   renderAddresses(data.wallet);
+  await refreshDashboard();
 });
 
 document.getElementById("btn-sync-tx").addEventListener("click", async () => {
   await refreshTxList(true);
 });
+
+const btnSpvFull = $("btn-spv-full-rescan");
+const btnSpvRb = $("btn-spv-rollback");
+if (btnSpvFull) {
+  btnSpvFull.addEventListener("click", async () => {
+    if (!confirm("Delete SPV headers.db and spv_wallet.db on this pup and restart spvnode from the embedded checkpoint?")) return;
+    const out = $("spv-rescan-out");
+    const res = await api("/api/spv/rescan", {
+      method: "POST",
+      body: JSON.stringify({ confirm: "RESCAN", mode: "full" }),
+    });
+    if (out) out.textContent = JSON.stringify(res, null, 2);
+    if (res.error) alert(res.error);
+    await refreshDashboard();
+  });
+}
+if (btnSpvRb) {
+  btnSpvRb.addEventListener("click", async () => {
+    const hash = ($("spv-rescan-hash") && $("spv-rescan-hash").value.trim()) || "";
+    const hRaw = ($("spv-rescan-height") && $("spv-rescan-height").value.trim()) || "";
+    const rollback_height = hRaw ? parseInt(hRaw, 10) : 0;
+    if (!hash && !(rollback_height > 0)) {
+      alert("Enter a 64-character block header hash (from spv.log) or a positive rollback height.");
+      return;
+    }
+    if (!confirm("Stop SPV, truncate headers newer than the chosen block/height, delete spv_wallet.db, and restart?")) return;
+    const body = { confirm: "ROLLBACK" };
+    if (hash) body.rollback_block_hash = hash;
+    if (rollback_height > 0) body.rollback_height = rollback_height;
+    const out = $("spv-rescan-out");
+    const res = await api("/api/spv/rescan", { method: "POST", body: JSON.stringify(body) });
+    if (out) out.textContent = JSON.stringify(res, null, 2);
+    if (res.error) alert(res.error);
+    await refreshDashboard();
+  });
+}
 
 document.getElementById("btn-backup").addEventListener("click", async () => {
   const data = await api("/api/wallet");

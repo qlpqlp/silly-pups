@@ -648,17 +648,37 @@ func (ix *coreIndexer) summary(ctx context.Context) map[string]any {
 }
 
 func (ix *coreIndexer) metricBuckets(ctx context.Context, hours int) ([]map[string]any, error) {
-	if hours < 1 {
+	allTime := hours <= 0
+	if !allTime && hours < 1 {
 		hours = 24
 	}
-	cutoff := time.Now().UTC().Add(-time.Duration(hours) * time.Hour).Unix()
+	var latestHour int64
+	err := ix.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(hour_unix),0) FROM qe_core_hourly_metrics`).Scan(&latestHour)
+	if err != nil {
+		return nil, err
+	}
+	if latestHour <= 0 {
+		return []map[string]any{}, nil
+	}
+	var cutoff int64
+	if allTime {
+		if err := ix.db.QueryRowContext(ctx, `SELECT COALESCE(MIN(hour_unix),0) FROM qe_core_hourly_metrics`).Scan(&cutoff); err != nil {
+			return nil, err
+		}
+	} else {
+		cutoff = latestHour - int64((hours-1)*3600)
+	}
 	rows, err := ix.db.QueryContext(ctx, `SELECT hour_unix, all_count, quantum_count, non_quantum_count, invalid_quantum_count
-		FROM qe_core_hourly_metrics WHERE hour_unix >= $1 ORDER BY hour_unix`, cutoff-(cutoff%3600))
+		FROM qe_core_hourly_metrics WHERE hour_unix >= $1 AND hour_unix <= $2 ORDER BY hour_unix`, cutoff, latestHour)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := make([]map[string]any, 0, hours)
+	outCap := hours
+	if allTime || outCap < 1 {
+		outCap = 256
+	}
+	out := make([]map[string]any, 0, outCap)
 	for rows.Next() {
 		var h, allc, q, nq, iq int64
 		if err := rows.Scan(&h, &allc, &q, &nq, &iq); err != nil {
@@ -671,6 +691,87 @@ func (ix *coreIndexer) metricBuckets(ctx context.Context, hours int) ([]map[stri
 			"quantum":         q,
 			"non_quantum":     nq,
 			"invalid_quantum": iq,
+		})
+	}
+	return out, rows.Err()
+}
+
+func (ix *coreIndexer) activityBuckets(ctx context.Context, hours int) ([]map[string]any, error) {
+	if ix == nil || ix.db == nil {
+		return nil, nil
+	}
+	allTime := hours <= 0
+	if !allTime && hours < 1 {
+		hours = 24
+	}
+	var latestHour int64
+	if err := ix.db.QueryRowContext(ctx, `SELECT COALESCE(MAX((time_unix/3600)*3600),0) FROM qe_core_blocks`).Scan(&latestHour); err != nil {
+		return nil, err
+	}
+	if latestHour <= 0 {
+		return []map[string]any{}, nil
+	}
+	var cutoff int64
+	if allTime {
+		if err := ix.db.QueryRowContext(ctx, `SELECT COALESCE(MIN((time_unix/3600)*3600),0) FROM qe_core_blocks`).Scan(&cutoff); err != nil {
+			return nil, err
+		}
+	} else {
+		cutoff = latestHour - int64((hours-1)*3600)
+	}
+	rows, err := ix.db.QueryContext(ctx, `
+		WITH txs AS (
+		  SELECT (time_unix/3600)*3600 AS h, COUNT(*)::bigint AS tx_count
+		  FROM qe_core_txs
+		  WHERE time_unix >= $1 AND time_unix <= $2 + 3599
+		  GROUP BY 1
+		),
+		blks AS (
+		  SELECT (time_unix/3600)*3600 AS h, COUNT(*)::bigint AS block_count
+		  FROM qe_core_blocks
+		  WHERE time_unix >= $1 AND time_unix <= $2 + 3599
+		  GROUP BY 1
+		),
+		wallets AS (
+		  SELECT ((b.time_unix/3600)*3600) AS h, COUNT(*)::bigint AS wallet_count
+		  FROM (
+		    SELECT address, MIN(block_height) AS first_height
+		    FROM qe_core_addresses
+		    GROUP BY address
+		  ) f
+		  JOIN qe_core_blocks b ON b.height = f.first_height
+		  WHERE b.time_unix >= $1 AND b.time_unix <= $2 + 3599
+		  GROUP BY 1
+		)
+		SELECT g.h,
+		  COALESCE(txs.tx_count,0) AS tx_count,
+		  COALESCE(blks.block_count,0) AS block_count,
+		  COALESCE(wallets.wallet_count,0) AS wallet_count
+		FROM generate_series($1::bigint, $2::bigint, 3600) AS g(h)
+		LEFT JOIN txs ON txs.h = g.h
+		LEFT JOIN blks ON blks.h = g.h
+		LEFT JOIN wallets ON wallets.h = g.h
+		ORDER BY g.h`, cutoff, latestHour)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	outCap := hours
+	if allTime || outCap < 1 {
+		outCap = 256
+	}
+	out := make([]map[string]any, 0, outCap)
+	for rows.Next() {
+		var h, txc, blc, wlc int64
+		if err := rows.Scan(&h, &txc, &blc, &wlc); err != nil {
+			return nil, err
+		}
+		out = append(out, map[string]any{
+			"hour_unix":      h,
+			"hour":           time.Unix(h, 0).UTC().Format("2006-01-02T15:00:00Z"),
+			"transactions":   txc,
+			"blocks":         blc,
+			"wallet_creates": wlc,
 		})
 	}
 	return out, rows.Err()

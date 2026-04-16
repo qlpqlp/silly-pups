@@ -261,6 +261,7 @@ func main() {
 	mux.HandleFunc("/api/transactions", srv.handleTransactions)
 	mux.HandleFunc("/api/explorer/tx/", srv.handleExplorerTx)
 	mux.HandleFunc("/api/spv/status", srv.handleSPVStatus)
+	mux.HandleFunc("/api/spv/rescan", srv.handleSPVRescan)
 	mux.HandleFunc("/api/logs/spv", srv.handleLogsSPV)
 	mux.HandleFunc("/api/logs/mempooltracker", srv.handleLogsMempoolTracker)
 	mux.HandleFunc("/api/logs/broadcast", srv.handleLogsBroadcast)

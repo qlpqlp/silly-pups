@@ -132,6 +132,42 @@ func parsePipeHeaderTip(s string) (height int64, hash string) {
 	return best, bestHash
 }
 
+// heightForHeaderHashInSPVLog finds a header row like "hash|height|…" matching wantHash (64 hex).
+// If multiple matches exist, returns the greatest height (best-effort for log replays).
+func heightForHeaderHashInSPVLog(log, wantHash string) (height int64, ok bool) {
+	wantHash = strings.ToLower(strings.TrimSpace(wantHash))
+	if len(wantHash) != 64 || !isHex64(wantHash) {
+		return 0, false
+	}
+	var best int64
+	found := false
+	for _, line := range strings.Split(log, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.Contains(line, "|") {
+			continue
+		}
+		parts := strings.Split(line, "|")
+		if len(parts) < 2 {
+			continue
+		}
+		hx := strings.TrimSpace(parts[0])
+		if len(hx) != 64 || !isHex64(hx) {
+			continue
+		}
+		h, err := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
+		if err != nil || h < 0 {
+			continue
+		}
+		if strings.EqualFold(hx, wantHash) {
+			found = true
+			if h > best {
+				best = h
+			}
+		}
+	}
+	return best, found
+}
+
 func isHex64(s string) bool {
 	for _, c := range s {
 		if c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F' {

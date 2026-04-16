@@ -28,7 +28,13 @@ func (a *app) publicMetrics(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
 		return
 	}
-	hours := parsePositiveInt(r.URL.Query().Get("hours"), 24, 1, 168)
+	hoursRaw := strings.TrimSpace(r.URL.Query().Get("hours"))
+	hours := 24
+	if hoursRaw == "0" {
+		hours = 0 // all-time
+	} else {
+		hours = parsePositiveInt(hoursRaw, 24, 1, 24*365*25)
+	}
 	if a.cidx != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
@@ -97,6 +103,36 @@ func (a *app) publicMetrics(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{
 		"hours":   hours,
 		"source":  "pq_json_store",
+		"buckets": buckets,
+	})
+}
+
+func (a *app) publicActivityBuckets(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if a.cidx == nil {
+		writeJSON(w, 200, map[string]any{"hours": 24, "source": "unavailable", "buckets": []map[string]any{}})
+		return
+	}
+	hoursRaw := strings.TrimSpace(r.URL.Query().Get("hours"))
+	hours := 24
+	if hoursRaw == "0" {
+		hours = 0 // all-time
+	} else {
+		hours = parsePositiveInt(hoursRaw, 24, 1, 24*365*25)
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	buckets, err := a.cidx.activityBuckets(ctx, hours)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]any{
+		"hours":   hours,
+		"source":  "core_activity_buckets",
 		"buckets": buckets,
 	})
 }

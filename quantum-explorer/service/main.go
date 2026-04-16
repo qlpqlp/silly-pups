@@ -1587,6 +1587,7 @@ func main() {
 	publicMux.HandleFunc("/api/public/tx", a.withRateLimit(a.publicTxDetail))
 	publicMux.HandleFunc("/api/public/search", a.withRateLimit(a.publicSearch))
 	publicMux.HandleFunc("/api/public/metrics", a.withRateLimit(a.publicMetrics))
+	publicMux.HandleFunc("/api/public/activity-buckets", a.withRateLimit(a.publicActivityBuckets))
 	publicMux.HandleFunc("/api/public/core/search", a.withRateLimit(a.withPublicAccess(a.publicCoreSearch)))
 	publicMux.HandleFunc("/api/public/core/summary", a.withRateLimit(a.withPublicAccess(a.publicCoreSummary)))
 	publicMux.HandleFunc("/api/public/core/recent-txs", a.withRateLimit(a.withPublicAccess(a.publicCoreRecentTxs)))

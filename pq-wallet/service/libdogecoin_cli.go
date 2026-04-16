@@ -360,44 +360,30 @@ func (s *Server) startSPVNode(w *WalletFile) {
 	}
 	s.stopSPVNode()
 	testnet := strings.EqualFold(w.Network, "testnet")
-	tryAddrs := [][]string{addrs}
-	if len(addrs) > 1 {
-		if p := w.PrimaryAddress(); p != nil {
-			if pa := strings.TrimSpace(p.P2PKH); pa != "" {
-				tryAddrs = append(tryAddrs, []string{pa})
-			}
-		}
-	}
 	logPath := s.spvLogPath()
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		log.Printf("[pq-wallet] spv log: %v", err)
 		return
 	}
-	var started *os.Process
 	var used []string
-	for _, list := range tryAddrs {
-		if len(list) == 0 {
-			continue
-		}
-		sort.Strings(list)
-		args := spvnodeArgs(testnet, list, s.storageDir)
-		cmd := exec.Command(s.spvnodePath(), args...)
-		cmd.Stdout = f
-		cmd.Stderr = f
-		if err := cmd.Start(); err != nil {
-			log.Printf("[pq-wallet] spvnode start addrs=%d: %v", len(list), err)
-			continue
-		}
-		started = cmd.Process
-		used = list
-		break
-	}
-	if started == nil {
+	list := addrs
+	if len(list) == 0 {
 		_ = f.Close()
-		log.Printf("[pq-wallet] spvnode: could not start (tried %d address set(s))", len(tryAddrs))
 		return
 	}
+	sort.Strings(list)
+	args := spvnodeArgs(testnet, list, s.storageDir)
+	cmd := exec.Command(s.spvnodePath(), args...)
+	cmd.Stdout = f
+	cmd.Stderr = f
+	if err := cmd.Start(); err != nil {
+		_ = f.Close()
+		log.Printf("[pq-wallet] spvnode start addrs=%d: %v", len(list), err)
+		return
+	}
+	started := cmd.Process
+	used = list
 	_ = os.WriteFile(s.spvPidPath(), []byte(strconv.Itoa(started.Pid)), 0600)
 	_ = os.WriteFile(s.spvWatchAddrPath(), []byte(strings.Join(used, "\n")), 0600)
 	go func(proc *os.Process, lf *os.File) {
@@ -427,6 +413,20 @@ func (s *Server) readSPVStatus() map[string]any {
 		"libdogecoin_spvnode": s.spvnodePath(),
 		"pid_file":            pidPath,
 		"log_file":            logPath,
+	}
+	hdb := filepath.Join(s.storageDir, "headers.db")
+	wdb := filepath.Join(s.storageDir, "spv_wallet.db")
+	if _, err := os.Stat(hdb); err == nil {
+		out["headers_db"] = hdb
+		out["headers_db_present"] = true
+	} else {
+		out["headers_db_present"] = false
+	}
+	if _, err := os.Stat(wdb); err == nil {
+		out["spv_wallet_db"] = wdb
+		out["spv_wallet_db_present"] = true
+	} else {
+		out["spv_wallet_db_present"] = false
 	}
 	// Expose spv.log tail whenever the file exists so peer / height parsing works even if pid is stale.
 	if lb, err := readFileTail(logPath, 512*1024); err == nil {

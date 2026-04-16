@@ -107,7 +107,13 @@
     .docs-btn .material-symbols-outlined { font-size:18px; line-height:1; }
     .hero-actions { margin-left:auto; display:flex; align-items:center; gap:.55rem; flex-wrap:wrap; justify-content:flex-end; }
     .doge-foundation-logo { height:auto; width:100px !important; filter:invert(1); opacity:.94; }
-    .site-footer { margin:1rem 0 .2rem; text-align:center; color:var(--muted); font-size:.86rem; }
+    .site-footer { margin:1rem 0 .2rem; display:flex; justify-content:space-between; align-items:center; gap:.75rem; flex-wrap:wrap; color:var(--muted); font-size:.86rem; }
+    .footer-left { flex:1 1 auto; min-width:0; text-align:left; }
+    .footer-version { flex:0 0 auto; margin-left:auto; text-align:right; font-size:.78rem; letter-spacing:.02em; opacity:.92; }
+    @media (max-width:520px){
+      .site-footer { flex-direction:column; align-items:stretch; }
+      .footer-version { margin-left:0; align-self:flex-end; text-align:right; }
+    }
     .title-icon { font-size:18px; vertical-align:middle; margin-right:.35rem; color:var(--doge); }
     .btn-ico { display:inline-flex; align-items:center; gap:.3rem; }
     .btn-ico .material-symbols-outlined { font-size:17px; line-height:1; }
@@ -398,7 +404,10 @@
       <div class="section-more"><button type="button" class="btn" id="btn-blocks-more">Show more blocks</button></div>
     </section>
 
-    <footer class="site-footer">Coded with love for all Dogecoin community</footer>
+    <footer class="site-footer">
+      <span class="footer-left">Coded with love for all Dogecoin community</span>
+      <span class="footer-version mono" id="qe-footer-version" title="Quantum Explorer version">—</span>
+    </footer>
   </div>
 
   <script>
@@ -1090,6 +1099,8 @@
         banner.innerHTML = `<strong>Status HTTP ${r.s}</strong> ${esc(JSON.stringify(r.d))}`;
         return;
       }
+      const fv = document.getElementById("qe-footer-version");
+      if (fv && r.d.app_version) fv.textContent = "v" + String(r.d.app_version);
       const m=r.d.metrics||{};
       const core = r.d.core || {};
       window.__coreTip = (core.blockcount != null && core.blockcount !== "") ? core.blockcount : null;

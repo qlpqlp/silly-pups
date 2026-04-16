@@ -25,6 +25,9 @@ import (
 //go:embed static/*
 var staticFS embed.FS
 
+// qeAppVersion is shown in the public UI and /api/public/status (keep in sync with manifest.json).
+const qeAppVersion = "0.1.25"
+
 type Checkpoint struct {
 	Height    int    `json:"height"`
 	Hash      string `json:"hash"`
@@ -962,6 +965,7 @@ func (a *app) publicStatus(w http.ResponseWriter, r *http.Request) {
 	chainHdrs := a.recentChainHeaders(12)
 
 	status := map[string]any{
+		"app_version":            qeAppVersion,
 		"metrics":                m,
 		"latest":                 rows,
 		"latest_pq_transactions": latestPQ,

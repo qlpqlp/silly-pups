@@ -2105,7 +2105,7 @@ func (c *MemeTrackerConfig) ApplyDefaults() {
 		c.P2PPort = 22556
 	}
 	if c.P2PParallel == 0 {
-		c.P2PParallel = 3
+		c.P2PParallel = 1
 	}
 	if c.P2PLog < 0 {
 		c.P2PLog = 0
@@ -2652,7 +2652,7 @@ func Start(opts Options) (*Engine, error) {
 	p2pHost := strings.TrimSpace(envString("MTR_P2P_HOST", envString("P2P_HOST", "")))
 	p2pPort := envInt("MTR_P2P_PORT", envInt("P2P_PORT", 22556))
 	p2pLog := envInt("MTR_P2P_LOG", envInt("P2P_LOG", 1))
-	p2pParallel := envInt("MTR_P2P_PARALLEL", envInt("P2P_PARALLEL", 3))
+	p2pParallel := envInt("MTR_P2P_PARALLEL", envInt("P2P_PARALLEL", 1))
 
 	if configFileRead {
 		if fileCfg.ListLimit > 0 {

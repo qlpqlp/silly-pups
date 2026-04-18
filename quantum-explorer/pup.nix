@@ -5,7 +5,7 @@ let
 
   qe_bin = pkgs.buildGoModule {
     pname = "quantum-explorer";
-    version = "0.1.29";
+    version = "0.1.30";
     src = ./service;
     vendorHash = null;
     go = pkgs.go_1_24;
@@ -57,6 +57,23 @@ EOF
       fi
       if ! grep -q '^unix_socket_directories' "$PGDATA/postgresql.conf" 2>/dev/null; then
         printf "\n# quantum-explorer socket path (upgrade)\nunix_socket_directories = '%s'\n" "''$SOCKET_DIR" >> "''$PGDATA/postgresql.conf"
+      fi
+      # One-time: cap memory-heavy planner defaults (parallelism, work_mem) on small boards / no swap.
+      if ! grep -q '^# quantum-explorer-tune-memory' "$PGDATA/postgresql.conf" 2>/dev/null; then
+        cat >> "$PGDATA/postgresql.conf" <<'EOF'
+# quantum-explorer-tune-memory (embedded Postgres on low-RAM hosts; mitigates OOM from large sorts / parallel workers)
+max_connections = 20
+work_mem = 1MB
+maintenance_work_mem = 32MB
+autovacuum_work_mem = 32MB
+max_parallel_workers_per_gather = 0
+max_parallel_maintenance_workers = 0
+max_worker_processes = 4
+effective_cache_size = 128MB
+temp_buffers = 2MB
+autovacuum_max_workers = 1
+jit = off
+EOF
       fi
       cleanup() {
         if pg_ctl -D "$PGDATA" status >/dev/null 2>&1; then

@@ -22,8 +22,19 @@ func newPostgresChainBackend(dsn, jsonImportPath string) (*postgresChainBackend,
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(5)
+	maxOpen := 8
+	if n, err := strconv.Atoi(strings.TrimSpace(env("QE_POSTGRES_MAX_OPEN_CONNS", "8"))); err == nil && n >= 1 && n <= 64 {
+		maxOpen = n
+	}
+	maxIdle := maxOpen / 4
+	if maxIdle < 1 {
+		maxIdle = 1
+	}
+	if maxIdle > 6 {
+		maxIdle = 6
+	}
+	db.SetMaxOpenConns(maxOpen)
+	db.SetMaxIdleConns(maxIdle)
 	db.SetConnMaxLifetime(30 * time.Minute)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

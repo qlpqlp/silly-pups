@@ -427,6 +427,7 @@
               <h3>Core indexing</h3>
               <ul class="docs-modern-list">
                 <li>Set <span class="docs-kbd">QE_POSTGRES_URL</span> for production backend.</li>
+                <li>Embedded Postgres on low-RAM devices: keep <span class="docs-kbd">QE_POSTGRES_MAX_OPEN_CONNS</span> modest (default 8); add swap or use an external DB if the host OOM-kills <span class="mono">postgres</span>.</li>
                 <li>Configure Core RPC URL/user/password.</li>
                 <li>Tune: <span class="docs-kbd">QE_CORE_INDEXER_AUTO_START</span>, <span class="docs-kbd">QE_CORE_BACKFILL_BATCH</span>, <span class="docs-kbd">QE_CORE_START_HEIGHT</span>.</li>
                 <li>Large <span class="docs-kbd">getblock</span> JSON: raise <span class="docs-kbd">QE_CORE_RPC_MAX_RESPONSE_MB</span> (default 256), <span class="docs-kbd">QE_CORE_INDEXER_RPC_TIMEOUT_MS</span> (default 300000), and <span class="docs-kbd">QE_CORE_INDEX_HEIGHT_TIMEOUT_SEC</span> (default 180).</li>

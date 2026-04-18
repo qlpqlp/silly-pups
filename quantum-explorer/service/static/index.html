@@ -1160,6 +1160,21 @@
       });
     }
 
+    function mapQuantumRow(x){
+      const when = x.time_unix ? new Date(Number(x.time_unix) * 1000).toISOString() : "";
+      return {
+        txid: x.txid,
+        block_height: x.block_height,
+        confirmed: true,
+        pq_valid: true,
+        pq_score: 100,
+        pq_reason: x.pq_reason || "PQ marker recognized",
+        verifier: "strict-v1",
+        first_seen: when,
+        last_seen: when
+      };
+    }
+
     async function load(){
       const selected = RANGE_OPTIONS.find(o => o.id === selectedRange) || RANGE_OPTIONS[RANGE_OPTIONS.length - 1];
       const hours = selected.hours;
@@ -1207,7 +1222,13 @@
           badge((s.running ? "pq-ok" : "pending"), s.running ? "Sync running" : "Sync paused"),
           badge("muted", `batch ${s.batch ?? "—"}`)
         ].join("");
+        if (Array.isArray(ex.recent_blocks) && ex.recent_blocks.length) {
+          latestBlockRows = ex.recent_blocks;
+        }
         renderExplorerBlocks(ex);
+        const fromStatus = Array.isArray(ex.recent_quantum) ? ex.recent_quantum : [];
+        latestPQRows = fromStatus.length ? fromStatus.map(mapQuantumRow) : [];
+        renderPQBlock(latestPQRows);
       } else {
         document.getElementById("k-core-tip").textContent = (core.blockcount != null) ? String(core.blockcount) : "—";
         document.getElementById("k-ix-height").textContent = "—";
@@ -1221,57 +1242,38 @@
           badge(pqI > 0 ? "pq-bad" : "muted", `invalid ${pqI}`)
         ].join("");
         renderChainIndexFallback(r.d.chain_index || {});
+        renderPQBlock(latestPQRows);
       }
+      const loadMsg = '<p class="muted">Loading charts…</p>';
+      document.getElementById("metrics-bars").innerHTML = loadMsg;
+      document.getElementById("activity-wallets").innerHTML = loadMsg;
+      document.getElementById("activity-transactions").innerHTML = loadMsg;
+      document.getElementById("activity-blocks").innerHTML = loadMsg;
+      const hoursQ = encodeURIComponent(String(hours));
+      const pMetrics = j("/api/public/metrics?hours=" + hoursQ);
+      const pActivity = j("/api/public/activity-buckets?hours=" + hoursQ);
+      const needBlocks = !!(ex.enabled) && (!Array.isArray(ex.recent_blocks) || ex.recent_blocks.length < blocksVisibleCount);
+      const needQuantum = !!(ex.enabled) && (!Array.isArray(ex.recent_quantum) || ex.recent_quantum.length === 0);
+      const pBlocks = needBlocks ? j("/api/public/core/recent-blocks?limit=" + encodeURIComponent(String(blocksVisibleCount))) : Promise.resolve({ ok: true, d: {} });
+      const pQuantum = needQuantum ? j("/api/public/core/recent-txs?mode=quantum&limit=120") : Promise.resolve({ ok: true, d: {} });
+      const [mr, ar, rb, rr] = await Promise.all([pMetrics, pActivity, pBlocks, pQuantum]);
       if (ex.enabled) {
-        const rb = await j("/api/public/core/recent-blocks?limit=" + encodeURIComponent(String(blocksVisibleCount)));
-        if (rb.ok && Array.isArray(rb.d.rows)) {
+        if (needBlocks && rb.ok && Array.isArray(rb.d.rows) && rb.d.rows.length) {
           latestBlockRows = rb.d.rows;
+          renderExplorerBlocks(ex);
         }
-        const fromStatus = Array.isArray(ex.recent_quantum) ? ex.recent_quantum : [];
-        if (fromStatus.length) {
-          latestPQRows = fromStatus.map(x => {
-            const when = x.time_unix ? new Date(Number(x.time_unix) * 1000).toISOString() : "";
-            return {
-              txid: x.txid,
-              block_height: x.block_height,
-              confirmed: true,
-              pq_valid: true,
-              pq_score: 100,
-              pq_reason: x.pq_reason || "PQ marker recognized",
-              verifier: "strict-v1",
-              first_seen: when,
-              last_seen: when
-            };
-          });
-        } else {
-          const rr = await j("/api/public/core/recent-txs?mode=quantum&limit=500");
-          if (rr.ok && Array.isArray(rr.d.rows)) {
-            latestPQRows = rr.d.rows.map(x => {
-              const when = x.time_unix ? new Date(Number(x.time_unix) * 1000).toISOString() : "";
-              return {
-                txid: x.txid,
-                block_height: x.block_height,
-                confirmed: true,
-                pq_valid: true,
-                pq_score: 100,
-                pq_reason: x.pq_reason || "PQ marker recognized",
-                verifier: "strict-v1",
-                first_seen: when,
-                last_seen: when
-              };
-            });
-          }
+        if (needQuantum && rr.ok && Array.isArray(rr.d.rows) && rr.d.rows.length) {
+          latestPQRows = rr.d.rows.map(mapQuantumRow);
+          renderPQBlock(latestPQRows);
         }
       }
-      renderPQBlock(latestPQRows);
-      const mr = await j("/api/public/metrics?hours=" + encodeURIComponent(String(hours)));
       if (mr.ok) {
         let metricBuckets = mr.d.buckets || [];
         let metricSource = (mr.d.source || "unknown");
-        if ((!Array.isArray(metricBuckets) || metricBuckets.length === 0) && ex.enabled) {
-          const arFallback = await j("/api/public/activity-buckets?hours=" + encodeURIComponent(String(hours)));
-          if (arFallback.ok && Array.isArray(arFallback.d.buckets) && arFallback.d.buckets.length > 0) {
-            metricBuckets = arFallback.d.buckets.map(it => ({
+        if ((!Array.isArray(metricBuckets) || metricBuckets.length === 0) && ex.enabled && ar.ok) {
+          const fb = (ar.d && ar.d.buckets) || [];
+          if (fb.length > 0) {
+            metricBuckets = fb.map(it => ({
               hour: it.hour,
               quantum: 0,
               non_quantum: Number(it.transactions || 0)
@@ -1280,16 +1282,21 @@
           }
         }
         renderMetricsBars(metricBuckets);
-        const src = (mr.d.source || "unknown");
         const srcEl = document.getElementById("metrics-source");
         srcEl.textContent = `Source: ${metricSource} · Range: ${selected.label}`;
+      } else {
+        document.getElementById("metrics-bars").innerHTML = '<p class="muted">Could not load metrics.</p>';
       }
-      const ar = await j("/api/public/activity-buckets?hours=" + encodeURIComponent(String(hours)));
       if (ar.ok) {
         const b = ar.d.buckets || [];
         renderSimpleSeries("activity-wallets", "Distinct addresses (outputs per hour)", b, "wallet_creates", "quantum");
         renderSimpleSeries("activity-transactions", "Number of transactions during time", b, "transactions", "nonq");
         renderSimpleSeries("activity-blocks", "Number of blocks created during time", b, "blocks", "quantum");
+      } else {
+        const err = '<p class="muted">Could not load activity series.</p>';
+        document.getElementById("activity-wallets").innerHTML = err;
+        document.getElementById("activity-transactions").innerHTML = err;
+        document.getElementById("activity-blocks").innerHTML = err;
       }
     }
 

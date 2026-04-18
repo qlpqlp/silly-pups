@@ -516,18 +516,55 @@ function updateServicesControlUI(svc) {
   if (bMtrStart) bMtrStart.disabled = mtrOn && mtrEng;
 }
 
+const SERVICE_CTRL_BTN_IDS = ["btn-svc-spv-stop", "btn-svc-spv-start", "btn-svc-mtr-stop", "btn-svc-mtr-start"];
+
+function setServiceControlBusy(busy) {
+  const els = SERVICE_CTRL_BTN_IDS.map((id) => document.getElementById(id)).filter(Boolean);
+  const spvLine = $("svc-spv-status");
+  const mtrLine = $("svc-mtr-status");
+  if (busy) {
+    els.forEach((el) => {
+      el.setAttribute("aria-busy", "true");
+      el.disabled = true;
+    });
+    if (spvLine) {
+      spvLine.dataset.prevText = spvLine.textContent || "";
+      spvLine.textContent = "Applying…";
+    }
+    if (mtrLine) {
+      mtrLine.dataset.prevText = mtrLine.textContent || "";
+      mtrLine.textContent = "Applying…";
+    }
+  } else {
+    els.forEach((el) => el.removeAttribute("aria-busy"));
+    if (spvLine && spvLine.dataset.prevText != null) {
+      spvLine.textContent = spvLine.dataset.prevText;
+      delete spvLine.dataset.prevText;
+    }
+    if (mtrLine && mtrLine.dataset.prevText != null) {
+      mtrLine.textContent = mtrLine.dataset.prevText;
+      delete mtrLine.dataset.prevText;
+    }
+  }
+}
+
 async function postServiceControl(patch) {
-  const res = await api("/api/services/control", { method: "POST", body: JSON.stringify(patch) });
-  if (res.error) {
-    let msg = res.error;
-    if (res.need_unlock === true) msg = "Unlock the wallet first.";
-    alert(msg);
-    return;
+  setServiceControlBusy(true);
+  try {
+    const res = await api("/api/services/control", { method: "POST", body: JSON.stringify(patch) });
+    if (res.error) {
+      let msg = res.error;
+      if (res.need_unlock === true) msg = "Unlock the wallet first.";
+      alert(msg);
+      return;
+    }
+    if (res.memetracker_err) {
+      alert("MemeTracker: " + res.memetracker_err);
+    }
+    await refreshDashboard();
+  } finally {
+    setServiceControlBusy(false);
   }
-  if (res.memetracker_err) {
-    alert("MemeTracker: " + res.memetracker_err);
-  }
-  await refreshDashboard();
 }
 
 async function refreshDashboard() {
@@ -1203,18 +1240,28 @@ if (btnSpvFull) {
     const useCp = !syncSel || syncSel.value !== "genesis";
     const modeLabel = useCp ? "assisted header sync (spvnode -p)" : "from genesis (no -p)";
     if (!confirm(`Delete SPV headers.db and spv_wallet.db on this pup and restart spvnode with ${modeLabel}?`)) return;
-    const out = $("spv-rescan-out");
-    const res = await api("/api/spv/rescan", {
-      method: "POST",
-      body: JSON.stringify({ confirm: "RESCAN", mode: "full", use_checkpoint: useCp }),
-    });
-    if (out) out.textContent = JSON.stringify(res, null, 2);
-    if (res.error) {
-      let msg = res.error;
-      if (res.hint) msg += "\n\n" + res.hint;
-      alert(msg);
+    const prev = btnSpvFull.textContent;
+    btnSpvFull.disabled = true;
+    btnSpvFull.setAttribute("aria-busy", "true");
+    btnSpvFull.textContent = "Working…";
+    try {
+      const out = $("spv-rescan-out");
+      const res = await api("/api/spv/rescan", {
+        method: "POST",
+        body: JSON.stringify({ confirm: "RESCAN", mode: "full", use_checkpoint: useCp }),
+      });
+      if (out) out.textContent = JSON.stringify(res, null, 2);
+      if (res.error) {
+        let msg = res.error;
+        if (res.hint) msg += "\n\n" + res.hint;
+        alert(msg);
+      }
+      await refreshDashboard();
+    } finally {
+      btnSpvFull.disabled = false;
+      btnSpvFull.removeAttribute("aria-busy");
+      btnSpvFull.textContent = prev;
     }
-    await refreshDashboard();
   });
 }
 if (btnSpvRb) {
@@ -1243,15 +1290,25 @@ if (btnSpvRb) {
       if (hash) body.rollback_block_hash = hash;
       if (hasHeight) body.rollback_height = rollback_height;
     }
-    const out = $("spv-rescan-out");
-    const res = await api("/api/spv/rescan", { method: "POST", body: JSON.stringify(body) });
-    if (out) out.textContent = JSON.stringify(res, null, 2);
-    if (res.error) {
-      let msg = res.error;
-      if (res.hint) msg += "\n\n" + res.hint;
-      alert(msg);
+    const prev = btnSpvRb.textContent;
+    btnSpvRb.disabled = true;
+    btnSpvRb.setAttribute("aria-busy", "true");
+    btnSpvRb.textContent = "Working…";
+    try {
+      const out = $("spv-rescan-out");
+      const res = await api("/api/spv/rescan", { method: "POST", body: JSON.stringify(body) });
+      if (out) out.textContent = JSON.stringify(res, null, 2);
+      if (res.error) {
+        let msg = res.error;
+        if (res.hint) msg += "\n\n" + res.hint;
+        alert(msg);
+      }
+      await refreshDashboard();
+    } finally {
+      btnSpvRb.disabled = false;
+      btnSpvRb.removeAttribute("aria-busy");
+      btnSpvRb.textContent = prev;
     }
-    await refreshDashboard();
   });
 }
 

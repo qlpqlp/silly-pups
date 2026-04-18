@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "meta": {
     "name": "Quantum Explorer",
-    "version": "0.1.29",
+    "version": "0.1.30",
     "logoPath": "logo.png",
     "shortDescription": "Dogecoin blockchain explorer with Core RPC indexer and PQ transaction metrics",
     "longDescription": "Quantum Explorer indexes Dogecoin blockchain data from Dogecoin Core RPC into local PostgreSQL tables and provides a public web explorer. Users can search by address, transaction id, block height, and block hash, then open detailed block and transaction views with decoded inputs, outputs, and OP_RETURN data. Quantum transactions are classified from decoded raw transaction bytes using OP_RETURN marker checks, with metrics and recent activity available in the interface.",
@@ -36,6 +36,13 @@
         ]
       },
       {
+        "name": "PostgreSQL client",
+        "description": "Connection pool for the app. When using the embedded Postgres (no QE_POSTGRES_URL), the server also applies conservative memory tuning in postgresql.conf on first init.",
+        "fields": [
+          { "name": "QE_POSTGRES_MAX_OPEN_CONNS", "label": "Max open connections (pool)", "type": "text", "default": "8" }
+        ]
+      },
+      {
         "name": "Access and Security",
         "description": "Admin routes use token in URL. Public APIs can be token-gated by path.",
         "fields": [
@@ -53,7 +60,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "3d2b87d116e8af9c6b7b23768345d76b0571f919f90479fe57368ee3e4a88bd0"
+      "nixFileSha256": "18c4020f505f09c4545c98ca4b402815623af1cbf46ec55eafdabb9361e37090"
     },
     "services": [
       {
@@ -76,7 +83,7 @@
   "interfaces": [
     {
       "name": "quantum-explorer-public",
-      "version": "0.1.29",
+      "version": "0.1.30",
       "permissionGroups": [
         {
           "name": "Quantum Explorer HTTP",

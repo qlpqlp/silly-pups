@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -14,6 +15,40 @@ import (
 	"strings"
 	"time"
 )
+
+// repairHeadersDBForSPVStart removes broken headers.db states that make spvnode print
+// "Could not load or create headers database" (tiny/corrupt stub, or a directory at the path).
+func (s *Server) repairHeadersDBForSPVStart() {
+	headersPath := filepath.Join(s.storageDir, "headers.db")
+	st, err := os.Stat(headersPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return
+		}
+		log.Printf("[pq-wallet] headers.db stat: %v", err)
+		return
+	}
+	if st.IsDir() {
+		s.stopSPVNode()
+		backup := headersPath + ".bad_dir." + strconv.FormatInt(time.Now().Unix(), 10)
+		if err := os.Rename(headersPath, backup); err != nil {
+			log.Printf("[pq-wallet] could not rename headers.db directory: %v", err)
+			return
+		}
+		walletDB := filepath.Join(s.storageDir, "spv_wallet.db")
+		_ = os.Remove(walletDB)
+		_ = os.Remove(s.spvWatchAddrPath())
+		log.Printf("[pq-wallet] removed invalid headers.db directory (renamed to %s); SPV will recreate SQLite store from checkpoint", backup)
+		return
+	}
+	if st.Size() < 100 {
+		s.stopSPVNode()
+		_ = os.Remove(headersPath)
+		_ = os.Remove(filepath.Join(s.storageDir, "spv_wallet.db"))
+		_ = os.Remove(s.spvWatchAddrPath())
+		log.Printf("[pq-wallet] removed invalid tiny headers.db; SPV will recreate SQLite header store from checkpoint")
+	}
+}
 
 // migrateLegacyHeadersDB stops spvnode, then if headers.db exists but is not SQLite (older libdogecoin layouts),
 // renames it aside, removes spv_wallet.db and the watch-list file so the next spvnode start creates a fresh SQLite header store.

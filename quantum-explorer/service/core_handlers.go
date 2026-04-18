@@ -153,3 +153,32 @@ func (a *app) adminCoreIndexerStatus(w http.ResponseWriter) {
 	defer cancel()
 	writeJSON(w, 200, a.cidx.summary(ctx))
 }
+
+// adminCoreIndexerRewind POST: delete indexed Core chain rows from ?from_height= onward and reset last_height (indexer must be stopped).
+func (a *app) adminCoreIndexerRewind(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if a.cidx == nil {
+		writeJSON(w, 503, map[string]string{"error": "core indexer unavailable"})
+		return
+	}
+	fs := strings.TrimSpace(r.URL.Query().Get("from_height"))
+	if fs == "" {
+		writeJSON(w, 400, map[string]string{"error": "missing from_height query parameter (block height to delete from, inclusive)"})
+		return
+	}
+	from, err := strconv.ParseInt(fs, 10, 64)
+	if err != nil || from < 0 {
+		writeJSON(w, 400, map[string]string{"error": "from_height must be a non-negative integer"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
+	defer cancel()
+	if err := a.cidx.rewindChainFrom(ctx, from); err != nil {
+		writeJSON(w, 400, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "indexer": a.cidx.status()})
+}

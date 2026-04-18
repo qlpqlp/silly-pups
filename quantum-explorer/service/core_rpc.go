@@ -23,8 +23,9 @@ type coreRPCConfig struct {
 }
 
 type coreRPCClient struct {
-	cfg coreRPCConfig
-	hc  *http.Client
+	cfg            coreRPCConfig
+	hc             *http.Client
+	maxBodyBytes   int64 // 0 = default 256 MiB cap when reading JSON-RPC responses
 }
 
 func newCoreRPCClientFromEnv() *coreRPCClient {
@@ -38,6 +39,10 @@ func newCoreRPCClientFromEnv() *coreRPCClient {
 	if n, err := strconv.Atoi(strings.TrimSpace(env("QE_CORE_RPC_TIMEOUT_MS", "8000"))); err == nil && n >= 1000 {
 		timeoutMS = n
 	}
+	maxMB := 256
+	if n, err := strconv.Atoi(strings.TrimSpace(env("QE_CORE_RPC_MAX_RESPONSE_MB", "256"))); err == nil && n >= 8 && n <= 1024 {
+		maxMB = n
+	}
 	return &coreRPCClient{
 		cfg: coreRPCConfig{
 			URL:      rawURL,
@@ -45,8 +50,20 @@ func newCoreRPCClientFromEnv() *coreRPCClient {
 			Password: strings.TrimSpace(os.Getenv("QE_CORE_RPC_PASSWORD")),
 			Timeout:  time.Duration(timeoutMS) * time.Millisecond,
 		},
-		hc: &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond},
+		hc:           &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond},
+		maxBodyBytes: int64(maxMB) << 20,
 	}
+}
+
+// withTimeout returns a shallow copy of the client using a different HTTP total timeout (same URL, body limit).
+func (c *coreRPCClient) withTimeout(d time.Duration) *coreRPCClient {
+	if c == nil || !c.enabled() {
+		return c
+	}
+	nc := *c
+	nc.cfg.Timeout = d
+	nc.hc = &http.Client{Timeout: d}
+	return &nc
 }
 
 func (c *coreRPCClient) enabled() bool {
@@ -105,8 +122,19 @@ func (c *coreRPCClient) call(ctx context.Context, method string, params any, out
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return fmt.Errorf("rpc http %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
+	maxB := c.maxBodyBytes
+	if maxB <= 0 {
+		maxB = 256 << 20
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxB+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(raw)) > maxB {
+		return fmt.Errorf("rpc %s: response body exceeds QE_CORE_RPC_MAX_RESPONSE_MB limit (%d bytes)", method, maxB)
+	}
 	var rr rpcResp
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&rr); err != nil {
+	if err := json.Unmarshal(raw, &rr); err != nil {
 		return err
 	}
 	if rr.Error != nil {

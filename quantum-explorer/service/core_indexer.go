@@ -15,16 +15,20 @@ import (
 )
 
 type coreIndexer struct {
-	mu          sync.RWMutex
-	db          *sql.DB
-	rpc         *coreRPCClient
-	network     string
-	running     bool
-	lastErr     string
-	lastHeight  int64
-	tipHeight   int64
-	batch       int
-	startHeight int64
+	mu               sync.RWMutex
+	db               *sql.DB
+	rpc              *coreRPCClient
+	rpcLong          *coreRPCClient
+	network          string
+	running          bool
+	lastErr          string
+	lastHeight       int64
+	tipHeight        int64
+	batch            int
+	startHeight      int64
+	indexTimeout     time.Duration
+	autoRewindBlocks int64
+	rpcMaxResponseMB int
 }
 
 func newCoreIndexer(db *sql.DB, rpc *coreRPCClient, network string) *coreIndexer {
@@ -36,13 +40,98 @@ func newCoreIndexer(db *sql.DB, rpc *coreRPCClient, network string) *coreIndexer
 	if n, err := strconv.ParseInt(strings.TrimSpace(env("QE_CORE_START_HEIGHT", "6147099")), 10, 64); err == nil && n >= 0 {
 		start = n
 	}
-	return &coreIndexer{
-		db:          db,
-		rpc:         rpc,
-		network:     strings.ToLower(strings.TrimSpace(network)),
-		batch:       batch,
-		startHeight: start,
+	idxSec := 180
+	if n, err := strconv.Atoi(strings.TrimSpace(env("QE_CORE_INDEX_HEIGHT_TIMEOUT_SEC", "180"))); err == nil && n >= 20 && n <= 7200 {
+		idxSec = n
 	}
+	autoRW := int64(0)
+	if n, err := strconv.ParseInt(strings.TrimSpace(env("QE_CORE_INDEXER_AUTO_REWIND_BLOCKS", "0")), 10, 64); err == nil && n >= 0 && n <= 100000 {
+		autoRW = n
+	}
+	longMS := 300000
+	if n, err := strconv.Atoi(strings.TrimSpace(env("QE_CORE_INDEXER_RPC_TIMEOUT_MS", "300000"))); err == nil && n >= 5000 && n <= 3600000 {
+		longMS = n
+	}
+	var rpcLong *coreRPCClient
+	if rpc != nil && rpc.enabled() {
+		rpcLong = rpc.withTimeout(time.Duration(longMS) * time.Millisecond)
+	}
+	maxMB := 256
+	if n, err := strconv.Atoi(strings.TrimSpace(env("QE_CORE_RPC_MAX_RESPONSE_MB", "256"))); err == nil && n >= 8 && n <= 1024 {
+		maxMB = n
+	}
+	return &coreIndexer{
+		db:               db,
+		rpc:              rpc,
+		rpcLong:          rpcLong,
+		network:          strings.ToLower(strings.TrimSpace(network)),
+		batch:            batch,
+		startHeight:      start,
+		indexTimeout:     time.Duration(idxSec) * time.Second,
+		autoRewindBlocks: autoRW,
+		rpcMaxResponseMB: maxMB,
+	}
+}
+
+func (ix *coreIndexer) rpcHeavy() *coreRPCClient {
+	if ix == nil {
+		return nil
+	}
+	if ix.rpcLong != nil {
+		return ix.rpcLong
+	}
+	return ix.rpc
+}
+
+func (ix *coreIndexer) isRetriableRPCIndexError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(s, "unexpected eof"):
+		return true
+	case strings.Contains(s, "connection reset"):
+		return true
+	case strings.Contains(s, "broken pipe"):
+		return true
+	case strings.Contains(s, "deadline exceeded"):
+		return true
+	case strings.Contains(s, "timeout"):
+		return true
+	case strings.Contains(s, "exceeds") && strings.Contains(s, "limit"):
+		return true
+	default:
+		return false
+	}
+}
+
+// rewindChainFrom deletes indexed Core rows from fromHeight onward and sets last_height to fromHeight-1.
+// The indexer goroutine must be stopped first.
+func (ix *coreIndexer) rewindChainFrom(ctx context.Context, fromHeight int64) error {
+	if ix == nil || ix.db == nil {
+		return fmt.Errorf("core indexer unavailable")
+	}
+	if fromHeight < 0 {
+		return fmt.Errorf("from_height must be >= 0")
+	}
+	ix.mu.RLock()
+	running := ix.running
+	ix.mu.RUnlock()
+	if running {
+		return fmt.Errorf("stop the core indexer before rewinding (POST .../core-indexer/stop)")
+	}
+	if err := ix.rollbackFrom(fromHeight); err != nil {
+		return err
+	}
+	ix.mu.Lock()
+	ix.lastHeight = fromHeight - 1
+	if ix.lastHeight < 0 {
+		ix.lastHeight = 0
+	}
+	ix.lastErr = fmt.Sprintf("manual rewind: removed indexed data from block height %d onward; next height %d", fromHeight, ix.lastHeight+1)
+	ix.mu.Unlock()
+	return ix.saveState(ctx)
 }
 
 func (ix *coreIndexer) ensureSchema(ctx context.Context) error {
@@ -166,6 +255,8 @@ func (ix *coreIndexer) loop() {
 		ix.lastHeight = ix.startHeight
 	}
 	hourlySeeded := false
+	var stuckAt int64 = -1
+	var stuckN int
 
 	for {
 		ix.mu.RLock()
@@ -228,12 +319,48 @@ func (ix *coreIndexer) loop() {
 		}
 		for h := cur + 1; h <= end; h++ {
 			if err := ix.indexHeight(h); err != nil {
-				ix.mu.Lock()
-				ix.lastErr = fmt.Sprintf("height %d: %v", h, err)
-				ix.mu.Unlock()
+				msg := fmt.Sprintf("height %d: %v", h, err)
+				doAuto := ix.autoRewindBlocks > 0 && ix.isRetriableRPCIndexError(err)
+				if doAuto {
+					if stuckAt == h {
+						stuckN++
+					} else {
+						stuckAt = h
+						stuckN = 1
+					}
+				} else {
+					stuckAt, stuckN = -1, 0
+				}
+				if doAuto && stuckN >= 5 {
+					from := h - ix.autoRewindBlocks
+					if from < 0 {
+						from = 0
+					}
+					log.Printf("[quantum-explorer] core indexer: stalled at height %d (%d failures): auto-rewind from height %d", h, stuckN, from)
+					if rerr := ix.rollbackFrom(from); rerr != nil {
+						ix.mu.Lock()
+						ix.lastErr = msg + "; auto-rewind failed: " + rerr.Error()
+						ix.mu.Unlock()
+					} else {
+						ix.mu.Lock()
+						ix.lastHeight = from - 1
+						if ix.lastHeight < 0 {
+							ix.lastHeight = 0
+						}
+						ix.lastErr = fmt.Sprintf("auto-rewind from height %d after %d failures at height %d", from, stuckN, h)
+						ix.mu.Unlock()
+						_ = ix.persistState()
+						stuckAt, stuckN = -1, 0
+					}
+				} else {
+					ix.mu.Lock()
+					ix.lastErr = msg
+					ix.mu.Unlock()
+				}
 				time.Sleep(2 * time.Second)
 				break
 			}
+			stuckAt, stuckN = -1, 0
 			ix.mu.Lock()
 			ix.lastHeight = h
 			ix.lastErr = ""
@@ -251,14 +378,22 @@ func (ix *coreIndexer) persistState() error {
 }
 
 func (ix *coreIndexer) indexHeight(height int64) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	to := ix.indexTimeout
+	if to <= 0 {
+		to = 180 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), to)
 	defer cancel()
+	rpc := ix.rpcHeavy()
+	if rpc == nil || !rpc.enabled() {
+		return errors.New("core rpc is not configured")
+	}
 	var hash string
-	if err := ix.rpc.call(ctx, "getblockhash", []any{height}, &hash); err != nil {
+	if err := rpc.call(ctx, "getblockhash", []any{height}, &hash); err != nil {
 		return err
 	}
 	var block map[string]any
-	if err := ix.rpc.call(ctx, "getblock", []any{hash, 2}, &block); err != nil {
+	if err := rpc.call(ctx, "getblock", []any{hash, 2}, &block); err != nil {
 		return err
 	}
 	bhash := strings.ToLower(strings.TrimSpace(anyString(block["hash"])))
@@ -287,12 +422,12 @@ func (ix *coreIndexer) indexHeight(height int64) error {
 			continue
 		}
 		rawHex := strings.TrimSpace(anyString(tm["hex"]))
-		if rawHex == "" && ix.rpc != nil && ix.rpc.enabled() {
+		if rawHex == "" && rpc != nil && rpc.enabled() {
 			for attempt := 0; attempt < 2; attempt++ {
 				if attempt > 0 {
 					time.Sleep(100 * time.Millisecond)
 				}
-				if h, err := ix.rpc.getRawTransactionHex(ctx, txid, bhash); err == nil {
+				if h, err := rpc.getRawTransactionHex(ctx, txid, bhash); err == nil {
 					rawHex = strings.TrimSpace(h)
 					if rawHex != "" {
 						break
@@ -552,15 +687,22 @@ func (ix *coreIndexer) status() map[string]any {
 	}
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
-	return map[string]any{
-		"enabled":      true,
-		"running":      ix.running,
-		"last_error":   ix.lastErr,
-		"last_height":  ix.lastHeight,
-		"tip_height":   ix.tipHeight,
-		"batch":        ix.batch,
-		"start_height": ix.startHeight,
+	out := map[string]any{
+		"enabled":                      true,
+		"running":                      ix.running,
+		"last_error":                   ix.lastErr,
+		"last_height":                  ix.lastHeight,
+		"tip_height":                   ix.tipHeight,
+		"batch":                        ix.batch,
+		"start_height":                 ix.startHeight,
+		"index_height_timeout_sec":     int(ix.indexTimeout / time.Second),
+		"auto_rewind_blocks_on_stall":  ix.autoRewindBlocks,
+		"core_rpc_max_response_mb":     ix.rpcMaxResponseMB,
 	}
+	if ix.rpcLong != nil {
+		out["indexer_rpc_timeout_ms"] = int(ix.rpcLong.cfg.Timeout / time.Millisecond)
+	}
+	return out
 }
 
 func (ix *coreIndexer) postgresStatus(ctx context.Context) map[string]any {

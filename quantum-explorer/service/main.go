@@ -26,9 +26,9 @@ import (
 var staticFS embed.FS
 
 // qeAppVersion is shown in the public UI and /api/public/status (keep in sync with manifest.json).
-const qeAppVersion = "0.1.28"
+const qeAppVersion = "0.1.29"
 // qeAppBuildHash is a release fingerprint (SHA-256 hex of "quantum-explorer-<version>"); bump when cutting a release.
-const qeAppBuildHash = "04ea041d723dbb1e2c89cca3abbc69c72e4afb0473218a84285dfd59d15ab257"
+const qeAppBuildHash = "f2d941ece3a30b7919abd8e629b4d8e0236d11ef23cb4616f75a986061e128fc"
 
 type Checkpoint struct {
 	Height    int    `json:"height"`
@@ -1730,6 +1730,8 @@ func main() {
 			a.adminStopCoreIndexer(w)
 		case "/core-indexer/status":
 			a.adminCoreIndexerStatus(w)
+		case "/core-indexer/rewind":
+			a.adminCoreIndexerRewind(w, r)
 		case "/core/inspect":
 			a.adminCoreInspect(w, r)
 		case "/db/optimize":

@@ -350,6 +350,10 @@ func (s *Server) startSPVNode(w *WalletFile) {
 	if len(addrs) == 0 {
 		return
 	}
+	if !s.readServicePrefs().SpvEnabled {
+		s.stopSPVNode()
+		return
+	}
 	if migrated, backup, err := s.migrateLegacyHeadersDB(); err != nil {
 		log.Printf("[pq-wallet] legacy headers.db migrate failed: %v", err)
 		return

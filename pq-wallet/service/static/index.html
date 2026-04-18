@@ -184,6 +184,30 @@
             <div class="mtr-tx-list" id="mtr-mempool-list" role="list"></div>
             <button type="button" class="btn mtr-expand-btn hidden" id="btn-mtr-mempool-expand" aria-expanded="false">Show all</button>
           </div>
+          <div class="card svc-control-card hidden" id="svc-control-card" aria-labelledby="svc-control-title">
+            <h3 id="svc-control-title"><span class="material-symbols-outlined icon-inline">tune</span> Background services</h3>
+            <p class="small muted" style="margin-top:.25rem">Stop or start <code class="mono">spvnode</code> (SPV) and the embedded MemeTracker (mempool P2P). Settings are saved as <code class="mono">service_prefs.json</code> in your pup storage.</p>
+            <div class="svc-row">
+              <div class="svc-row-main">
+                <strong>SPV node</strong>
+                <p class="small muted mono svc-status-line" id="svc-spv-status">—</p>
+              </div>
+              <div class="svc-row-actions">
+                <button type="button" class="btn btn-sm" id="btn-svc-spv-stop">Stop</button>
+                <button type="button" class="btn btn-sm primary" id="btn-svc-spv-start">Start</button>
+              </div>
+            </div>
+            <div class="svc-row">
+              <div class="svc-row-main">
+                <strong>MemeTracker</strong>
+                <p class="small muted mono svc-status-line" id="svc-mtr-status">—</p>
+              </div>
+              <div class="svc-row-actions">
+                <button type="button" class="btn btn-sm" id="btn-svc-mtr-stop">Stop</button>
+                <button type="button" class="btn btn-sm primary" id="btn-svc-mtr-start">Start</button>
+              </div>
+            </div>
+          </div>
         </section>
 
         <section id="view-receive" class="view hidden">
@@ -362,7 +386,11 @@
         </button>
       </div>
       <p class="small muted" id="spv-repair-storage-line" style="margin:.35rem 0 .5rem">Loading storage path…</p>
-      <p class="small muted">If a new receive address is not picking up coins, try <strong>Sync with explorer</strong> above, then use these controls. <strong>Full rescan</strong> deletes the SQLite <code class="mono">headers.db</code> and <code class="mono">spv_wallet.db</code>, saves your sync choice below, and restarts <code class="mono">spvnode</code>. Use <strong>Assisted</strong> for <code class="mono">-p</code> (libdogecoin picks a row from its bundled checkpoint table by scan window) or <strong>From genesis</strong> to omit <code class="mono">-p</code>. Bundled checkpoint heights/hashes for your build are listed in <code class="mono">GET /api/spv/status</code> → <code class="mono">spv_checkpoints</code>. Legacy non-SQLite <code class="mono">headers.db</code> is renamed aside automatically. <strong>Rollback</strong> needs an on-disk SQLite <code class="mono">headers.db</code>: use hash from <code class="mono">spv.log</code> or a numeric rollback height. If <code class="mono">headers.db</code> was an old non-SQLite format, the server stops SPV, backs it up, clears <code class="mono">spv_wallet.db</code>, and restarts; run rollback again after sync if you still need a trimmed chain.</p>
+      <p class="small muted">If a new receive address is not picking up coins, try <strong>Sync with explorer</strong> above, then use these controls. <strong>Full rescan</strong> deletes local <code class="mono">headers.db</code> and <code class="mono">spv_wallet.db</code>, saves the sync mode below, and restarts <code class="mono">spvnode</code>. <strong>Rollback</strong> needs an on-disk SQLite <code class="mono">headers.db</code>: pick a bundled checkpoint (height, hash, UTC time from libdogecoin) or choose Custom and paste hash/height. Headers above the chosen height are removed and <code class="mono">spv_wallet.db</code> is cleared so SPV rescans from that chain tip. If <code class="mono">headers.db</code> is missing, use full rescan first.</p>
+      <label class="field"><span class="field-label">Rollback to checkpoint (libdogecoin bundled)</span>
+        <select id="spv-rollback-checkpoint-select" class="input-modern" aria-describedby="spv-rollback-checkpoint-hint"></select>
+      </label>
+      <p class="small muted" id="spv-rollback-checkpoint-hint" style="margin:.25rem 0 .5rem">Block 0 is the Dogecoin genesis checkpoint (early Dec 2013, UTC time from libdogecoin). Other rows match the bundled SPV checkpoint table in your libdogecoin build.</p>
       <label class="field"><span class="field-label">After full rescan, start header sync</span>
         <select id="spv-rescan-sync-mode" class="input-modern" aria-describedby="spv-rescan-sync-hint">
           <option value="checkpoints">Assisted (spvnode -p, bundled checkpoints)</option>
@@ -370,10 +398,10 @@
         </select>
       </label>
       <p class="small muted" id="spv-rescan-sync-hint" style="margin:.25rem 0 .5rem">Preference is written to <code class="mono">spv_sync_prefs.json</code> when you run full rescan and is also used whenever the wallet service starts <code class="mono">spvnode</code>.</p>
-      <label class="field"><span class="field-label">Block header hash (64 hex, optional if height set)</span>
+      <label class="field"><span class="field-label">Custom — block header hash (64 hex, optional if height set)</span>
         <input type="text" class="input-modern mono" id="spv-rescan-hash" placeholder="0000…" autocomplete="off" spellcheck="false" />
       </label>
-      <label class="field"><span class="field-label">Rollback height (optional if hash is in spv.log)</span>
+      <label class="field"><span class="field-label">Custom — rollback height (optional if hash is in spv.log)</span>
         <input type="text" class="input-modern" id="spv-rescan-height" inputmode="numeric" placeholder="e.g. 4500000" autocomplete="off" />
       </label>
       <div class="toolbar toolbar-actions spv-rescan-actions">

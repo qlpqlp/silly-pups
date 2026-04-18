@@ -65,11 +65,11 @@ func (s *Server) handleTxSign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":               true,
-		"signed_raw_hex":   signed,
-		"signing_kind":     "ecdsa_secp256k1_p2pkh",
-		"signing_tool":     "such -c sign",
-		"pq_note":          "This step signs the Dogecoin transaction with your P2PKH key (ECDSA). Falcon/Dilithium PQ material is separate and used in commitment / experimental flows — not as a replacement for this chain signature.",
+		"ok":             true,
+		"signed_raw_hex": signed,
+		"signing_kind":   "ecdsa_secp256k1_p2pkh",
+		"signing_tool":   "such -c sign",
+		"pq_note":        "This step signs the Dogecoin transaction with your P2PKH key (ECDSA). Falcon/Dilithium PQ material is separate and used in commitment / experimental flows — not as a replacement for this chain signature.",
 	})
 }
 

@@ -13,9 +13,9 @@ import (
 // Unsigned txs use empty scriptSig; signing is done by libdogecoin `such` on the hex.
 
 const (
-	legacyTxVersion      int32  = 1
-	legacyTxInSequence   uint32 = 0xffffffff
-	legacyHashHexMaxLen         = 64
+	legacyTxVersion     int32  = 1
+	legacyTxInSequence  uint32 = 0xffffffff
+	legacyHashHexMaxLen        = 64
 )
 
 // txidWireBytes parses a display-order txid hex into the 32-byte order used in serialized outpoints.

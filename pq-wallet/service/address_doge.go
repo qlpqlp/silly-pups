@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	dogeMainnetP2PKHVersion  byte = 0x1e // 30
-	dogeTestnetP2PKHVersion  byte = 0x71 // 113
+	dogeMainnetP2PKHVersion byte = 0x1e // 30
+	dogeTestnetP2PKHVersion byte = 0x71 // 113
 )
 
 // dogeP2PKHScriptFromAddress decodes a Dogecoin P2PKH address to scriptPubKey bytes (legacy P2PKH).

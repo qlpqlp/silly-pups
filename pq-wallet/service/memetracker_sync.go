@@ -22,6 +22,14 @@ func (s *Server) ensureMempoolEngine(wf *WalletFile) (*mempooltracker.Engine, er
 	s.mempoolMu.Lock()
 	defer s.mempoolMu.Unlock()
 
+	if !s.readServicePrefs().MemetrackerEnabled {
+		if s.mempoolEngine != nil {
+			s.mempoolEngine.Stop()
+			s.mempoolEngine = nil
+		}
+		return nil, nil
+	}
+
 	if s.mempoolEngine != nil {
 		if s.mempoolEngine.Network() == want {
 			return s.mempoolEngine, nil

@@ -2115,3 +2115,43 @@ a {
   }
 }
 
+/* Dashboard — SPV / MemeTracker service controls */
+.svc-control-card .svc-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+}
+
+.svc-control-card .svc-row:first-of-type {
+  border-top: none;
+  padding-top: 0.35rem;
+}
+
+.svc-row-main {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.svc-status-line {
+  margin: 0.2rem 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.svc-row-actions {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.svc-row-actions .btn[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+

@@ -108,6 +108,7 @@ func (s *Server) handleWalletDelete(w http.ResponseWriter, r *http.Request) {
 	_ = os.Remove(s.spvPidPath())
 	_ = os.Remove(filepath.Join(s.storageDir, "spv_wallet.db"))
 	_ = os.Remove(filepath.Join(s.storageDir, "headers.db"))
+	s.removeServicePrefsFile()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

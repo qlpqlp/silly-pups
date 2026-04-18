@@ -137,11 +137,12 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Confirm             string `json:"confirm"`
-		Mode                string `json:"mode"`
-		RollbackBlockHash   string `json:"rollback_block_hash"`
-		RollbackHeight      int64  `json:"rollback_height"`
-		UseCheckpoint       *bool  `json:"use_checkpoint"`
+		Confirm           string `json:"confirm"`
+		Mode              string `json:"mode"`
+		RollbackBlockHash string `json:"rollback_block_hash"`
+		// RollbackHeight is a pointer so JSON rollback_height: 0 is valid (genesis checkpoint).
+		RollbackHeight *int64 `json:"rollback_height"`
+		UseCheckpoint  *bool  `json:"use_checkpoint"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
@@ -150,7 +151,7 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 	confirm := strings.TrimSpace(body.Confirm)
 	mode := strings.ToLower(strings.TrimSpace(body.Mode))
 	if confirm == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `send {"confirm":"RESCAN"} for full reset or {"confirm":"ROLLBACK"} with rollback_block_hash or rollback_height`})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `send {"confirm":"RESCAN"} for full reset or {"confirm":"ROLLBACK"} with rollback_block_hash or rollback_height (including 0 for genesis block)`})
 		return
 	}
 
@@ -215,16 +216,16 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 
 	case "ROLLBACK":
 		hash := strings.ToLower(strings.TrimSpace(body.RollbackBlockHash))
-		height := body.RollbackHeight
 		var keepHeight int64
 		var heightSource string
 
-		if height > 0 {
-			if height > 200_000_000 {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "rollback_height out of range"})
+		if body.RollbackHeight != nil {
+			h := *body.RollbackHeight
+			if h < 0 || h > 200_000_000 {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "rollback_height out of range (use 0 … 200000000)"})
 				return
 			}
-			keepHeight = height
+			keepHeight = h
 			heightSource = "rollback_height"
 		} else if len(hash) == 64 && isHex64(hash) {
 			logRaw, err := readFileTail(s.spvLogPath(), 16<<20)
@@ -240,7 +241,7 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 			keepHeight = h
 			heightSource = "spv_log"
 		} else {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": `ROLLBACK requires rollback_block_hash (64 hex) or rollback_height (positive)`})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": `ROLLBACK requires rollback_block_hash (64 hex) or rollback_height (0+)`})
 			return
 		}
 
@@ -249,7 +250,7 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 				"error":        "headers.db missing — rollback needs the SQLite header store on disk",
 				"headers_path": headersPath,
 				"storage_dir":  s.storageDir,
-				"hint": "Dashboard chain tip can come from spv.log (and metrics) before spvnode creates headers.db, or if SPV never wrote this file. Use Full SPV rescan (RESCAN), or wait until GET /api/spv/status shows headers_db_present true. Headers resume in the same directory: headers.db next to spv_wallet.db and spv.log (PQ_STORAGE_DIR, default /storage/pq-wallet in the pup).",
+				"hint":         "Dashboard chain tip can come from spv.log (and metrics) before spvnode creates headers.db, or if SPV never wrote this file. Use Full SPV rescan (RESCAN), or wait until GET /api/spv/status shows headers_db_present true. Headers resume in the same directory: headers.db next to spv_wallet.db and spv.log (PQ_STORAGE_DIR, default /storage/pq-wallet in the pup).",
 			})
 			return
 		}
@@ -293,15 +294,15 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 		_ = os.Remove(s.spvWatchAddrPath())
 		s.startSPVNode(wf)
 		writeJSON(w, http.StatusOK, map[string]any{
-			"ok":                 true,
-			"action":             "rollback_headers",
-			"keep_height":        keepHeight,
-			"height_source":      heightSource,
+			"ok":                  true,
+			"action":              "rollback_headers",
+			"keep_height":         keepHeight,
+			"height_source":       heightSource,
 			"rollback_block_hash": hash,
-			"headers_db":         headersPath,
+			"headers_db":          headersPath,
 			"tables_deleted_from": tables,
-			"removed_wallet_db":  true,
-			"note":               "Headers newer than the chosen block were removed; spv_wallet.db was deleted so the node can rescan filters and UTXOs from the rolled-back chain tip.",
+			"removed_wallet_db":   true,
+			"note":                "Headers newer than the chosen block were removed; spv_wallet.db was deleted so the node can rescan filters and UTXOs from the rolled-back chain tip.",
 		})
 		return
 

@@ -26,9 +26,9 @@ import (
 var staticFS embed.FS
 
 // qeAppVersion is shown in the public UI and /api/public/status (keep in sync with manifest.json).
-const qeAppVersion = "0.1.27"
+const qeAppVersion = "0.1.28"
 // qeAppBuildHash is a release fingerprint (SHA-256 hex of "quantum-explorer-<version>"); bump when cutting a release.
-const qeAppBuildHash = "238de5da8c55b670842b6ead3c2d56da99ca27f062471ca817194d3d1c391e47"
+const qeAppBuildHash = "04ea041d723dbb1e2c89cca3abbc69c72e4afb0473218a84285dfd59d15ab257"
 
 type Checkpoint struct {
 	Height    int    `json:"height"`
@@ -1752,6 +1752,15 @@ func main() {
 			return
 		}
 		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(b)
+	})
+	publicMux.HandleFunc("/chart.umd.min.js", func(w http.ResponseWriter, _ *http.Request) {
+		b, err := staticFS.ReadFile("static/chart.umd.min.js")
+		if err != nil {
+			http.NotFound(w, nil)
+			return
+		}
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 		_, _ = w.Write(b)
 	})
 	publicMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

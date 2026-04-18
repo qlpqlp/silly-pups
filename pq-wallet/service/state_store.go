@@ -33,17 +33,17 @@ type MetricPoint struct {
 	PeerCount     int       `json:"peer_count,omitempty"`
 	// MempoolTxCount is a heuristic from spv.log (legacy; charts prefer MempoolRelayCount).
 	MempoolTxCount    int `json:"mempool_tx_count,omitempty"`
-	SPVTxSeenCount    int `json:"spv_tx_seen_count,omitempty"`    // distinct txids from spv.log (wallet/relay activity)
+	SPVTxSeenCount    int `json:"spv_tx_seen_count,omitempty"`   // distinct txids from spv.log (wallet/relay activity)
 	MempoolRelayCount int `json:"mempool_relay_count,omitempty"` // embedded MemeTracker relay visibility count
 }
 
 // WalletState is persisted as state.json (separate from keys).
 type WalletState struct {
-	Version             int       `json:"version"`
-	Transactions        []TxRecord `json:"transactions"`
+	Version             int           `json:"version"`
+	Transactions        []TxRecord    `json:"transactions"`
 	Metrics             []MetricPoint `json:"metrics"`
-	ExplorerBalanceDOGE float64   `json:"explorer_balance_doge,omitempty"`
-	LastExplorerSync    time.Time `json:"last_explorer_sync,omitempty"`
+	ExplorerBalanceDOGE float64       `json:"explorer_balance_doge,omitempty"`
+	LastExplorerSync    time.Time     `json:"last_explorer_sync,omitempty"`
 }
 
 func (s *Server) statePath() string {

@@ -1154,11 +1154,11 @@ func (s *Store) FlattenTransactions() []map[string]any {
 	for _, ad := range s.watchByHash {
 		for _, tx := range ad.Txs {
 			rows = append(rows, map[string]any{
-				"address":       ad.Address,
-				"hash160_hex":   ad.Hash160Hex,
-				"txid":          tx.Txid,
-				"datetime":      tx.Datetime,
-				"amount_doge":   tx.AmountDoge,
+				"address":     ad.Address,
+				"hash160_hex": ad.Hash160Hex,
+				"txid":        tx.Txid,
+				"datetime":    tx.Datetime,
+				"amount_doge": tx.AmountDoge,
 			})
 		}
 	}
@@ -1238,12 +1238,12 @@ type MetricsCollector struct {
 }
 
 type liveMempoolTx struct {
-	Txid          string    `json:"txid"`
-	FirstSeen     time.Time `json:"first_seen"`
-	LastSeen      time.Time `json:"last_seen"`
-	TrackedMatch  bool      `json:"tracked_match"`
-	Address       string    `json:"address,omitempty"`
-	AmountDoge    float64   `json:"amount_doge,omitempty"`
+	Txid         string    `json:"txid"`
+	FirstSeen    time.Time `json:"first_seen"`
+	LastSeen     time.Time `json:"last_seen"`
+	TrackedMatch bool      `json:"tracked_match"`
+	Address      string    `json:"address,omitempty"`
+	AmountDoge   float64   `json:"amount_doge,omitempty"`
 }
 
 func NewMetricsCollector(maxMempool int) *MetricsCollector {
@@ -2070,17 +2070,17 @@ func writeDiskSettings(path string, s diskSettings) error {
 // P2P and retention jobs start only after this file validates as complete (on boot)
 // or after POST /api/start.
 type MemeTrackerConfig struct {
-	HTTPPort       int      `json:"http_port"`
-	HTTPBind       string   `json:"http_bind"`
-	Network        string   `json:"network"`
-	StorageDir     string   `json:"storage_dir"`
-	ListLimit      int      `json:"list_limit"`
-	RetentionDays  int      `json:"retention_days"`
-	P2PHost        string   `json:"p2p_host"`
-	P2PPort        int      `json:"p2p_port"`
-	P2PParallel    int      `json:"p2p_parallel"`
-	P2PLog         int      `json:"p2p_log"`
-	APIAllowedIPs  []string `json:"api_allowed_ips,omitempty"` // empty or omitted = allow all IPs on /api/* and /track/*
+	HTTPPort      int      `json:"http_port"`
+	HTTPBind      string   `json:"http_bind"`
+	Network       string   `json:"network"`
+	StorageDir    string   `json:"storage_dir"`
+	ListLimit     int      `json:"list_limit"`
+	RetentionDays int      `json:"retention_days"`
+	P2PHost       string   `json:"p2p_host"`
+	P2PPort       int      `json:"p2p_port"`
+	P2PParallel   int      `json:"p2p_parallel"`
+	P2PLog        int      `json:"p2p_log"`
+	APIAllowedIPs []string `json:"api_allowed_ips,omitempty"` // empty or omitted = allow all IPs on /api/* and /track/*
 }
 
 func (c *MemeTrackerConfig) ApplyDefaults() {
@@ -2403,42 +2403,42 @@ func apiStatus(w http.ResponseWriter, r *http.Request, app *appState) {
 		allowCopy = []string{}
 	}
 	fc := map[string]any{
-		"http_port":        cfg.HTTPPort,
-		"http_bind":        cfg.HTTPBind,
-		"network":          cfg.Network,
-		"storage_dir":      app.dataDir,
-		"list_limit":       cfg.ListLimit,
-		"retention_days":   cfg.RetentionDays,
-		"p2p_host":         cfg.P2PHost,
-		"p2p_port":         cfg.P2PPort,
-		"p2p_parallel":     cfg.P2PParallel,
-		"p2p_log":          cfg.P2PLog,
-		"api_allowed_ips":  allowCopy,
+		"http_port":       cfg.HTTPPort,
+		"http_bind":       cfg.HTTPBind,
+		"network":         cfg.Network,
+		"storage_dir":     app.dataDir,
+		"list_limit":      cfg.ListLimit,
+		"retention_days":  cfg.RetentionDays,
+		"p2p_host":        cfg.P2PHost,
+		"p2p_port":        cfg.P2PPort,
+		"p2p_parallel":    cfg.P2PParallel,
+		"p2p_log":         cfg.P2PLog,
+		"api_allowed_ips": allowCopy,
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"p2p_running":               app.isP2PRunning(),
-		"memetracker_config_path":   app.configPath,
-		"watched_addresses":         app.store.watcherCount(),
-		"stored_transaction_rows":   app.store.StoredTransactionRows(),
-		"mempool_tx_count":          app.mcol.snapshot(),
-		"mempool_transactions":      app.mcol.snapshotLiveMempool(250),
-		"peers_connected_count":     nConn,
-		"peers":                     peerOut,
-		"addresses":                 app.store.ListAddressSnapshots(),
-		"transactions":              app.store.FlattenTransactions(),
-		"full_config":               fc,
+		"p2p_running":             app.isP2PRunning(),
+		"memetracker_config_path": app.configPath,
+		"watched_addresses":       app.store.watcherCount(),
+		"stored_transaction_rows": app.store.StoredTransactionRows(),
+		"mempool_tx_count":        app.mcol.snapshot(),
+		"mempool_transactions":    app.mcol.snapshotLiveMempool(250),
+		"peers_connected_count":   nConn,
+		"peers":                   peerOut,
+		"addresses":               app.store.ListAddressSnapshots(),
+		"transactions":            app.store.FlattenTransactions(),
+		"full_config":             fc,
 		"config": map[string]any{
-			"network":             strings.ToLower(cfg.Network),
-			"mtr_http_bind":       app.httpBind,
-			"mtr_http_port":       app.httpPort,
-			"mtr_storage_dir":     app.dataDir,
-			"p2p_host":            cfg.P2PHost,
-			"p2p_port":            cfg.P2PPort,
-			"p2p_parallel":        cfg.P2PParallel,
-			"p2p_log":             cfg.P2PLog,
-			"list_limit":          ll,
-			"retention_days":      rd,
-			"settings_file_note":  "list_limit and retention_days sync to settings.json from the Configuration tab when saved",
+			"network":            strings.ToLower(cfg.Network),
+			"mtr_http_bind":      app.httpBind,
+			"mtr_http_port":      app.httpPort,
+			"mtr_storage_dir":    app.dataDir,
+			"p2p_host":           cfg.P2PHost,
+			"p2p_port":           cfg.P2PPort,
+			"p2p_parallel":       cfg.P2PParallel,
+			"p2p_log":            cfg.P2PLog,
+			"list_limit":         ll,
+			"retention_days":     rd,
+			"settings_file_note": "list_limit and retention_days sync to settings.json from the Configuration tab when saved",
 		},
 	})
 }
@@ -2545,10 +2545,10 @@ func apiPostStart(w http.ResponseWriter, r *http.Request, app *appState) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"ok":                true,
-			"restart_required":  true,
-			"message":           "storage_dir does not match the running data directory; restart MemeTracker to apply. Config file was saved.",
-			"p2p_running":       false,
+			"ok":               true,
+			"restart_required": true,
+			"message":          "storage_dir does not match the running data directory; restart MemeTracker to apply. Config file was saved.",
+			"p2p_running":      false,
 		})
 		return
 	}

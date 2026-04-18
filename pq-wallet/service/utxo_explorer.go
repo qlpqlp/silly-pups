@@ -14,7 +14,7 @@ import (
 type ExplorerUTXO struct {
 	TxID         string
 	Vout         uint32
-	Value        int64 // koinu (smallest units)
+	Value        int64  // koinu (smallest units)
 	ScriptPubHex string // hex, optional; if empty caller derives from wallet pubkey
 }
 

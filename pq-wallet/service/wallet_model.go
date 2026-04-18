@@ -11,30 +11,30 @@ import (
 
 // WalletAddress is one P2PKH key/address row (multi-address wallet).
 type WalletAddress struct {
-	ID          string    `json:"id"`
-	Label       string    `json:"label"`
-	P2PKH       string    `json:"p2pkh_address"`
-	WIF         string    `json:"wif_private_key"`
-	PubHex      string    `json:"public_key_hex_compressed"`
-	CreatedAt   time.Time `json:"created_at"`
-	Primary     bool      `json:"primary"`
+	ID        string    `json:"id"`
+	Label     string    `json:"label"`
+	P2PKH     string    `json:"p2pkh_address"`
+	WIF       string    `json:"wif_private_key"`
+	PubHex    string    `json:"public_key_hex_compressed"`
+	CreatedAt time.Time `json:"created_at"`
+	Primary   bool      `json:"primary"`
 }
 
 // WalletFile is persisted as wallet.json (v1 legacy + v2 addresses).
 type WalletFile struct {
-	Version           int       `json:"version"`
-	CreatedAt         time.Time `json:"created_at"`
-	Network           string    `json:"network"`
-	P2PKHAddress      string    `json:"p2pkh_address"`
-	WIFPrivateKey     string    `json:"wif_private_key"`
-	PublicKeyHex      string    `json:"public_key_hex_compressed"`
-	PQScheme          string    `json:"pq_scheme"`
-	PQPublicHex       string    `json:"pq_public_key_hex,omitempty"`
-	PQPrivateHex      string    `json:"pq_private_key_hex,omitempty"`
-	PQSource          string    `json:"pq_key_source"`
-	PQNotes           string    `json:"pq_notes,omitempty"`
-	LibdogecoinSPV    string    `json:"libdogecoin_spv_note"`
-	ExperimentalDiscl string    `json:"experimental_disclaimer"`
+	Version           int             `json:"version"`
+	CreatedAt         time.Time       `json:"created_at"`
+	Network           string          `json:"network"`
+	P2PKHAddress      string          `json:"p2pkh_address"`
+	WIFPrivateKey     string          `json:"wif_private_key"`
+	PublicKeyHex      string          `json:"public_key_hex_compressed"`
+	PQScheme          string          `json:"pq_scheme"`
+	PQPublicHex       string          `json:"pq_public_key_hex,omitempty"`
+	PQPrivateHex      string          `json:"pq_private_key_hex,omitempty"`
+	PQSource          string          `json:"pq_key_source"`
+	PQNotes           string          `json:"pq_notes,omitempty"`
+	LibdogecoinSPV    string          `json:"libdogecoin_spv_note"`
+	ExperimentalDiscl string          `json:"experimental_disclaimer"`
 	Addresses         []WalletAddress `json:"addresses,omitempty"`
 }
 

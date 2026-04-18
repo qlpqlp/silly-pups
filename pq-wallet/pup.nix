@@ -42,7 +42,12 @@ let
     export MTR_P2P_PARALLEL="''${MTR_P2P_PARALLEL:-}"
     export MTR_LIST_LIMIT="''${MTR_LIST_LIMIT:-}"
 
-    if [ "$SPVNODE_ENABLE" = "1" ] && [ -f "$STORAGE/wallet.json" ]; then
+    SPV_USER_START=1
+    if [ -f "$STORAGE/service_prefs.json" ]; then
+      sv=$(jq -r '.spv_enabled // true' "$STORAGE/service_prefs.json" 2>/dev/null || echo true)
+      if [ "$sv" = "false" ] || [ "$sv" = "0" ]; then SPV_USER_START=0; fi
+    fi
+    if [ "$SPVNODE_ENABLE" = "1" ] && [ "$SPV_USER_START" = "1" ] && [ -f "$STORAGE/wallet.json" ]; then
       if [ ! -f "$STORAGE/spv.pid" ] || ! kill -0 "$(cat "$STORAGE/spv.pid" 2>/dev/null)" 2>/dev/null; then
         rm -f "$STORAGE/spv.pid"
         NET=$(jq -r '.network // "mainnet"' "$STORAGE/wallet.json")

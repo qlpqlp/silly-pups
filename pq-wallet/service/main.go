@@ -29,21 +29,22 @@ var staticFS embed.FS
 
 // pqWalletAppVersion is shown in /api/health, education JSON, and the UI footer (keep in sync with manifest.json).
 const pqWalletAppVersion = "0.0.15"
+
 // pqWalletBuildHash is a release fingerprint (SHA-256 hex of "pq-wallet-<version>"); bump when cutting a release.
 const pqWalletBuildHash = "7999debee2a35a482843915c4c30fc5c91f33e3090e25a05953fe116a671164c"
 
 type Server struct {
-	mu             sync.Mutex
-	storageDir     string
-	walletPath     string
-	explorer       string
-	explorerAddr   string
-	mempoolMu      sync.Mutex
-	mempoolEngine  *mempooltracker.Engine
-	walletKey      []byte
-	sealSalt       []byte
-	memWallet      *WalletFile
-	unlockUntil    time.Time
+	mu            sync.Mutex
+	storageDir    string
+	walletPath    string
+	explorer      string
+	explorerAddr  string
+	mempoolMu     sync.Mutex
+	mempoolEngine *mempooltracker.Engine
+	walletKey     []byte
+	sealSalt      []byte
+	memWallet     *WalletFile
+	unlockUntil   time.Time
 }
 
 func env(key, def string) string {
@@ -240,9 +241,9 @@ func main() {
 	})
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{
-			"status":       "ok",
-			"app_version":  pqWalletAppVersion,
-			"build_hash":   pqWalletBuildHash,
+			"status":      "ok",
+			"app_version": pqWalletAppVersion,
+			"build_hash":  pqWalletBuildHash,
 		})
 	})
 	mux.HandleFunc("/api/security/status", srv.handleSecurityStatus)
@@ -271,6 +272,7 @@ func main() {
 	mux.HandleFunc("/api/explorer/tx/", srv.handleExplorerTx)
 	mux.HandleFunc("/api/spv/status", srv.handleSPVStatus)
 	mux.HandleFunc("/api/spv/rescan", srv.handleSPVRescan)
+	mux.HandleFunc("/api/services/control", srv.handleServicesControl)
 	mux.HandleFunc("/api/logs/spv", srv.handleLogsSPV)
 	mux.HandleFunc("/api/logs/mempooltracker", srv.handleLogsMempoolTracker)
 	mux.HandleFunc("/api/logs/broadcast", srv.handleLogsBroadcast)

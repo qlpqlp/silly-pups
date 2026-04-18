@@ -41,6 +41,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st, _ := s.loadState()
+	svcPrefs := s.readServicePrefs()
 	s.startSPVNode(wf)
 	spv := s.readSPVStatus()
 	logTail, _ := spv["log_tail"].(string)
@@ -105,9 +106,20 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	mtrP2PActive := eng != nil && engErr == nil && (mtrConn > 0 || mtrCount > 0)
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"wallet": wf,
 		"dashboard": map[string]any{
+			"services": map[string]any{
+				"spv_enabled":                   svcPrefs.SpvEnabled,
+				"spv_running":                   running,
+				"memetracker_enabled":           svcPrefs.MemetrackerEnabled,
+				"memetracker_engine_alive":      eng != nil && engErr == nil,
+				"memetracker_p2p_active":        mtrP2PActive,
+				"memetracker_workers_connected": mtrConn,
+				"memetracker_mempool_tx_count":  mtrCount,
+			},
 			"spv": map[string]any{
 				"running":          running,
 				"header_height":    hdr.HeaderHeight,

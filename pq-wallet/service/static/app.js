@@ -38,6 +38,50 @@ function closeSpvRepairModal() {
   if (m) m.classList.add("hidden");
 }
 
+function spvFmtCheckpointUtc(ts) {
+  const n = Number(ts);
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  try {
+    return new Date(n * 1000).toISOString().slice(0, 19).replace("T", " ") + " UTC";
+  } catch {
+    return String(ts);
+  }
+}
+
+function spvShortHashHex(hex) {
+  const h = String(hex || "");
+  if (h.length <= 14) return h;
+  return h.slice(0, 8) + "…" + h.slice(-6);
+}
+
+function fillSpvRollbackCheckpointSelect(st) {
+  const sel = $("spv-rollback-checkpoint-select");
+  if (!sel) return;
+  const net =
+    state.wallet && state.wallet.network && String(state.wallet.network).toLowerCase() === "testnet"
+      ? "testnet"
+      : "mainnet";
+  const rows =
+    st && st.spv_checkpoints && Array.isArray(st.spv_checkpoints[net]) ? st.spv_checkpoints[net] : [];
+  sel.innerHTML = "";
+  const custom = document.createElement("option");
+  custom.value = "custom";
+  custom.textContent = "Custom — use hash / height fields below";
+  sel.appendChild(custom);
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i] || {};
+    const h = row.height != null ? Number(row.height) : NaN;
+    const hash = row.hash != null ? String(row.hash) : "";
+    const ts = row.timestamp != null ? Number(row.timestamp) : 0;
+    if (!Number.isFinite(h) || hash.length < 32) continue;
+    const o = document.createElement("option");
+    o.value = "h-" + h;
+    const head = h === 0 ? "Genesis — block 0 — " : "Block " + h + " — ";
+    o.textContent = head + spvShortHashHex(hash) + " — " + spvFmtCheckpointUtc(ts);
+    sel.appendChild(o);
+  }
+}
+
 async function openSpvRepairModal() {
   const m = $("spv-repair-modal");
   const line = $("spv-repair-storage-line");
@@ -51,6 +95,7 @@ async function openSpvRepairModal() {
       const cp = st.use_checkpoint !== false;
       syncSel.value = cp ? "checkpoints" : "genesis";
     }
+    fillSpvRollbackCheckpointSelect(st);
     if (line) {
       const dir = st.storage_dir != null ? String(st.storage_dir) : "—";
       const hp = st.headers_db_present === true;
@@ -60,6 +105,7 @@ async function openSpvRepairModal() {
     }
   } catch {
     if (line) line.textContent = "Could not load /api/spv/status.";
+    fillSpvRollbackCheckpointSelect(null);
   }
 }
 
@@ -441,9 +487,57 @@ function maybeNotifyPending(pending) {
   state.lastPendingDoge = p;
 }
 
+function updateServicesControlUI(svc) {
+  const card = $("svc-control-card");
+  const spvLine = $("svc-spv-status");
+  const mtrLine = $("svc-mtr-status");
+  const bSpvStop = $("btn-svc-spv-stop");
+  const bSpvStart = $("btn-svc-spv-start");
+  const bMtrStop = $("btn-svc-mtr-stop");
+  const bMtrStart = $("btn-svc-mtr-start");
+  if (!svc || !card) return;
+  card.classList.remove("hidden");
+  const spvOn = !!svc.spv_enabled;
+  const spvRun = !!svc.spv_running;
+  const mtrOn = !!svc.memetracker_enabled;
+  const mtrEng = !!svc.memetracker_engine_alive;
+  const mtrP2p = !!svc.memetracker_p2p_active;
+  const wk = svc.memetracker_workers_connected != null ? Number(svc.memetracker_workers_connected) : 0;
+  const mcnt = svc.memetracker_mempool_tx_count != null ? Number(svc.memetracker_mempool_tx_count) : 0;
+  if (spvLine) {
+    spvLine.textContent = `Preference: ${spvOn ? "on" : "off"} · Process: ${spvRun ? "running" : "stopped"}`;
+  }
+  if (mtrLine) {
+    mtrLine.textContent = `Preference: ${mtrOn ? "on" : "off"} · Engine: ${mtrEng ? "up" : "down"} · P2P: ${mtrP2p ? "active" : "idle"} · workers ${wk} · relay txs ${mcnt}`;
+  }
+  if (bSpvStop) bSpvStop.disabled = !spvOn;
+  if (bSpvStart) bSpvStart.disabled = spvOn && spvRun;
+  if (bMtrStop) bMtrStop.disabled = !mtrOn;
+  if (bMtrStart) bMtrStart.disabled = mtrOn && mtrEng;
+}
+
+async function postServiceControl(patch) {
+  const res = await api("/api/services/control", { method: "POST", body: JSON.stringify(patch) });
+  if (res.error) {
+    let msg = res.error;
+    if (res.need_unlock === true) msg = "Unlock the wallet first.";
+    alert(msg);
+    return;
+  }
+  if (res.memetracker_err) {
+    alert("MemeTracker: " + res.memetracker_err);
+  }
+  await refreshDashboard();
+}
+
 async function refreshDashboard() {
   const data = await api("/api/dashboard");
-  if (!data.dashboard) return;
+  const svcCard = $("svc-control-card");
+  if (!data.dashboard) {
+    if (svcCard) svcCard.classList.add("hidden");
+    return;
+  }
+  if (svcCard) svcCard.classList.remove("hidden");
   const t = data.dashboard.totals || {};
   const spendStr =
     t.spendable_hint_doge != null && !Number.isNaN(Number(t.spendable_hint_doge))
@@ -524,7 +618,13 @@ async function refreshDashboard() {
   const sample = data.dashboard.metrics_sample || [];
   initCharts();
   updateCharts(sample);
+  if (data.dashboard.services) updateServicesControlUI(data.dashboard.services);
 }
+
+$("btn-svc-spv-stop")?.addEventListener("click", () => postServiceControl({ spv_enabled: false }));
+$("btn-svc-spv-start")?.addEventListener("click", () => postServiceControl({ spv_enabled: true }));
+$("btn-svc-mtr-stop")?.addEventListener("click", () => postServiceControl({ memetracker_enabled: false }));
+$("btn-svc-mtr-start")?.addEventListener("click", () => postServiceControl({ memetracker_enabled: true }));
 
 async function refreshTxList(refresh) {
   const q = refresh ? "?refresh=1" : "";
@@ -1119,17 +1219,30 @@ if (btnSpvFull) {
 }
 if (btnSpvRb) {
   btnSpvRb.addEventListener("click", async () => {
-    const hash = ($("spv-rescan-hash") && $("spv-rescan-hash").value.trim()) || "";
-    const hRaw = ($("spv-rescan-height") && $("spv-rescan-height").value.trim()) || "";
-    const rollback_height = hRaw ? parseInt(hRaw, 10) : 0;
-    if (!hash && !(rollback_height > 0)) {
-      alert("Enter a 64-character block header hash (from spv.log) or a positive rollback height.");
-      return;
+    const ckSel = $("spv-rollback-checkpoint-select");
+    const mode = ckSel && ckSel.value ? ckSel.value : "custom";
+    let body = { confirm: "ROLLBACK" };
+    if (mode.startsWith("h-")) {
+      const h = parseInt(mode.slice(2), 10);
+      if (!Number.isFinite(h) || h < 0) {
+        alert("Invalid checkpoint selection.");
+        return;
+      }
+      if (!confirm(`Stop SPV, remove header rows above height ${h}, delete spv_wallet.db, and restart? (checkpoint rollback)`)) return;
+      body.rollback_height = h;
+    } else {
+      const hash = ($("spv-rescan-hash") && $("spv-rescan-hash").value.trim()) || "";
+      const hRaw = ($("spv-rescan-height") && $("spv-rescan-height").value.trim()) || "";
+      const rollback_height = hRaw ? parseInt(hRaw, 10) : NaN;
+      const hasHeight = Number.isFinite(rollback_height) && rollback_height >= 0;
+      if (!hash && !hasHeight) {
+        alert("Choose a checkpoint above, or pick Custom and enter a 64-character header hash or a rollback height (0+).");
+        return;
+      }
+      if (!confirm("Stop SPV, truncate headers newer than the chosen block/height, delete spv_wallet.db, and restart?")) return;
+      if (hash) body.rollback_block_hash = hash;
+      if (hasHeight) body.rollback_height = rollback_height;
     }
-    if (!confirm("Stop SPV, truncate headers newer than the chosen block/height, delete spv_wallet.db, and restart?")) return;
-    const body = { confirm: "ROLLBACK" };
-    if (hash) body.rollback_block_hash = hash;
-    if (rollback_height > 0) body.rollback_height = rollback_height;
     const out = $("spv-rescan-out");
     const res = await api("/api/spv/rescan", { method: "POST", body: JSON.stringify(body) });
     if (out) out.textContent = JSON.stringify(res, null, 2);

@@ -41,10 +41,16 @@ function closeSpvRepairModal() {
 async function openSpvRepairModal() {
   const m = $("spv-repair-modal");
   const line = $("spv-repair-storage-line");
+  const syncSel = $("spv-rescan-sync-mode");
   if (!m) return;
+  m.classList.remove("hidden");
   if (line) line.textContent = "Loading storage path…";
   try {
     const st = await api("/api/spv/status");
+    if (syncSel) {
+      const cp = st.use_checkpoint !== false;
+      syncSel.value = cp ? "checkpoints" : "genesis";
+    }
     if (line) {
       const dir = st.storage_dir != null ? String(st.storage_dir) : "—";
       const hp = st.headers_db_present === true;
@@ -55,7 +61,6 @@ async function openSpvRepairModal() {
   } catch {
     if (line) line.textContent = "Could not load /api/spv/status.";
   }
-  m.classList.remove("hidden");
 }
 
 function showView(name) {
@@ -1094,11 +1099,14 @@ const btnSpvFull = $("btn-spv-full-rescan");
 const btnSpvRb = $("btn-spv-rollback");
 if (btnSpvFull) {
   btnSpvFull.addEventListener("click", async () => {
-    if (!confirm("Delete SPV headers.db and spv_wallet.db on this pup and restart spvnode from the embedded checkpoint?")) return;
+    const syncSel = $("spv-rescan-sync-mode");
+    const useCp = !syncSel || syncSel.value !== "genesis";
+    const modeLabel = useCp ? "assisted header sync (spvnode -p)" : "from genesis (no -p)";
+    if (!confirm(`Delete SPV headers.db and spv_wallet.db on this pup and restart spvnode with ${modeLabel}?`)) return;
     const out = $("spv-rescan-out");
     const res = await api("/api/spv/rescan", {
       method: "POST",
-      body: JSON.stringify({ confirm: "RESCAN", mode: "full" }),
+      body: JSON.stringify({ confirm: "RESCAN", mode: "full", use_checkpoint: useCp }),
     });
     if (out) out.textContent = JSON.stringify(res, null, 2);
     if (res.error) {

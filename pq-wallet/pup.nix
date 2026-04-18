@@ -7,7 +7,7 @@ let
 
   pq_bin = pkgs.buildGoModule {
     pname = "pq-wallet";
-    version = "0.0.14";
+    version = "0.0.15";
     src = ./service;
     vendorHash = null;
     go = pkgs.go_1_24;
@@ -50,14 +50,19 @@ let
         if [ "''${#SPV_ADDRS[@]}" -gt 0 ]; then
           TN_FLAG=""
           if [ "$NET" = "testnet" ]; then TN_FLAG="-t"; fi
+          CP_FLAG="-p"
+          if [ -f "$STORAGE/spv_sync_prefs.json" ]; then
+            v=$(jq -r '.use_checkpoint // true' "$STORAGE/spv_sync_prefs.json" 2>/dev/null || echo true)
+            if [ "$v" = "false" ] || [ "$v" = "0" ]; then CP_FLAG=""; fi
+          fi
           SPV_ARGS=()
           for a in "''${SPV_ADDRS[@]}"; do
             SPV_ARGS+=(-a "$a")
           done
           if command -v stdbuf >/dev/null 2>&1; then
-            nohup stdbuf -oL -eL spvnode $TN_FLAG -f 0 -c -l "''${SPV_ARGS[@]}" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >>"$STORAGE/spv.log" 2>&1 &
+            nohup stdbuf -oL -eL spvnode $TN_FLAG $CP_FLAG -c -l "''${SPV_ARGS[@]}" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >>"$STORAGE/spv.log" 2>&1 &
           else
-            nohup spvnode $TN_FLAG -f 0 -c -l "''${SPV_ARGS[@]}" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >>"$STORAGE/spv.log" 2>&1 &
+            nohup spvnode $TN_FLAG $CP_FLAG -c -l "''${SPV_ARGS[@]}" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >>"$STORAGE/spv.log" 2>&1 &
           fi
           echo $! >"$STORAGE/spv.pid"
         fi

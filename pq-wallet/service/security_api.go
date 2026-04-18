@@ -49,6 +49,9 @@ func (s *Server) handleSecurityUnlock(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
 		return
 	}
+	if s.memWallet != nil {
+		s.startSPVNode(s.memWallet)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

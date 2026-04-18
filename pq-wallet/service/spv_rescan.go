@@ -26,6 +26,11 @@ func (s *Server) migrateLegacyHeadersDB() (migrated bool, backupPath string, err
 	if st.IsDir() {
 		return false, "", fmt.Errorf("headers.db is a directory")
 	}
+	// Do not treat a tiny file as "legacy": SQLite may still be initializing, and
+	// renaming it would force a full header resync (often mistaken for "unlock wiped DB").
+	if st.Size() < 100 {
+		return false, "", nil
+	}
 	if isSQLiteDBFile(headersPath) {
 		return false, "", nil
 	}
@@ -136,6 +141,7 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 		Mode                string `json:"mode"`
 		RollbackBlockHash   string `json:"rollback_block_hash"`
 		RollbackHeight      int64  `json:"rollback_height"`
+		UseCheckpoint       *bool  `json:"use_checkpoint"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
@@ -176,6 +182,9 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": `mode must be "full" or omitted`})
 			return
 		}
+		if body.UseCheckpoint != nil {
+			_ = s.writeSPVSyncPrefs(spvSyncPrefs{UseCheckpoint: *body.UseCheckpoint})
+		}
 		s.stopSPVNode()
 		migrated, legacyBackup, migErr := s.migrateLegacyHeadersDB()
 		if migErr != nil {
@@ -188,12 +197,14 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = os.Remove(s.spvWatchAddrPath())
 		s.startSPVNode(wf)
+		prefs := s.readSPVSyncPrefs()
 		out := map[string]any{
 			"ok":              true,
 			"action":          "full_rescan",
 			"removed_headers": headersPath,
 			"removed_wallet":  walletDB,
-			"note":            "SPV will rebuild headers from the bundled checkpoint and rescan watched addresses.",
+			"use_checkpoint":  prefs.UseCheckpoint,
+			"note":            "SPV will rescan watched addresses after clearing local header + wallet DB state. With use_checkpoint true (spvnode -p), libdogecoin may seed sync from its embedded checkpoint table; with false, header sync starts from genesis in the block locator.",
 		}
 		if migrated && legacyBackup != "" {
 			out["legacy_headers_renamed_to"] = legacyBackup

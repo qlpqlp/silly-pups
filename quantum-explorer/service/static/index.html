@@ -102,7 +102,27 @@
     .range-chip.active { color:var(--txt); border-color:rgba(242,203,44,.6); background:rgba(242,203,44,.14); }
     .wave-card { border:1px solid var(--line); border-radius:12px; background:#0f1824; padding:.55rem .6rem; margin-bottom:.45rem; }
     .wave-head { display:flex; justify-content:space-between; font-size:.78rem; margin-bottom:.35rem; color:var(--muted); }
-    .wave-svg { width:100%; height:120px; display:block; }
+    .wave-svg { width:100%; height:150px; display:block; }
+    .wave-axis { stroke:#324a66; stroke-width:1; }
+    .wave-grid { stroke:#223349; stroke-width:1; stroke-dasharray:2 3; }
+    .wave-axis-label { fill:var(--muted); font-size:8px; }
+    .wave-point { cursor:pointer; }
+    .wave-point:hover { filter:brightness(1.2); }
+    .wave-tip {
+      position:absolute;
+      z-index:2;
+      pointer-events:none;
+      max-width:80%;
+      background:#08111d;
+      border:1px solid var(--line);
+      border-radius:8px;
+      color:var(--txt);
+      font-size:.72rem;
+      padding:.22rem .4rem;
+      transform:translate(-50%, -110%);
+      white-space:nowrap;
+      box-shadow:0 4px 14px rgba(0,0,0,.32);
+    }
     .docs-btn { display:inline-flex; align-items:center; gap:.35rem; width:auto; padding:.45rem .7rem; }
     .docs-btn .material-symbols-outlined { font-size:18px; line-height:1; }
     .hero-actions { margin-left:auto; display:flex; align-items:center; gap:.55rem; flex-wrap:wrap; justify-content:flex-end; }
@@ -706,14 +726,32 @@
 
     function renderWaveSeriesCard(title, points, color, latestLabel){
       if (!points.length) return `<div class="wave-card"><p class="muted">${esc(title)}: no data.</p></div>`;
+      const max = Math.max(...points.map(p => p.v), 1);
+      const yTicks = [max, Math.floor(max/2), 0];
+      const yToSvg = (v) => {
+        if (max <= 0) return 110;
+        const pct = Math.max(0, Math.min(1, v / max));
+        return 110 - Math.round(pct * 90);
+      };
+      const xTicks = [
+        points[0],
+        points[Math.floor((points.length - 1) / 2)],
+        points[points.length - 1]
+      ].filter(Boolean);
       const path = buildWavePath(points);
       const area = `${path} L ${points[points.length-1].x} 108 L ${points[0].x} 108 Z`;
       return `<div class="wave-card">
         <div class="wave-head"><strong>${esc(title)}</strong><span>${esc(latestLabel)}</span></div>
-        <svg class="wave-svg" viewBox="0 0 360 110" preserveAspectRatio="none" role="img" aria-label="${esc(title)} graph">
+        <svg class="wave-svg" viewBox="0 0 360 140" preserveAspectRatio="none" role="img" aria-label="${esc(title)} graph">
+          <line class="wave-axis" x1="35" y1="10" x2="35" y2="110"></line>
+          <line class="wave-axis" x1="35" y1="110" x2="350" y2="110"></line>
+          ${yTicks.map(v => `<g><line class="wave-grid" x1="35" y1="${yToSvg(v)}" x2="350" y2="${yToSvg(v)}"></line><text class="wave-axis-label" x="4" y="${yToSvg(v)+3}">${esc(String(v))}</text></g>`).join("")}
+          ${xTicks.map(p => `<g><line class="wave-grid" x1="${p.x}" y1="110" x2="${p.x}" y2="112"></line><text class="wave-axis-label" x="${p.x}" y="125" text-anchor="middle">${esc(String(p.label || "").slice(5,16).replace("T"," "))}</text></g>`).join("")}
           <path d="${area}" fill="${esc(color)}22"></path>
           <path d="${path}" fill="none" stroke="${esc(color)}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+          ${points.map(p => `<circle class="wave-point" cx="${p.x}" cy="${p.y}" r="2.8" fill="${esc(color)}" data-tip="${esc(`${p.label}: ${p.v}`)}"><title>${esc(`${p.label}: ${p.v}`)}</title></circle>`).join("")}
         </svg>
+        <div class="wave-tip" hidden></div>
       </div>`;
     }
 
@@ -726,7 +764,34 @@
       return src.map((it, idx) => {
         const v = Number(it[key] || 0);
         const y = 100 - Math.round((v / max) * 90);
-        return { x: 10 + idx * step, y: Math.max(8, Math.min(100, y)), v };
+        return { x: 35 + idx * step, y: Math.max(10, Math.min(100, y)), v, label: String(it.hour || "") };
+      });
+    }
+
+    function bindWaveTips(scopeEl){
+      if (!scopeEl) return;
+      scopeEl.querySelectorAll(".wave-card").forEach(card => {
+        const tip = card.querySelector(".wave-tip");
+        if (!tip) return;
+        const show = (evt, point) => {
+          if (!point) return;
+          const rect = card.getBoundingClientRect();
+          const px = evt.touches && evt.touches[0] ? evt.touches[0].clientX : evt.clientX;
+          const py = evt.touches && evt.touches[0] ? evt.touches[0].clientY : evt.clientY;
+          tip.textContent = point.getAttribute("data-tip") || "";
+          tip.style.left = `${Math.max(14, Math.min(rect.width - 14, px - rect.left))}px`;
+          tip.style.top = `${Math.max(18, py - rect.top)}px`;
+          tip.hidden = false;
+        };
+        const hide = () => { tip.hidden = true; };
+        card.querySelectorAll(".wave-point").forEach(point => {
+          point.addEventListener("mousemove", (e) => show(e, point));
+          point.addEventListener("mouseenter", (e) => show(e, point));
+          point.addEventListener("mouseleave", hide);
+          point.addEventListener("touchstart", (e) => show(e, point), { passive: true });
+          point.addEventListener("touchmove", (e) => show(e, point), { passive: true });
+          point.addEventListener("touchend", hide);
+        });
       });
     }
 
@@ -742,6 +807,7 @@
       el.innerHTML =
         renderWaveSeriesCard("Quantum transactions", qPts, "#63c7ff", `Latest: ${Number(last.quantum || 0)}`) +
         renderWaveSeriesCard("Non-quantum transactions", nPts, "#ff8f8f", `Latest: ${Number(last.non_quantum || 0)}`);
+      bindWaveTips(el);
     }
 
     function renderSimpleSeries(elId, title, items, key, colorClass){
@@ -755,6 +821,7 @@
       const last = items[items.length - 1] || {};
       const color = colorClass === "nonq" ? "#ff8f8f" : "#63c7ff";
       el.innerHTML = renderWaveSeriesCard(title, pts, color, `Latest: ${Number(last[key] || 0)}`);
+      bindWaveTips(el);
     }
 
     function renderRangeToolbar(){
@@ -1224,10 +1291,23 @@
       renderPQBlock(latestPQRows);
       const mr = await j("/api/public/metrics?hours=" + encodeURIComponent(String(hours)));
       if (mr.ok) {
-        renderMetricsBars(mr.d.buckets || []);
+        let metricBuckets = mr.d.buckets || [];
+        let metricSource = (mr.d.source || "unknown");
+        if ((!Array.isArray(metricBuckets) || metricBuckets.length === 0) && ex.enabled) {
+          const arFallback = await j("/api/public/activity-buckets?hours=" + encodeURIComponent(String(hours)));
+          if (arFallback.ok && Array.isArray(arFallback.d.buckets) && arFallback.d.buckets.length > 0) {
+            metricBuckets = arFallback.d.buckets.map(it => ({
+              hour: it.hour,
+              quantum: 0,
+              non_quantum: Number(it.transactions || 0)
+            }));
+            metricSource = "activity_buckets_fallback";
+          }
+        }
+        renderMetricsBars(metricBuckets);
         const src = (mr.d.source || "unknown");
         const srcEl = document.getElementById("metrics-source");
-        srcEl.textContent = `Source: ${src} · Range: ${selected.label}`;
+        srcEl.textContent = `Source: ${metricSource} · Range: ${selected.label}`;
       }
       const ar = await j("/api/public/activity-buckets?hours=" + encodeURIComponent(String(hours)));
       if (ar.ok) {

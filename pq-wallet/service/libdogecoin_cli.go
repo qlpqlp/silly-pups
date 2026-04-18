@@ -315,8 +315,14 @@ func (s *Server) spvWatchAddrPath() string {
 	return filepath.Join(s.storageDir, "spv_watch_addrs.txt")
 }
 
-func spvnodeArgs(testnet bool, addrs []string, storageDir string) []string {
-	args := []string{"-f", "0", "-c", "-l"}
+// spvnodeArgs builds argv for libdogecoin spvnode. We intentionally omit -f:
+// with -f 0, spvnode treats headers as in-memory only and ignores -h, so
+// headers.db never appears on disk and SQLite rollback cannot run.
+func spvnodeArgs(testnet bool, addrs []string, storageDir string, useCheckpoint bool) []string {
+	args := []string{"-c", "-l"}
+	if useCheckpoint {
+		args = append(args, "-p")
+	}
 	for _, a := range addrs {
 		a = strings.TrimSpace(a)
 		if a == "" {
@@ -355,13 +361,18 @@ func (s *Server) startSPVNode(w *WalletFile) {
 	pidRunning := false
 	if b, err := os.ReadFile(s.spvPidPath()); err == nil {
 		pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
-		if pid > 0 && exec.Command("kill", "-0", strconv.Itoa(pid)).Run() == nil {
+		if pid > 0 && spvProcessAlive(pid) {
 			pidRunning = true
 		} else {
 			_ = os.Remove(s.spvPidPath())
 		}
 	}
-	if pidRunning && strings.TrimSpace(string(prev)) == want {
+	hdb := filepath.Join(s.storageDir, "headers.db")
+	headersOK := false
+	if st, err := os.Stat(hdb); err == nil && !st.IsDir() && isSQLiteDBFile(hdb) {
+		headersOK = true
+	}
+	if pidRunning && strings.TrimSpace(string(prev)) == want && headersOK {
 		return
 	}
 	s.stopSPVNode()
@@ -379,7 +390,8 @@ func (s *Server) startSPVNode(w *WalletFile) {
 		return
 	}
 	sort.Strings(list)
-	args := spvnodeArgs(testnet, list, s.storageDir)
+	prefs := s.readSPVSyncPrefs()
+	args := spvnodeArgs(testnet, list, s.storageDir, prefs.UseCheckpoint)
 	cmd := exec.Command(s.spvnodePath(), args...)
 	cmd.Stdout = f
 	cmd.Stderr = f
@@ -408,7 +420,8 @@ func (s *Server) stopSPVNode() {
 	if pid == "" {
 		return
 	}
-	_ = exec.Command("kill", "-TERM", pid).Run()
+	pidInt, _ := strconv.Atoi(pid)
+	spvProcessTerminate(pidInt)
 	_ = os.Remove(s.spvPidPath())
 }
 
@@ -434,6 +447,13 @@ func (s *Server) readSPVStatus() map[string]any {
 	} else {
 		out["headers_db_present"] = false
 	}
+	prefs := s.readSPVSyncPrefs()
+	out["use_checkpoint"] = prefs.UseCheckpoint
+	out["spv_checkpoints"] = map[string]any{
+		"mainnet": spvMainnetCheckpoints,
+		"testnet": spvTestnetCheckpoints,
+		"note":    "With use_checkpoint true, spvnode -p lets libdogecoin pick one row from this table by timestamp (wallet scan window), not a single fixed menu index.",
+	}
 	if _, err := os.Stat(wdb); err == nil {
 		out["spv_wallet_db"] = wdb
 		out["spv_wallet_db_present"] = true
@@ -453,11 +473,7 @@ func (s *Server) readSPVStatus() map[string]any {
 	pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
 	out["pid"] = pid
 	if pid > 0 {
-		if err := exec.Command("kill", "-0", strconv.Itoa(pid)).Run(); err != nil {
-			out["running"] = false
-		} else {
-			out["running"] = true
-		}
+		out["running"] = spvProcessAlive(pid)
 	}
 	return out
 }

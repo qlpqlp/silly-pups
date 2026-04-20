@@ -44,12 +44,14 @@ const (
 	MSG_TX              = 1 // inventory type for transactions (and MSG_TX|MSG_WITNESS_FLAG for segwit); never MSG_BLOCK
 	NODE_NETWORK        = 1 << 0
 	NODE_WITNESS        = 1 << 3
-	GETDATA_BATCH       = 48
-	MAX_TX_FETCH_INV    = 200
+	GETDATA_BATCH       = 16
+	MAX_TX_FETCH_INV    = 64
 	MEMPOOL_RESYNC_SEC  = 90
 	MEMPOOL_WATCHER_SEC = 3
 	P2P_READ_IDLE_SEC   = 20
 	SESSION_SEC         = 300
+	MAX_P2P_PAYLOAD     = 4 * 1024 * 1024
+	defaultProcessedCap = 50000
 )
 
 //go:embed static/*
@@ -1458,8 +1460,10 @@ func submitDogeboxMetrics(store *Store, col *MetricsCollector) {
 // ------- P2P watcher -------
 
 type ProcessedSet struct {
-	mu sync.Mutex
-	m  map[string]struct{}
+	mu    sync.Mutex
+	m     map[string]struct{}
+	order []string
+	cap   int
 }
 
 type PaymentCallbackPayload struct {
@@ -1498,7 +1502,10 @@ func notifyCallback(callbackURL string, payload PaymentCallbackPayload) {
 }
 
 func NewProcessedSet() *ProcessedSet {
-	return &ProcessedSet{m: make(map[string]struct{})}
+	return &ProcessedSet{
+		m:   make(map[string]struct{}),
+		cap: defaultProcessedCap,
+	}
 }
 
 func (ps *ProcessedSet) Has(k string) bool {
@@ -1511,7 +1518,19 @@ func (ps *ProcessedSet) Has(k string) bool {
 func (ps *ProcessedSet) Add(k string) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
+	if _, ok := ps.m[k]; ok {
+		return
+	}
 	ps.m[k] = struct{}{}
+	ps.order = append(ps.order, k)
+	if ps.cap <= 0 {
+		ps.cap = defaultProcessedCap
+	}
+	for len(ps.order) > ps.cap {
+		old := ps.order[0]
+		ps.order = ps.order[1:]
+		delete(ps.m, old)
+	}
 }
 
 func (ps *ProcessedSet) Remove(k string) {
@@ -1716,7 +1735,7 @@ readLoop:
 			continue
 		}
 
-		if size > 32*1024*1024 {
+		if size > MAX_P2P_PAYLOAD {
 			logf("reject absurd payload_len peer=%s cmd=%s size=%d", stateLastPeer, cmd, size)
 			sessionExit = fmt.Errorf("absurd payload size %d", size)
 			break readLoop
@@ -2719,7 +2738,7 @@ func Start(opts Options) (*Engine, error) {
 		}
 	}()
 
-	mcol := NewMetricsCollector(50000)
+	mcol := NewMetricsCollector(5000)
 	processed := NewProcessedSet()
 
 	effectiveCfg := MemeTrackerConfig{

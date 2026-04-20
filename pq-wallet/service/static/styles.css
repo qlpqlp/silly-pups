@@ -2175,6 +2175,11 @@ a {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  margin-bottom: 0.7rem;
+  margin: 0;
+  padding: 1rem 1rem 0.25rem;
+}
+
+.dash-latest-tx-card .tx-list {
+  padding-top: 0.55rem;
 }
 

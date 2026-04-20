@@ -239,7 +239,6 @@ async function loadEducation() {
     const data = await api("/api/education");
     loading.classList.add("hidden");
     root.classList.remove("hidden");
-    root.dataset.loaded = "1";
     root.innerHTML = "";
     const h = document.createElement("h2");
     h.textContent = data.title || "Education";
@@ -323,8 +322,13 @@ async function loadEducation() {
       p.textContent = data.libdogecoin_build;
       root.appendChild(p);
     }
+    root.dataset.loaded = "1";
   } catch (e) {
-    loading.textContent = "Could not load education.";
+    root.dataset.loaded = "";
+    if (loading) {
+      loading.classList.remove("hidden");
+      loading.textContent = "Could not load Help content. Open Help again to retry.";
+    }
   }
 }
 
@@ -485,8 +489,27 @@ function updateCharts(metrics) {
 
 async function refreshWallet() {
   const data = await api("/api/wallet");
+  // If /api/wallet returns a transient non-JSON or error payload during startup,
+  // do not flip the UI into onboarding; keep prior state until a stable read.
+  if (!data || data.error || data._status >= 500) {
+    return;
+  }
   state.walletLocked = !!(data.locked && data.sealed);
-  state.wallet = data.wallet;
+  state.wallet = data.wallet || null;
+  // Defensive fallback: on some force-refresh races wallet payload can be null briefly
+  // while the service is still warming up. Security status tells us whether a wallet
+  // exists on disk (sealed or plaintext) so onboarding should remain hidden.
+  if (!state.wallet && !state.walletLocked) {
+    try {
+      const sec = await api("/api/security/status");
+      const hasWalletOnDisk = !!(sec && (sec.sealed || sec.has_plaintext_wallet));
+      if (hasWalletOnDisk) {
+        state.walletLocked = !!(sec.sealed && !sec.unlocked);
+      }
+    } catch {
+      /* ignore fallback failures */
+    }
+  }
   const lockEl = $("wallet-lock-screen");
   if (lockEl) {
     lockEl.classList.toggle("hidden", !state.walletLocked);

@@ -182,6 +182,8 @@ func (ix *coreIndexer) ensureSchema(ctx context.Context) error {
 			quantum_count BIGINT NOT NULL DEFAULT 0,
 			non_quantum_count BIGINT NOT NULL DEFAULT 0,
 			invalid_quantum_count BIGINT NOT NULL DEFAULT 0,
+			block_count BIGINT NOT NULL DEFAULT 0,
+			address_count BIGINT NOT NULL DEFAULT 0,
 			updated_at BIGINT NOT NULL DEFAULT 0
 		)`,
 		`INSERT INTO qe_core_indexer_state (id, last_height, tip_height, updated_at)
@@ -191,6 +193,14 @@ func (ix *coreIndexer) ensureSchema(ctx context.Context) error {
 		if _, err := ix.db.ExecContext(ctx, s); err != nil {
 			return err
 		}
+	}
+	// Backward-compatible migration for existing databases created before
+	// block_count/address_count were added.
+	if _, err := ix.db.ExecContext(ctx, `ALTER TABLE qe_core_hourly_metrics ADD COLUMN IF NOT EXISTS block_count BIGINT NOT NULL DEFAULT 0`); err != nil {
+		return err
+	}
+	if _, err := ix.db.ExecContext(ctx, `ALTER TABLE qe_core_hourly_metrics ADD COLUMN IF NOT EXISTS address_count BIGINT NOT NULL DEFAULT 0`); err != nil {
+		return err
 	}
 	return nil
 }
@@ -422,7 +432,7 @@ func (ix *coreIndexer) indexHeight(height int64) error {
 			continue
 		}
 		rawHex := strings.TrimSpace(anyString(tm["hex"]))
-		if rawHex == "" && rpc != nil && rpc.enabled() {
+		if rawHex == "" && rpc.enabled() {
 			for attempt := 0; attempt < 2; attempt++ {
 				if attempt > 0 {
 					time.Sleep(100 * time.Millisecond)
@@ -592,21 +602,58 @@ func (ix *coreIndexer) refreshHourlyMetrics(hours int) error {
 		return err
 	}
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO qe_core_hourly_metrics (hour_unix, all_count, quantum_count, non_quantum_count, invalid_quantum_count, updated_at)
-		SELECT (time_unix / 3600) * 3600 AS hour_unix,
-		       COUNT(*)::bigint AS all_count,
-		       SUM(CASE WHEN quantum_state='quantum' THEN 1 ELSE 0 END)::bigint AS quantum_count,
-		       SUM(CASE WHEN quantum_state='non-quantum' THEN 1 ELSE 0 END)::bigint AS non_quantum_count,
-		       SUM(CASE WHEN quantum_state='invalid-quantum' THEN 1 ELSE 0 END)::bigint AS invalid_quantum_count,
+		WITH bounds AS (
+		  SELECT ($1 - ($1 % 3600))::bigint AS cutoff_hour,
+		         ((EXTRACT(EPOCH FROM NOW())::bigint / 3600) * 3600)::bigint AS latest_hour
+		),
+		hours AS (
+		  SELECT generate_series((SELECT cutoff_hour FROM bounds), (SELECT latest_hour FROM bounds), 3600)::bigint AS h
+		),
+		txs AS (
+		  SELECT (time_unix / 3600) * 3600 AS h,
+		         COUNT(*)::bigint AS all_count,
+		         SUM(CASE WHEN quantum_state='quantum' THEN 1 ELSE 0 END)::bigint AS quantum_count,
+		         SUM(CASE WHEN quantum_state='non-quantum' THEN 1 ELSE 0 END)::bigint AS non_quantum_count,
+		         SUM(CASE WHEN quantum_state='invalid-quantum' THEN 1 ELSE 0 END)::bigint AS invalid_quantum_count
+		  FROM qe_core_txs
+		  WHERE time_unix >= $1
+		  GROUP BY 1
+		),
+		blks AS (
+		  SELECT (time_unix / 3600) * 3600 AS h, COUNT(*)::bigint AS block_count
+		  FROM qe_core_blocks
+		  WHERE time_unix >= $1
+		  GROUP BY 1
+		),
+		addrs AS (
+		  SELECT ((b.time_unix / 3600) * 3600) AS h, COUNT(DISTINCT a.address)::bigint AS address_count
+		  FROM qe_core_addresses a
+		  INNER JOIN qe_core_blocks b ON b.height = a.block_height
+		  WHERE b.time_unix >= $1
+		  GROUP BY 1
+		)
+		INSERT INTO qe_core_hourly_metrics (
+		  hour_unix, all_count, quantum_count, non_quantum_count, invalid_quantum_count, block_count, address_count, updated_at
+		)
+		SELECT h.h AS hour_unix,
+		       COALESCE(t.all_count, 0) AS all_count,
+		       COALESCE(t.quantum_count, 0) AS quantum_count,
+		       COALESCE(t.non_quantum_count, 0) AS non_quantum_count,
+		       COALESCE(t.invalid_quantum_count, 0) AS invalid_quantum_count,
+		       COALESCE(b.block_count, 0) AS block_count,
+		       COALESCE(a.address_count, 0) AS address_count,
 		       $2::bigint AS updated_at
-		FROM qe_core_txs
-		WHERE time_unix >= $1
-		GROUP BY (time_unix / 3600)
+		FROM hours h
+		LEFT JOIN txs t ON t.h = h.h
+		LEFT JOIN blks b ON b.h = h.h
+		LEFT JOIN addrs a ON a.h = h.h
 		ON CONFLICT (hour_unix) DO UPDATE SET
 		  all_count=EXCLUDED.all_count,
 		  quantum_count=EXCLUDED.quantum_count,
 		  non_quantum_count=EXCLUDED.non_quantum_count,
 		  invalid_quantum_count=EXCLUDED.invalid_quantum_count,
+		  block_count=EXCLUDED.block_count,
+		  address_count=EXCLUDED.address_count,
 		  updated_at=EXCLUDED.updated_at
 	`, cutoff, time.Now().Unix())
 	if err != nil {
@@ -688,16 +735,16 @@ func (ix *coreIndexer) status() map[string]any {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
 	out := map[string]any{
-		"enabled":                      true,
-		"running":                      ix.running,
-		"last_error":                   ix.lastErr,
-		"last_height":                  ix.lastHeight,
-		"tip_height":                   ix.tipHeight,
-		"batch":                        ix.batch,
-		"start_height":                 ix.startHeight,
-		"index_height_timeout_sec":     int(ix.indexTimeout / time.Second),
-		"auto_rewind_blocks_on_stall":  ix.autoRewindBlocks,
-		"core_rpc_max_response_mb":     ix.rpcMaxResponseMB,
+		"enabled":                     true,
+		"running":                     ix.running,
+		"last_error":                  ix.lastErr,
+		"last_height":                 ix.lastHeight,
+		"tip_height":                  ix.tipHeight,
+		"batch":                       ix.batch,
+		"start_height":                ix.startHeight,
+		"index_height_timeout_sec":    int(ix.indexTimeout / time.Second),
+		"auto_rewind_blocks_on_stall": ix.autoRewindBlocks,
+		"core_rpc_max_response_mb":    ix.rpcMaxResponseMB,
 	}
 	if ix.rpcLong != nil {
 		out["indexer_rpc_timeout_ms"] = int(ix.rpcLong.cfg.Timeout / time.Millisecond)
@@ -749,11 +796,11 @@ func (ix *coreIndexer) setStartHeightIfNeeded(ctx context.Context, height int64)
 	// If height already exists in DB, do not rewind state; continue from current indexed progress.
 	if strings.TrimSpace(existingHash) != "" {
 		return map[string]any{
-			"updated":            true,
-			"height":             height,
-			"already_in_db":      true,
+			"updated":             true,
+			"height":              height,
+			"already_in_db":       true,
 			"existing_block_hash": strings.ToLower(strings.TrimSpace(existingHash)),
-			"note":               "block already indexed; no rewind performed",
+			"note":                "block already indexed; no rewind performed",
 		}, nil
 	}
 	// If missing, start from just before requested height so next loop adds new rows from requested block onward.
@@ -812,7 +859,7 @@ func (ix *coreIndexer) metricBuckets(ctx context.Context, hours int) ([]map[stri
 	} else {
 		cutoff = latestHour - int64((hours-1)*3600)
 	}
-	rows, err := ix.db.QueryContext(ctx, `SELECT hour_unix, all_count, quantum_count, non_quantum_count, invalid_quantum_count
+	rows, err := ix.db.QueryContext(ctx, `SELECT hour_unix, all_count, quantum_count, non_quantum_count, invalid_quantum_count, block_count, address_count
 		FROM qe_core_hourly_metrics WHERE hour_unix >= $1 AND hour_unix <= $2 ORDER BY hour_unix`, cutoff, latestHour)
 	if err != nil {
 		return nil, err
@@ -824,8 +871,8 @@ func (ix *coreIndexer) metricBuckets(ctx context.Context, hours int) ([]map[stri
 	}
 	out := make([]map[string]any, 0, outCap)
 	for rows.Next() {
-		var h, allc, q, nq, iq int64
-		if err := rows.Scan(&h, &allc, &q, &nq, &iq); err != nil {
+		var h, allc, q, nq, iq, bc, ac int64
+		if err := rows.Scan(&h, &allc, &q, &nq, &iq, &bc, &ac); err != nil {
 			return nil, err
 		}
 		out = append(out, map[string]any{
@@ -835,6 +882,8 @@ func (ix *coreIndexer) metricBuckets(ctx context.Context, hours int) ([]map[stri
 			"quantum":         q,
 			"non_quantum":     nq,
 			"invalid_quantum": iq,
+			"blocks":          bc,
+			"wallet_creates":  ac,
 		})
 	}
 	return out, rows.Err()
@@ -844,83 +893,8 @@ func (ix *coreIndexer) activityBuckets(ctx context.Context, hours int) ([]map[st
 	if ix == nil || ix.db == nil {
 		return nil, nil
 	}
-	allTime := hours <= 0
-	if !allTime && hours < 1 {
-		hours = 24
-	}
-	var latestHour int64
-	if err := ix.db.QueryRowContext(ctx, `SELECT COALESCE(MAX((time_unix/3600)*3600),0) FROM qe_core_blocks`).Scan(&latestHour); err != nil {
-		return nil, err
-	}
-	if latestHour <= 0 {
-		return []map[string]any{}, nil
-	}
-	var cutoff int64
-	if allTime {
-		if err := ix.db.QueryRowContext(ctx, `SELECT COALESCE(MIN((time_unix/3600)*3600),0) FROM qe_core_blocks`).Scan(&cutoff); err != nil {
-			return nil, err
-		}
-	} else {
-		cutoff = latestHour - int64((hours-1)*3600)
-	}
-	// Cap hourly series length so generate_series + joins stay fast on large chains.
-	const maxActivitySeriesHours = 4000 // ~166 days; wider "all time" views show the latest window only
-	if span := (latestHour-cutoff)/3600 + 1; span > maxActivitySeriesHours {
-		cutoff = latestHour - int64(maxActivitySeriesHours-1)*3600
-	}
-	tEnd := latestHour + 3599
-	rows, err := ix.db.QueryContext(ctx, `
-		WITH txs AS (
-		  SELECT (time_unix/3600)*3600 AS h, COUNT(*)::bigint AS tx_count
-		  FROM qe_core_txs
-		  WHERE time_unix >= $1 AND time_unix <= $2
-		  GROUP BY 1
-		),
-		blks AS (
-		  SELECT (time_unix/3600)*3600 AS h, COUNT(*)::bigint AS block_count
-		  FROM qe_core_blocks
-		  WHERE time_unix >= $1 AND time_unix <= $2
-		  GROUP BY 1
-		),
-		wallets AS (
-		  SELECT ((b.time_unix/3600)*3600) AS h, COUNT(DISTINCT a.address)::bigint AS wallet_count
-		  FROM qe_core_addresses a
-		  INNER JOIN qe_core_blocks b ON b.height = a.block_height
-		  WHERE b.time_unix >= $1 AND b.time_unix <= $2
-		  GROUP BY 1
-		)
-		SELECT g.h,
-		  COALESCE(txs.tx_count,0) AS tx_count,
-		  COALESCE(blks.block_count,0) AS block_count,
-		  COALESCE(wallets.wallet_count,0) AS wallet_count
-		FROM generate_series($3::bigint, $4::bigint, 3600) AS g(h)
-		LEFT JOIN txs ON txs.h = g.h
-		LEFT JOIN blks ON blks.h = g.h
-		LEFT JOIN wallets ON wallets.h = g.h
-		ORDER BY g.h`, cutoff, tEnd, cutoff, latestHour)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	outCap := hours
-	if allTime || outCap < 1 {
-		outCap = 256
-	}
-	out := make([]map[string]any, 0, outCap)
-	for rows.Next() {
-		var h, txc, blc, wlc int64
-		if err := rows.Scan(&h, &txc, &blc, &wlc); err != nil {
-			return nil, err
-		}
-		out = append(out, map[string]any{
-			"hour_unix":      h,
-			"hour":           time.Unix(h, 0).UTC().Format("2006-01-02T15:00:00Z"),
-			"transactions":   txc,
-			"blocks":         blc,
-			"wallet_creates": wlc,
-		})
-	}
-	return out, rows.Err()
+	// Read from precomputed hourly table for stable, low-latency UI refreshes.
+	return ix.metricBuckets(ctx, hours)
 }
 
 func (ix *coreIndexer) search(ctx context.Context, q string, limit int) (map[string]any, error) {

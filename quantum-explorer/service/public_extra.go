@@ -130,9 +130,22 @@ func (a *app) publicActivityBuckets(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
 	}
+	normalized := make([]map[string]any, 0, len(buckets))
+	for _, b := range buckets {
+		if b == nil {
+			continue
+		}
+		normalized = append(normalized, map[string]any{
+			"hour_unix":      b["hour_unix"],
+			"hour":           b["hour"],
+			"transactions":   b["all"],
+			"blocks":         b["blocks"],
+			"wallet_creates": b["wallet_creates"],
+		})
+	}
 	writeJSON(w, 200, map[string]any{
 		"hours":   hours,
-		"source":  "core_activity_buckets",
-		"buckets": buckets,
+		"source":  "core_hourly_metrics",
+		"buckets": normalized,
 	})
 }

@@ -426,10 +426,16 @@ func parseLibdogecoinMempoolTxCount(log string) int {
 // parseSPVTxSeenCount counts distinct 64-char txids on spv.log lines that look like wallet/P2P tx
 // activity (not chain tip header rows). Used for the “SPV transaction count” chart.
 func parseSPVTxSeenCount(log string) int {
+	return len(parseSPVSeenTxids(log))
+}
+
+// parseSPVSeenTxids extracts txids from SPV log lines that look like wallet/P2P tx
+// activity (not header tip rows). Used to seed tx rows when SPV is the only source.
+func parseSPVSeenTxids(log string) map[string]struct{} {
+	out := make(map[string]struct{})
 	if strings.TrimSpace(log) == "" {
-		return 0
+		return out
 	}
-	seen := make(map[string]struct{})
 	for _, line := range strings.Split(log, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -447,12 +453,13 @@ func parseSPVTxSeenCount(log string) int {
 			continue
 		}
 		for _, hx := range reBlockHash.FindAllString(line, -1) {
-			if len(hx) == 64 && isHex64(hx) {
-				seen[strings.ToLower(hx)] = struct{}{}
+			id := normalizeTxid(hx)
+			if id != "" {
+				out[id] = struct{}{}
 			}
 		}
 	}
-	return len(seen)
+	return out
 }
 
 // parseSPVConfirmedTxids finds txids on lines that look like SPV confirmation/proof events.

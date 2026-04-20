@@ -47,7 +47,10 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	spv := s.readSPVStatus()
 	logTail, _ := spv["log_tail"].(string)
 	hdr := parseSPVLogHeaderInfo(logTail)
+	seenChanged := s.applySPVSeenTxids(st, logTail)
 	if s.applySPVConfirmations(st, logTail) {
+		_ = s.saveState(st)
+	} else if seenChanged {
 		_ = s.saveState(st)
 	}
 	if changed, err := s.maybeRotateHDReceiveAddress(wf, st); err == nil && changed {
@@ -252,8 +255,11 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	spv := s.readSPVStatus()
-	if logTail, _ := spv["log_tail"].(string); s.applySPVConfirmations(st, logTail) {
-		_ = s.saveState(st)
+	if logTail, _ := spv["log_tail"].(string); logTail != "" {
+		changed := s.applySPVSeenTxids(st, logTail)
+		if s.applySPVConfirmations(st, logTail) || changed {
+			_ = s.saveState(st)
+		}
 	}
 	if changed, err := s.maybeRotateHDReceiveAddress(wf, st); err == nil && changed {
 		_ = s.saveWallet(wf)
@@ -518,6 +524,41 @@ func (s *Server) applySPVConfirmations(st *WalletState, logTail string) bool {
 	return changed
 }
 
+// applySPVSeenTxids ensures txids visible in SPV logs appear in state even when
+// explorer/mempool sources are unavailable.
+func (s *Server) applySPVSeenTxids(st *WalletState, logTail string) bool {
+	seen := parseSPVSeenTxids(logTail)
+	if len(seen) == 0 {
+		return false
+	}
+	existing := make(map[string]struct{}, len(st.Transactions))
+	for i := range st.Transactions {
+		id := normalizeTxid(st.Transactions[i].Txid)
+		if id == "" {
+			continue
+		}
+		existing[id] = struct{}{}
+	}
+	now := time.Now().UTC()
+	added := false
+	for id := range seen {
+		if _, ok := existing[id]; ok {
+			continue
+		}
+		st.Transactions = append(st.Transactions, TxRecord{
+			Txid:          id,
+			Direction:     "unknown",
+			AmountDOGE:    0,
+			Confirmations: 0,
+			Source:        "spv",
+			SeenAt:        now,
+		})
+		existing[id] = struct{}{}
+		added = true
+	}
+	return added
+}
+
 // Blockchair uses smallest units for Dogecoin (×1e8) when the number is large.
 func normalizeDogecoinUnits(v float64) float64 {
 	if v >= 1e6 {
@@ -591,6 +632,8 @@ func (s *Server) backgroundMetricsLoop() {
 			continue
 		}
 		spvTxSeen := parseSPVTxSeenCount(logTail)
+		_ = s.applySPVSeenTxids(st, logTail)
+		_ = s.applySPVConfirmations(st, logTail)
 		mempoolRelay := 0
 		if eng, eerr := s.ensureMempoolEngine(wf); eerr == nil && eng != nil {
 			mempoolRelay, _, _, _ = eng.DashboardSnapshot()

@@ -259,8 +259,8 @@
           <div class="kpi-card"><span class="kpi-label">Indexed height</span><b class="kpi-value" id="k-ix-height">—</b></div>
           <div class="kpi-card"><span class="kpi-label">Indexed txs</span><b class="kpi-value" id="k-ix-txs">—</b></div>
           <div class="kpi-card"><span class="kpi-label">Indexed blocks</span><b class="kpi-value" id="k-ix-blocks">—</b></div>
+          <div class="kpi-card"><span class="kpi-label">Doge addresses found</span><b class="kpi-value" id="k-doge-addresses">—</b></div>
           <div class="kpi-card"><span class="kpi-label">PQ markers (quantum)</span><b class="kpi-value kpi-tone-ok" id="k-pqvalid">0</b></div>
-          <div class="kpi-card"><span class="kpi-label">Invalid PQ payload</span><b class="kpi-value kpi-tone-bad" id="k-invalid">0</b></div>
         </div>
       </aside>
     </div>
@@ -506,6 +506,7 @@
     const detailNavStack = [];
     let currentDetail = null;
     let searchBackState = null;
+    const qeCharts = {};
 
     function openDetailFromState(st, pushCurrent){
       if (!st || !st.kind) return;
@@ -725,38 +726,32 @@
       return { labels, data };
     }
 
-    function qeDestroyChartByCanvasId(canvasId){
-      if (typeof Chart === "undefined") return;
-      const c = document.getElementById(canvasId);
-      if (c) {
-        const ch = Chart.getChart(c);
-        if (ch) ch.destroy();
-      }
-    }
-
-    function qeCreateLineChart(canvasId, label, labels, data, borderColor){
+    function qeUpsertLineChart(canvasId, label, labels, data, borderColor){
       if (typeof Chart === "undefined") {
-        setTimeout(() => qeCreateLineChart(canvasId, label, labels, data, borderColor), 50);
+        setTimeout(() => qeUpsertLineChart(canvasId, label, labels, data, borderColor), 50);
         return;
       }
       const canvas = document.getElementById(canvasId);
       if (!canvas) return;
-      const existing = Chart.getChart(canvas);
-      if (existing) existing.destroy();
-      new Chart(canvas, {
+      const existing = qeCharts[canvasId] || Chart.getChart(canvas);
+      if (existing) {
+        existing.data.labels = labels;
+        existing.data.datasets[0].label = label;
+        existing.data.datasets[0].data = data;
+        existing.data.datasets[0].borderColor = borderColor;
+        existing.update("none");
+        qeCharts[canvasId] = existing;
+        return;
+      }
+      qeCharts[canvasId] = new Chart(canvas, {
         type: "line",
-        data: {
-          labels,
-          datasets: [{ label, data, borderColor, tension: 0.25, fill: false }],
-        },
+        data: { labels, datasets: [{ label, data, borderColor, tension: 0.25, fill: false }] },
         options: qeChartCommonOptions(),
       });
     }
 
     function renderMetricsBars(buckets){
       const el = document.getElementById("metrics-bars");
-      qeDestroyChartByCanvasId("qe-chart-m-q");
-      qeDestroyChartByCanvasId("qe-chart-m-nq");
       if (!Array.isArray(buckets) || buckets.length === 0) {
         el.innerHTML = '<p class="muted">No metric buckets yet.</p>';
         return;
@@ -764,18 +759,24 @@
       const last = buckets[buckets.length - 1] || {};
       const qd = seriesToChartData(buckets, "quantum");
       const nqd = seriesToChartData(buckets, "non_quantum");
-      el.innerHTML = `
-        <div class="wave-card">
-          <div class="wave-head"><strong>Quantum transactions</strong><span>Latest: ${Number(last.quantum || 0)}</span></div>
-          <div class="chart-canvas-wrap"><canvas id="qe-chart-m-q" height="140"></canvas></div>
-        </div>
-        <div class="wave-card">
-          <div class="wave-head"><strong>Non-quantum transactions</strong><span>Latest: ${Number(last.non_quantum || 0)}</span></div>
-          <div class="chart-canvas-wrap"><canvas id="qe-chart-m-nq" height="140"></canvas></div>
-        </div>`;
+      if (!document.getElementById("qe-chart-m-q")) {
+        el.innerHTML = `
+          <div class="wave-card">
+            <div class="wave-head"><strong>Quantum transactions</strong><span id="qe-m-latest-q">Latest: 0</span></div>
+            <div class="chart-canvas-wrap"><canvas id="qe-chart-m-q" height="140"></canvas></div>
+          </div>
+          <div class="wave-card">
+            <div class="wave-head"><strong>Non-quantum transactions</strong><span id="qe-m-latest-nq">Latest: 0</span></div>
+            <div class="chart-canvas-wrap"><canvas id="qe-chart-m-nq" height="140"></canvas></div>
+          </div>`;
+      }
+      const qLatest = document.getElementById("qe-m-latest-q");
+      if (qLatest) qLatest.textContent = `Latest: ${Number(last.quantum || 0)}`;
+      const nqLatest = document.getElementById("qe-m-latest-nq");
+      if (nqLatest) nqLatest.textContent = `Latest: ${Number(last.non_quantum || 0)}`;
       requestAnimationFrame(() => {
-        qeCreateLineChart("qe-chart-m-q", "Quantum", qd.labels, qd.data, "#63c7ff");
-        qeCreateLineChart("qe-chart-m-nq", "Non-quantum", nqd.labels, nqd.data, "#ff8f8f");
+        qeUpsertLineChart("qe-chart-m-q", "Quantum", qd.labels, qd.data, "#63c7ff");
+        qeUpsertLineChart("qe-chart-m-nq", "Non-quantum", nqd.labels, nqd.data, "#ff8f8f");
       });
     }
 
@@ -783,7 +784,6 @@
       const el = document.getElementById(elId);
       if (!el) return;
       const canvasId = `qe-chart-${elId}`;
-      qeDestroyChartByCanvasId(canvasId);
       if (!Array.isArray(items) || !items.length) {
         el.innerHTML = `<p class="muted">${esc(title)}: no data yet.</p>`;
         return;
@@ -791,12 +791,17 @@
       const last = items[items.length - 1] || {};
       const color = colorClass === "nonq" ? "#ff8f8f" : "#63c7ff";
       const { labels, data } = seriesToChartData(items, key);
-      el.innerHTML = `
-        <div class="wave-card">
-          <div class="wave-head"><strong>${esc(title)}</strong><span>Latest: ${Number(last[key] || 0)}</span></div>
-          <div class="chart-canvas-wrap"><canvas id="${canvasId}" height="140"></canvas></div>
-        </div>`;
-      requestAnimationFrame(() => qeCreateLineChart(canvasId, title, labels, data, color));
+      const latestId = `${canvasId}-latest`;
+      if (!document.getElementById(canvasId)) {
+        el.innerHTML = `
+          <div class="wave-card">
+            <div class="wave-head"><strong>${esc(title)}</strong><span id="${latestId}">Latest: 0</span></div>
+            <div class="chart-canvas-wrap"><canvas id="${canvasId}" height="140"></canvas></div>
+          </div>`;
+      }
+      const latestEl = document.getElementById(latestId);
+      if (latestEl) latestEl.textContent = `Latest: ${Number(last[key] || 0)}`;
+      requestAnimationFrame(() => qeUpsertLineChart(canvasId, title, labels, data, color));
     }
 
     function renderRangeToolbar(){
@@ -1096,8 +1101,7 @@
         badge("confirmed", `Blocks ${rrows.blocks ?? "—"}`),
         badge("muted", `txs ${rrows.txs ?? "—"}`),
         badge("muted", `addresses ${rrows.addresses ?? "—"}`),
-        badge((pq.quantum||0) > 0 ? "pq-ok" : "muted", `PQ quantum ${pq.quantum ?? 0}`),
-        badge((pq.invalid_quantum||0) > 0 ? "pq-bad" : "muted", `invalid ${pq.invalid_quantum ?? 0}`)
+        badge((pq.quantum||0) > 0 ? "pq-ok" : "muted", `PQ quantum ${pq.quantum ?? 0}`)
       ].join(" ");
       spvBadges.innerHTML = [
         badge("confirmed", "Blockchain data"),
@@ -1204,7 +1208,6 @@
       const core = r.d.core || {};
       window.__coreTip = (core.blockcount != null && core.blockcount !== "") ? core.blockcount : null;
       document.getElementById("k-pqvalid").textContent = m.pq_valid ?? 0;
-      document.getElementById("k-invalid").textContent = m.invalid ?? 0;
       const ex = r.d.explorer || {};
       if (ex.enabled) {
         const s = ex.summary || {};
@@ -1213,9 +1216,9 @@
         document.getElementById("k-ix-height").textContent = (s.last_height != null) ? String(s.last_height) : "—";
         document.getElementById("k-ix-txs").textContent = (rw.txs != null) ? String(rw.txs) : "—";
         document.getElementById("k-ix-blocks").textContent = (rw.blocks != null) ? String(rw.blocks) : "—";
+        document.getElementById("k-doge-addresses").textContent = (rw.addresses != null) ? String(rw.addresses) : "—";
         const pqdb = ex.pq || {};
         document.getElementById("k-pqvalid").textContent = pqdb.quantum != null ? String(pqdb.quantum) : "0";
-        document.getElementById("k-invalid").textContent = pqdb.invalid_quantum != null ? String(pqdb.invalid_quantum) : "0";
         const mb = document.getElementById("metric-badges");
         mb.innerHTML = [
           badge(core.connected ? "confirmed" : "pending", core.connected ? "Network connected" : "Network offline"),
@@ -1234,21 +1237,22 @@
         document.getElementById("k-ix-height").textContent = "—";
         document.getElementById("k-ix-txs").textContent = "—";
         document.getElementById("k-ix-blocks").textContent = "—";
+        document.getElementById("k-doge-addresses").textContent = "—";
         const mb = document.getElementById("metric-badges");
         const pqV = m.pq_valid ?? 0;
-        const pqI = m.invalid ?? 0;
         mb.innerHTML = [
-          badge(pqV > 0 ? "pq-ok" : "muted", `legacy PQ ${pqV}`),
-          badge(pqI > 0 ? "pq-bad" : "muted", `invalid ${pqI}`)
+          badge(pqV > 0 ? "pq-ok" : "muted", `legacy PQ ${pqV}`)
         ].join("");
         renderChainIndexFallback(r.d.chain_index || {});
         renderPQBlock(latestPQRows);
       }
-      const loadMsg = '<p class="muted">Loading charts…</p>';
-      document.getElementById("metrics-bars").innerHTML = loadMsg;
-      document.getElementById("activity-wallets").innerHTML = loadMsg;
-      document.getElementById("activity-transactions").innerHTML = loadMsg;
-      document.getElementById("activity-blocks").innerHTML = loadMsg;
+      if (!document.getElementById("qe-chart-m-q")) {
+        const loadMsg = '<p class="muted">Loading charts…</p>';
+        document.getElementById("metrics-bars").innerHTML = loadMsg;
+        document.getElementById("activity-wallets").innerHTML = loadMsg;
+        document.getElementById("activity-transactions").innerHTML = loadMsg;
+        document.getElementById("activity-blocks").innerHTML = loadMsg;
+      }
       const hoursQ = encodeURIComponent(String(hours));
       const pMetrics = j("/api/public/metrics?hours=" + hoursQ);
       const pActivity = j("/api/public/activity-buckets?hours=" + hoursQ);

@@ -31,7 +31,7 @@
   <div class="app" id="app">
     <aside class="sidebar" id="sidebar" aria-label="Main navigation">
       <div class="sidebar-brand">
-        <img src="/static/logo.png" alt="" width="40" height="40" class="sidebar-logo" />
+        <img src="/static/logo.png" alt="" width="40" height="40" class="sidebar-logo" id="btn-logo-home" style="cursor:pointer" />
         <div class="sidebar-titles">
           <span class="sidebar-name">PQ Doge Wallet</span>
           <span class="sidebar-sub">Quantum Secure</span>
@@ -47,24 +47,21 @@
         <button type="button" class="nav-item" data-view="receive">
           <span class="material-symbols-outlined nav-ico" aria-hidden="true">qr_code_2</span><span class="nav-txt">Receive</span>
         </button>
-        <button type="button" class="nav-item" data-view="addresses">
-          <span class="material-symbols-outlined nav-ico" aria-hidden="true">account_balance_wallet</span><span class="nav-txt">Addresses</span>
+        <button type="button" class="nav-item" data-view="tools">
+          <span class="material-symbols-outlined nav-ico" aria-hidden="true">send</span><span class="nav-txt">Send Doge</span>
         </button>
         <button type="button" class="nav-item nav-item-with-badge" data-view="transactions">
           <span class="material-symbols-outlined nav-ico" aria-hidden="true">swap_horiz</span><span class="nav-txt">Transactions</span>
           <span class="nav-badge nav-badge-pending hidden" id="nav-tx-pending-badge" title="Unconfirmed">0</span>
         </button>
-        <button type="button" class="nav-item" data-view="tools">
-          <span class="material-symbols-outlined nav-ico" aria-hidden="true">send</span><span class="nav-txt">Send Doge</span>
-        </button>
-        <button type="button" class="nav-item" data-view="logs">
-          <span class="material-symbols-outlined nav-ico" aria-hidden="true">terminal</span><span class="nav-txt">Logs</span>
-        </button>
-        <button type="button" class="nav-item" data-view="learn">
-          <span class="material-symbols-outlined nav-ico" aria-hidden="true">school</span><span class="nav-txt">How it works</span>
+        <button type="button" class="nav-item" data-view="addresses">
+          <span class="material-symbols-outlined nav-ico" aria-hidden="true">account_balance_wallet</span><span class="nav-txt">Addresses</span>
         </button>
         <button type="button" class="nav-item" data-view="settings">
-          <span class="material-symbols-outlined nav-ico" aria-hidden="true">payments</span><span class="nav-txt">Wallet file</span>
+          <span class="material-symbols-outlined nav-ico" aria-hidden="true">settings</span><span class="nav-txt">Settings</span>
+        </button>
+        <button type="button" class="nav-item" data-view="learn">
+          <span class="material-symbols-outlined nav-ico" aria-hidden="true">help</span><span class="nav-txt">Help</span>
         </button>
       </nav>
       <div class="sidebar-foot">
@@ -168,21 +165,10 @@
               <span class="pill" id="pill-height">height —</span>
             </div>
             <p class="mono hash" id="hdr-hash">—</p>
-            <p class="small muted" style="margin:.5rem 0 0">Tip height/hash are parsed from <code class="mono">spv.log</code> (and recent metrics). The on-disk header database <code class="mono">headers.db</code> may appear later — SPV repair lives under <strong>Transactions</strong> (<span class="material-symbols-outlined" style="font-size:1rem;vertical-align:text-bottom" aria-hidden="true">settings_backup_restore</span>).</p>
           </div>
-          <div class="charts charts-fullwidth">
-            <div class="card chart-card chart-card-wide">
-              <h3>Mempool <span class="chart-sub">(last 24h, MemeTracker relay)</span></h3>
-              <div class="chart-canvas-wrap">
-                <canvas id="chart-mempool" height="140"></canvas>
-              </div>
-            </div>
-          </div>
-          <div class="card mtr-card-modern" id="mtr-mempool-card">
-            <h3><span class="material-symbols-outlined icon-inline">hub</span> Memepool Tracker</h3>
-            <p class="small muted" id="mtr-mempool-meta">—</p>
-            <div class="mtr-tx-list" id="mtr-mempool-list" role="list"></div>
-            <button type="button" class="btn mtr-expand-btn hidden" id="btn-mtr-mempool-expand" aria-expanded="false">Show all</button>
+          <div class="card tx-list-card">
+            <h3>Latest transactions</h3>
+            <div class="tx-list" id="dash-tx-list" role="list" aria-label="Latest transactions"></div>
           </div>
           <div class="card svc-control-card hidden" id="svc-control-card" aria-labelledby="svc-control-title">
             <h3 id="svc-control-title"><span class="material-symbols-outlined icon-inline">tune</span> Background services</h3>
@@ -241,9 +227,6 @@
               <button type="button" class="btn primary" id="btn-sync-tx"><span class="material-symbols-outlined btn-ico">swap_horiz</span> Sync with explorer</button>
               <span class="small muted tx-sync-hint" id="tx-sync-hint"></span>
             </div>
-            <button type="button" class="icon-btn tx-spv-repair-btn" id="btn-open-spv-repair" title="SPV repair &amp; rescan" aria-label="SPV repair and rescan">
-              <span class="material-symbols-outlined" aria-hidden="true">settings_backup_restore</span>
-            </button>
           </div>
           <div class="card tx-list-card">
             <div class="tx-list" id="tx-list" role="list" aria-label="Transactions"></div>
@@ -301,30 +284,6 @@
           </div>
         </section>
 
-        <section id="view-logs" class="view hidden">
-          <p class="small muted toolbar">SPV / broadcast: latest ~420 lines. MemeTracker: live P2P snapshot. Refreshes while this view is open.</p>
-          <div class="dos-grid dos-grid-3">
-            <div class="card dos-panel">
-              <h3>spv.log (full tail)</h3>
-              <pre class="dos-screen" id="log-spv">…</pre>
-            </div>
-            <div class="card dos-panel">
-              <h3>MemeTracker (embedded P2P)</h3>
-              <pre class="dos-screen" id="log-mtr">…</pre>
-            </div>
-            <div class="card dos-panel">
-              <h3>broadcast.log</h3>
-              <pre class="dos-screen" id="log-bc">…</pre>
-            </div>
-          </div>
-          <div class="card">
-            <h2>Explorer tx</h2>
-            <label class="field"><span>Txid</span><input type="text" class="input-modern" id="txid-input" /></label>
-            <button type="button" class="btn" id="btn-explorer">Fetch</button>
-            <pre id="ex-out" class="mono small out"></pre>
-          </div>
-        </section>
-
         <section id="view-learn" class="view hidden">
           <div id="learn-loading" class="card muted">Loading education…</div>
           <div id="learn-root" class="hidden"></div>
@@ -332,14 +291,53 @@
 
         <section id="view-settings" class="view hidden">
           <div class="card">
-            <h2><span class="material-symbols-outlined icon-inline">encrypted</span> Seal wallet (encrypt on disk)</h2>
-            <p class="small muted">Replaces plaintext <code>wallet.json</code> with <code>wallet.sealed</code> (Argon2id + AES-GCM). Unlock with PIN in the lock screen. Optional WebAuthn/biometrics can be added later for device-bound keys.</p>
+            <h2><span class="material-symbols-outlined icon-inline">encrypted</span> Wallet encryption</h2>
+            <p class="small muted">Encrypts wallet data on disk. SPV address watching still runs in the background from a public watch-state file.</p>
             <label class="field"><span>PIN (min 6 characters)</span>
               <input type="password" class="input-modern" id="seal-pin-input" autocomplete="new-password" />
             </label>
-            <button type="button" class="btn primary" id="btn-seal-wallet"><span class="material-symbols-outlined btn-ico">lock</span> Seal and encrypt</button>
+            <div class="toolbar toolbar-actions">
+              <button type="button" class="btn primary" id="btn-seal-wallet"><span class="material-symbols-outlined btn-ico">lock</span> Enable encryption</button>
+              <button type="button" class="btn" id="btn-unseal-wallet"><span class="material-symbols-outlined btn-ico">lock_open</span> Disable encryption</button>
+            </div>
             <p class="small muted" id="seal-msg"></p>
             <button type="button" class="btn" id="btn-lock-session"><span class="material-symbols-outlined btn-ico">logout</span> Lock session (clear PIN from memory)</button>
+          </div>
+          <div class="card">
+            <h2><span class="material-symbols-outlined icon-inline">settings_backup_restore</span> SPV repair &amp; rescan</h2>
+            <button type="button" class="btn" id="btn-open-spv-repair"><span class="material-symbols-outlined btn-ico">settings_backup_restore</span> Open SPV repair tools</button>
+          </div>
+          <div class="card">
+            <h2><span class="material-symbols-outlined icon-inline">terminal</span> Logs</h2>
+            <p class="small muted toolbar">SPV / broadcast: latest ~420 lines. MemeTracker: live P2P snapshot. Refreshes while this view is open.</p>
+            <div class="charts charts-fullwidth">
+              <div class="card chart-card chart-card-wide">
+                <h3>Mempool <span class="chart-sub">(last 24h, MemeTracker relay)</span></h3>
+                <div class="chart-canvas-wrap">
+                  <canvas id="chart-mempool" height="140"></canvas>
+                </div>
+              </div>
+            </div>
+            <div class="card mtr-card-modern" id="mtr-mempool-card">
+              <h3><span class="material-symbols-outlined icon-inline">hub</span> Memepool Tracker</h3>
+              <p class="small muted" id="mtr-mempool-meta">—</p>
+              <div class="mtr-tx-list" id="mtr-mempool-list" role="list"></div>
+              <button type="button" class="btn mtr-expand-btn hidden" id="btn-mtr-mempool-expand" aria-expanded="false">Show all</button>
+            </div>
+            <div class="dos-grid dos-grid-3">
+              <div class="card dos-panel">
+                <h3>spv.log (full tail)</h3>
+                <pre class="dos-screen" id="log-spv">…</pre>
+              </div>
+              <div class="card dos-panel">
+                <h3>MemeTracker (embedded P2P)</h3>
+                <pre class="dos-screen" id="log-mtr">…</pre>
+              </div>
+              <div class="card dos-panel">
+                <h3>broadcast.log</h3>
+                <pre class="dos-screen" id="log-bc">…</pre>
+              </div>
+            </div>
           </div>
           <div class="card">
             <h2>Backup</h2>

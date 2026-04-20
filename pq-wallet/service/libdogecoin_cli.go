@@ -420,6 +420,28 @@ func (s *Server) startSPVNode(w *WalletFile) {
 	log.Printf("[pq-wallet] spvnode pid=%d watch_addrs=%d", started.Pid, len(used))
 }
 
+func (s *Server) startSPVNodeFromWatchState() {
+	st, err := s.loadSPVWatchState()
+	if err != nil || st == nil || len(st.Addresses) == 0 {
+		return
+	}
+	w := &WalletFile{
+		Network: st.Network,
+	}
+	w.Addresses = make([]WalletAddress, 0, len(st.Addresses))
+	for _, a := range st.Addresses {
+		a = strings.TrimSpace(a)
+		if a == "" {
+			continue
+		}
+		w.Addresses = append(w.Addresses, WalletAddress{P2PKH: a})
+	}
+	if len(w.Addresses) == 0 {
+		return
+	}
+	s.startSPVNode(w)
+}
+
 func (s *Server) stopSPVNode() {
 	b, err := os.ReadFile(s.spvPidPath())
 	if err != nil {

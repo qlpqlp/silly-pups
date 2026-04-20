@@ -30,6 +30,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	wf, err := s.loadWallet()
 	if err != nil {
 		if errors.Is(err, ErrWalletLocked) {
+			s.startSPVNodeFromWatchState()
 			writeJSON(w, http.StatusOK, map[string]any{"wallet": nil, "dashboard": nil, "locked": true, "sealed": true})
 			return
 		}
@@ -48,6 +49,10 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	hdr := parseSPVLogHeaderInfo(logTail)
 	if s.applySPVConfirmations(st, logTail) {
 		_ = s.saveState(st)
+	}
+	if changed, err := s.maybeRotateHDReceiveAddress(wf, st); err == nil && changed {
+		_ = s.saveWallet(wf)
+		s.startSPVNode(wf)
 	}
 	if hdr.HeaderHeight == 0 && len(st.Metrics) > 0 {
 		for i := len(st.Metrics) - 1; i >= 0; i-- {
@@ -104,6 +109,10 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		if s.persistMemeTrackerTxs(st, mtrLive) {
 			_ = s.saveState(st)
 		}
+	}
+	if changed, err := s.maybeRotateHDReceiveAddress(wf, st); err == nil && changed {
+		_ = s.saveWallet(wf)
+		s.startSPVNode(wf)
 	}
 
 	mtrP2PActive := eng != nil && engErr == nil && (mtrConn > 0 || mtrCount > 0)
@@ -245,6 +254,10 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 	spv := s.readSPVStatus()
 	if logTail, _ := spv["log_tail"].(string); s.applySPVConfirmations(st, logTail) {
 		_ = s.saveState(st)
+	}
+	if changed, err := s.maybeRotateHDReceiveAddress(wf, st); err == nil && changed {
+		_ = s.saveWallet(wf)
+		s.startSPVNode(wf)
 	}
 	out := s.mergeTxListWithMemeTracker(wf, st)
 	writeJSON(w, http.StatusOK, map[string]any{"transactions": out})
@@ -559,6 +572,7 @@ func (s *Server) backgroundMetricsLoop() {
 		s.mu.Lock()
 		wf, err := s.loadWallet()
 		if errors.Is(err, ErrWalletLocked) {
+			s.startSPVNodeFromWatchState()
 			s.mu.Unlock()
 			continue
 		}

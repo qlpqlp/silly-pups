@@ -113,7 +113,9 @@ func (s *Server) handleSPVStatus(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Lock()
 	wf, err := s.loadWallet()
 	s.mu.Unlock()
-	if err == nil && wf != nil {
+	if errors.Is(err, ErrWalletLocked) {
+		s.startSPVNodeFromWatchState()
+	} else if err == nil && wf != nil {
 		s.startSPVNode(wf)
 	}
 	writeJSON(w, http.StatusOK, s.readSPVStatus())

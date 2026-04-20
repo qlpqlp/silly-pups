@@ -86,9 +86,11 @@ async function openSpvRepairModal() {
   const m = $("spv-repair-modal");
   const line = $("spv-repair-storage-line");
   const syncSel = $("spv-rescan-sync-mode");
+  const ckSel = $("spv-rollback-checkpoint-select");
   if (!m) return;
   m.classList.remove("hidden");
   if (line) line.textContent = "Loading storage path…";
+  if (ckSel) ckSel.innerHTML = '<option value="custom">Loading checkpoints…</option>';
   try {
     const st = await api("/api/spv/status");
     if (syncSel) {
@@ -121,9 +123,8 @@ function showView(name) {
     addresses: ["Addresses", "Generate keys and choose which address SPV watches"],
     transactions: ["Transactions", "PQ badges = explorer OP_RETURN hints (not a full audit)"],
     tools: ["Send Doge", "Destination & amount, or paste a signed raw hex for P2P broadcast"],
-    logs: ["Logs", "SPV and broadcast log tails (~420 lines each)"],
-    learn: ["How it works", "ECDSA vs PQ · send · verify · broadcast"],
-    settings: ["Wallet file", "Backup or remove this pup’s wallet"],
+    learn: ["Help", "ECDSA vs PQ · send · verify · broadcast"],
+    settings: ["Settings", "Encryption, logs, backup and wallet controls"],
   };
   const icons = {
     dashboard: "space_dashboard",
@@ -131,9 +132,8 @@ function showView(name) {
     addresses: "account_balance_wallet",
     transactions: "swap_horiz",
     tools: "send",
-    logs: "terminal",
-    learn: "school",
-    settings: "payments",
+    learn: "help",
+    settings: "settings",
   };
   const [t, s] = titles[name] || [name, ""];
   const ico = icons[name] || "pets";
@@ -161,7 +161,7 @@ function showView(name) {
   syncMobileTabbar(name);
   if (name === "receive") updateReceiveView();
   if (name === "learn") loadEducation();
-  if (name === "logs") {
+  if (name === "settings") {
     refreshLogs();
     state.pollLogs = setInterval(refreshLogs, 4000);
   }
@@ -324,7 +324,7 @@ function setOnboarding(w) {
   if (appEl) appEl.classList.toggle("has-wallet", has);
   const mt = $("mobile-tabbar");
   if (mt) mt.classList.toggle("hidden", !has);
-  ["view-dashboard", "view-receive", "view-addresses", "view-transactions", "view-tools", "view-logs", "view-learn", "view-settings"].forEach((id) => {
+  ["view-dashboard", "view-receive", "view-addresses", "view-transactions", "view-tools", "view-learn", "view-settings"].forEach((id) => {
     $(id).classList.toggle("hidden", !has);
   });
   if (has) {
@@ -468,8 +468,8 @@ async function refreshWallet() {
   if (data.wallet) {
     renderAddresses(data.wallet);
     updateReceiveView();
-    await refreshDashboard();
-    await refreshTxList(false);
+    refreshDashboard().catch(() => {});
+    refreshTxList(false).catch(() => {});
   }
 }
 
@@ -656,6 +656,25 @@ async function refreshDashboard() {
   initCharts();
   updateCharts(sample);
   if (data.dashboard.services) updateServicesControlUI(data.dashboard.services);
+  renderDashboardTxPreview();
+}
+
+function renderDashboardTxPreview() {
+  const list = $("dash-tx-list");
+  if (!list) return;
+  list.innerHTML = "";
+  const txList = $("tx-list");
+  if (!txList || !txList.children || !txList.children.length) {
+    const p = document.createElement("p");
+    p.className = "small muted";
+    p.textContent = "No transactions yet.";
+    list.appendChild(p);
+    return;
+  }
+  const max = Math.min(6, txList.children.length);
+  for (let i = 0; i < max; i++) {
+    list.appendChild(txList.children[i].cloneNode(true));
+  }
 }
 
 $("btn-svc-spv-stop")?.addEventListener("click", () => postServiceControl({ spv_enabled: false }));
@@ -760,6 +779,7 @@ async function refreshTxList(refresh) {
       navB.classList.add("hidden");
     }
   }
+  renderDashboardTxPreview();
 }
 
 function renderAddresses(w) {
@@ -820,6 +840,25 @@ function renderAddresses(w) {
         await refreshWallet();
       });
       actions.appendChild(bPrim);
+      const bDel = document.createElement("button");
+      bDel.type = "button";
+      bDel.className = "btn danger";
+      bDel.textContent = "Remove";
+      bDel.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const typed = prompt(`Type this address to confirm removal:\n\n${a.p2pkh_address || ""}`);
+        if (typed == null) return;
+        const r = await api("/api/wallet/addresses/" + encodeURIComponent(a.id), {
+          method: "DELETE",
+          body: JSON.stringify({ confirm_address: typed.trim() }),
+        });
+        if (r.error) {
+          alert(r.error);
+          return;
+        }
+        await refreshWallet();
+      });
+      actions.appendChild(bDel);
     }
     card.appendChild(head);
     card.appendChild(addrEl);
@@ -1350,12 +1389,6 @@ document.getElementById("btn-delete").addEventListener("click", async () => {
   await refreshWallet();
 });
 
-document.getElementById("btn-explorer").addEventListener("click", async () => {
-  const txid = document.getElementById("txid-input").value.trim();
-  if (!txid) return;
-  $("ex-out").textContent = JSON.stringify(await api("/api/explorer/tx/" + encodeURIComponent(txid)), null, 2);
-});
-
 const btnMtrExpand = $("btn-mtr-mempool-expand");
 if (btnMtrExpand) {
   btnMtrExpand.addEventListener("click", () => {
@@ -1366,6 +1399,11 @@ if (btnMtrExpand) {
     const extra = card.querySelectorAll(".mtr-tx-item.mtr-extra-row").length;
     btnMtrExpand.textContent = on ? "Show less" : `Show all (${extra} more)`;
   });
+}
+
+const logoHome = $("btn-logo-home");
+if (logoHome) {
+  logoHome.addEventListener("click", () => showView("dashboard"));
 }
 
 document.getElementById("btn-send-pq-safe").addEventListener("click", async () => {
@@ -1453,12 +1491,32 @@ if (btnSeal) {
       if (msg) msg.textContent = res.error;
       return;
     }
-    if (msg) msg.textContent = "Wallet sealed. Unlock with PIN when you return.";
+    if (msg) msg.textContent = "Encryption enabled.";
     const sealInp = $("seal-pin-input");
     if (sealInp) sealInp.value = "";
     window.alert(
       "Wallet encrypted successfully.\n\nYour wallet is now sealed on disk (Argon2id + AES-GCM). Use your PIN on the lock screen to unlock."
     );
+    await refreshWallet();
+  });
+}
+
+const btnUnseal = $("btn-unseal-wallet");
+if (btnUnseal) {
+  btnUnseal.addEventListener("click", async () => {
+    const pin = ($("seal-pin-input") && $("seal-pin-input").value) || "";
+    const msg = $("seal-msg");
+    const res = await api("/api/security/unseal", {
+      method: "POST",
+      body: JSON.stringify({ pin }),
+    });
+    if (res.error) {
+      if (msg) msg.textContent = res.error;
+      return;
+    }
+    if (msg) msg.textContent = "Encryption disabled.";
+    const sealInp = $("seal-pin-input");
+    if (sealInp) sealInp.value = "";
     await refreshWallet();
   });
 }

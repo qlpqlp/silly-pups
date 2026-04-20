@@ -11,13 +11,15 @@ import (
 
 // WalletAddress is one P2PKH key/address row (multi-address wallet).
 type WalletAddress struct {
-	ID        string    `json:"id"`
-	Label     string    `json:"label"`
-	P2PKH     string    `json:"p2pkh_address"`
-	WIF       string    `json:"wif_private_key"`
-	PubHex    string    `json:"public_key_hex_compressed"`
-	CreatedAt time.Time `json:"created_at"`
-	Primary   bool      `json:"primary"`
+	ID          string    `json:"id"`
+	Label       string    `json:"label"`
+	P2PKH       string    `json:"p2pkh_address"`
+	WIF         string    `json:"wif_private_key"`
+	PubHex      string    `json:"public_key_hex_compressed"`
+	CreatedAt   time.Time `json:"created_at"`
+	Primary     bool      `json:"primary"`
+	HDPath      string    `json:"hd_path,omitempty"`
+	DeriveIndex int       `json:"derive_index,omitempty"`
 }
 
 // WalletFile is persisted as wallet.json (v1 legacy + v2 addresses).
@@ -36,6 +38,11 @@ type WalletFile struct {
 	LibdogecoinSPV    string          `json:"libdogecoin_spv_note"`
 	ExperimentalDiscl string          `json:"experimental_disclaimer"`
 	Addresses         []WalletAddress `json:"addresses,omitempty"`
+	HDMode            string          `json:"hd_mode,omitempty"`
+	HDMasterXPrv      string          `json:"hd_master_xprv,omitempty"`
+	HDMasterXPub      string          `json:"hd_master_xpub,omitempty"`
+	HDNextIndex       int             `json:"hd_next_index,omitempty"`
+	HDLastRotateTxID  string          `json:"hd_last_rotate_txid,omitempty"`
 }
 
 func newAddressID() string {
@@ -142,6 +149,10 @@ func (w *WalletFile) setPrimary(id string) error {
 	}
 	w.syncLegacyFromPrimary()
 	return nil
+}
+
+func (w *WalletFile) isHDWallet() bool {
+	return strings.TrimSpace(w.HDMode) != "" && strings.TrimSpace(w.HDMasterXPrv) != ""
 }
 
 // AllDistinctP2PKHAddresses returns sorted unique P2PKH addresses (every generated/imported row plus legacy top-level fields).

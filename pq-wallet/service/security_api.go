@@ -91,3 +91,41 @@ func (s *Server) handleSecuritySeal(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sealed": true})
 }
+
+func (s *Server) handleSecurityUnseal(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST only"})
+		return
+	}
+	var body struct {
+		PIN string `json:"pin"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.hasSealedWallet() {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "wallet is not sealed"})
+		return
+	}
+	if err := s.unlockSealedWallet(strings.TrimSpace(body.PIN)); err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
+		return
+	}
+	wf := s.memWallet
+	if wf == nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "wallet unlock failed"})
+		return
+	}
+	// Save plaintext wallet and remove sealed file when user explicitly disables encryption.
+	s.walletKey = nil
+	s.sealSalt = nil
+	if err := s.saveWallet(wf); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	_ = os.Remove(s.sealedPath())
+	s.memWallet = nil
+	s.unlockUntil = time.Time{}
+	s.startSPVNode(wf)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sealed": false})
+}

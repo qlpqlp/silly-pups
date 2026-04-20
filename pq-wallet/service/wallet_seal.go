@@ -84,6 +84,7 @@ func (s *Server) sealWalletFromPlaintext(pin string) error {
 	wf.migrateAddresses()
 	wf.ensurePrimaryUnique()
 	wf.syncLegacyFromPrimary()
+	_ = s.saveSPVWatchState(wf)
 	plain, err := json.Marshal(wf)
 	if err != nil {
 		return err
@@ -157,6 +158,7 @@ func (s *Server) unlockSealedWallet(pin string) error {
 	wf.migrateAddresses()
 	wf.ensurePrimaryUnique()
 	wf.syncLegacyFromPrimary()
+	_ = s.saveSPVWatchState(&wf)
 	s.walletKey = key
 	s.sealSalt = salt
 	s.memWallet = &wf

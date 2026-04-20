@@ -28,16 +28,17 @@ import (
 var staticFS embed.FS
 
 // pqWalletAppVersion is shown in /api/health, education JSON, and the UI footer (keep in sync with manifest.json).
-const pqWalletAppVersion = "0.0.17"
+const pqWalletAppVersion = "0.0.18"
 
 // pqWalletBuildHash is a release fingerprint (SHA-256 hex of "pq-wallet-<version>"); bump when cutting a release.
-const pqWalletBuildHash = "d1352b739519a12398e69a5d7252e6e79c22d6c00db1807e2414c0e6ffdf2c4a"
+const pqWalletBuildHash = "a4ad3b7ab68ff0aef90e64eedad86225215fd3cffff24a498398c666507b2c18"
 
 type Server struct {
 	mu            sync.Mutex
 	spvStartMu    sync.Mutex
 	storageDir    string
 	walletPath    string
+	watchPath     string
 	explorer      string
 	explorerAddr  string
 	mempoolMu     sync.Mutex
@@ -56,44 +57,7 @@ func env(key, def string) string {
 }
 
 func (s *Server) generateDogecoinWallet(testnet bool) (*WalletFile, error) {
-	wif, pubHex, addr, err := s.runSuchP2PKHWallet(testnet)
-	if err != nil {
-		return nil, err
-	}
-	network := "mainnet"
-	if testnet {
-		network = "testnet"
-	}
-	now := time.Now().UTC()
-	w := &WalletFile{
-		Version:       2,
-		CreatedAt:     now,
-		Network:       network,
-		P2PKHAddress:  addr,
-		WIFPrivateKey: wif,
-		PublicKeyHex:  pubHex,
-		PQScheme:      "Falcon-512 / Dilithium2 / Raccoon-G (liboqs via libdogecoin, experimental)",
-		PQSource:      "none",
-		PQNotes: "Post-quantum proofs attach to ordinary Dogecoin transactions: TX_C adds an OP_RETURN " +
-			"commitment; an optional 1-DOGE carrier output can be spent in TX_R to reveal the full PQ " +
-			"public key and signature on-chain. Standard P2PKH keys above fund and control DOGE; PQ " +
-			"material is additional attestation per Dogecoin Foundation experiments.",
-		LibdogecoinSPV: "Bundled spvnode: headers + BIP37 watch for every address in the wallet. Starts after wallet creation when SPVNODE_ENABLE=1. " +
-			"Check GET /api/spv/status and GET /api/logs/spv.",
-		ExperimentalDiscl: "Experimental research software. You may lose funds. Back up your WIF. " +
-			"PQ proofs on mainnet are early-phase; verify any third-party tooling.",
-		Addresses: []WalletAddress{{
-			ID:        newAddressID(),
-			Label:     "Primary",
-			P2PKH:     addr,
-			WIF:       wif,
-			PubHex:    pubHex,
-			CreatedAt: now,
-			Primary:   true,
-		}},
-	}
-	w.syncLegacyFromPrimary()
-	return w, nil
+	return s.initHDWallet(testnet)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -223,6 +187,7 @@ func main() {
 	srv := &Server{
 		storageDir:   storage,
 		walletPath:   walletPath,
+		watchPath:    filepath.Join(storage, "spv_watch_state.json"),
 		explorer:     env("EXPLORER_TX_API", ""),
 		explorerAddr: env("EXPLORER_ADDRESS_API", ""),
 	}
@@ -251,6 +216,7 @@ func main() {
 	mux.HandleFunc("/api/security/unlock", srv.handleSecurityUnlock)
 	mux.HandleFunc("/api/security/lock", srv.handleSecurityLock)
 	mux.HandleFunc("/api/security/seal", srv.handleSecuritySeal)
+	mux.HandleFunc("/api/security/unseal", srv.handleSecurityUnseal)
 	mux.HandleFunc("/api/education", srv.handleEducation)
 	mux.HandleFunc("/api/wallet", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -266,6 +232,7 @@ func main() {
 	})
 	mux.HandleFunc("/api/wallet/import", srv.handleWalletImport)
 	mux.HandleFunc("/api/wallet/addresses", srv.handleWalletNewAddress)
+	mux.HandleFunc("/api/wallet/addresses/", srv.handleWalletDeleteAddress)
 	mux.HandleFunc("/api/wallet/primary", srv.handleWalletSetPrimary)
 	mux.HandleFunc("/api/dashboard", srv.handleDashboard)
 	mux.HandleFunc("/api/metrics", srv.handleMetrics)

@@ -2156,8 +2156,25 @@ a {
   pointer-events: none;
 }
 
+.btn:active,
+.icon-btn:active {
+  transform: translateY(1px) scale(0.99);
+}
+
+.btn.btn-flash,
+.icon-btn.btn-flash {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
 .svc-row-actions .btn[disabled] {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.dash-latest-tx-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.7rem;
 }
 

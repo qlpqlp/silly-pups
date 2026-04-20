@@ -1,15 +1,36 @@
 /* global Chart, QRCode, Html5Qrcode, jsQR */
 
+let activeMutations = 0;
+
+function setGlobalActionBusy(on) {
+  const badge = $("global-action-badge");
+  if (!badge) return;
+  badge.classList.toggle("hidden", !on);
+}
+
 async function api(path, opts) {
-  const r = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...opts,
-  });
-  const text = await r.text();
+  const method = String((opts && opts.method) || "GET").toUpperCase();
+  const isMutation = method !== "GET";
+  if (isMutation) {
+    activeMutations += 1;
+    setGlobalActionBusy(true);
+  }
   try {
-    return JSON.parse(text);
-  } catch {
-    return { _raw: text, _status: r.status };
+    const r = await fetch(path, {
+      headers: { "Content-Type": "application/json" },
+      ...opts,
+    });
+    const text = await r.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { _raw: text, _status: r.status };
+    }
+  } finally {
+    if (isMutation) {
+      activeMutations = Math.max(0, activeMutations - 1);
+      setGlobalActionBusy(activeMutations > 0);
+    }
   }
 }
 
@@ -28,6 +49,12 @@ const state = {
   txDetailTxid: "",
   txDetailHex: "",
 };
+
+function flashButtonFeedback(el) {
+  if (!el) return;
+  el.classList.add("btn-flash");
+  setTimeout(() => el.classList.remove("btn-flash"), 180);
+}
 
 function $(id) {
   return document.getElementById(id);
@@ -164,6 +191,7 @@ function showView(name) {
   if (name === "settings") {
     refreshLogs();
     state.pollLogs = setInterval(refreshLogs, 4000);
+    refreshDashboard().catch(() => {});
   }
   if (isNarrowViewport()) {
     const sb = $("sidebar");
@@ -1123,6 +1151,12 @@ async function openQrScanner() {
 
 document.querySelectorAll(".nav-item").forEach((btn) => {
   btn.addEventListener("click", () => showView(btn.dataset.view));
+});
+
+document.addEventListener("click", (e) => {
+  const btn = e.target && e.target.closest ? e.target.closest("button") : null;
+  if (!btn || btn.disabled) return;
+  flashButtonFeedback(btn);
 });
 
 document.querySelectorAll(".mobile-tabbar-btn").forEach((btn) => {

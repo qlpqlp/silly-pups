@@ -85,6 +85,7 @@
         </div>
         <div class="topbar-actions">
           <span class="badge" id="net-badge">mainnet</span>
+          <span class="badge hidden" id="global-action-badge">Working…</span>
         </div>
       </header>
 
@@ -166,33 +167,9 @@
             </div>
             <p class="mono hash" id="hdr-hash">—</p>
           </div>
-          <div class="card tx-list-card">
-            <h3>Latest transactions</h3>
+          <div class="card tx-list-card dash-latest-tx-card">
+            <h3><span class="material-symbols-outlined icon-inline">receipt_long</span> Latest transactions</h3>
             <div class="tx-list" id="dash-tx-list" role="list" aria-label="Latest transactions"></div>
-          </div>
-          <div class="card svc-control-card hidden" id="svc-control-card" aria-labelledby="svc-control-title">
-            <h3 id="svc-control-title"><span class="material-symbols-outlined icon-inline">tune</span> Background services</h3>
-            <p class="small muted" style="margin-top:.25rem">Stop or start <code class="mono">spvnode</code> (SPV) and the embedded MemeTracker (mempool P2P). Settings are saved as <code class="mono">service_prefs.json</code> in your pup storage.</p>
-            <div class="svc-row">
-              <div class="svc-row-main">
-                <strong>SPV node</strong>
-                <p class="small muted mono svc-status-line" id="svc-spv-status">—</p>
-              </div>
-              <div class="svc-row-actions">
-                <button type="button" class="btn btn-sm" id="btn-svc-spv-stop">Stop</button>
-                <button type="button" class="btn btn-sm primary" id="btn-svc-spv-start">Start</button>
-              </div>
-            </div>
-            <div class="svc-row">
-              <div class="svc-row-main">
-                <strong>MemeTracker</strong>
-                <p class="small muted mono svc-status-line" id="svc-mtr-status">—</p>
-              </div>
-              <div class="svc-row-actions">
-                <button type="button" class="btn btn-sm" id="btn-svc-mtr-stop">Stop</button>
-                <button type="button" class="btn btn-sm primary" id="btn-svc-mtr-start">Start</button>
-              </div>
-            </div>
           </div>
         </section>
 
@@ -307,6 +284,30 @@
             <h2><span class="material-symbols-outlined icon-inline">settings_backup_restore</span> SPV repair &amp; rescan</h2>
             <button type="button" class="btn" id="btn-open-spv-repair"><span class="material-symbols-outlined btn-ico">settings_backup_restore</span> Open SPV repair tools</button>
           </div>
+          <div class="card svc-control-card hidden" id="svc-control-card" aria-labelledby="svc-control-title">
+            <h2 id="svc-control-title"><span class="material-symbols-outlined icon-inline">tune</span> Background services</h2>
+            <p class="small muted" style="margin-top:.25rem">Stop or start <code class="mono">spvnode</code> (SPV) and the embedded MemeTracker (mempool P2P). Settings are saved as <code class="mono">service_prefs.json</code> in your pup storage.</p>
+            <div class="svc-row">
+              <div class="svc-row-main">
+                <strong>SPV node</strong>
+                <p class="small muted mono svc-status-line" id="svc-spv-status">—</p>
+              </div>
+              <div class="svc-row-actions">
+                <button type="button" class="btn btn-sm" id="btn-svc-spv-stop">Stop</button>
+                <button type="button" class="btn btn-sm primary" id="btn-svc-spv-start">Start</button>
+              </div>
+            </div>
+            <div class="svc-row">
+              <div class="svc-row-main">
+                <strong>MemeTracker</strong>
+                <p class="small muted mono svc-status-line" id="svc-mtr-status">—</p>
+              </div>
+              <div class="svc-row-actions">
+                <button type="button" class="btn btn-sm" id="btn-svc-mtr-stop">Stop</button>
+                <button type="button" class="btn btn-sm primary" id="btn-svc-mtr-start">Start</button>
+              </div>
+            </div>
+          </div>
           <div class="card">
             <h2><span class="material-symbols-outlined icon-inline">terminal</span> Logs</h2>
             <p class="small muted toolbar">SPV / broadcast: latest ~420 lines. MemeTracker: live P2P snapshot. Refreshes while this view is open.</p>
@@ -379,8 +380,8 @@
     <div class="tx-detail-modal-panel card spv-repair-modal-panel">
       <div class="spv-repair-modal-head">
         <h2 id="spv-repair-title" style="margin:0;font-size:1.05rem"><span class="material-symbols-outlined icon-inline">restart_alt</span> SPV repair &amp; rescan</h2>
-        <button type="button" class="icon-btn" id="btn-spv-repair-close" aria-label="Close SPV repair dialog">
-          <span class="material-symbols-outlined" aria-hidden="true">close</span>
+        <button type="button" class="btn btn-sm" id="btn-spv-repair-close" aria-label="Close SPV repair dialog">
+          <span class="material-symbols-outlined btn-ico" aria-hidden="true">close</span> Close
         </button>
       </div>
       <p class="small muted" id="spv-repair-storage-line" style="margin:.35rem 0 .5rem">Loading storage path…</p>

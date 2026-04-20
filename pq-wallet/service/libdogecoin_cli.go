@@ -358,13 +358,6 @@ func (s *Server) startSPVNode(w *WalletFile) {
 	}
 	s.spvStartMu.Lock()
 	defer s.spvStartMu.Unlock()
-	s.repairHeadersDBForSPVStart()
-	if migrated, backup, err := s.migrateLegacyHeadersDB(); err != nil {
-		log.Printf("[pq-wallet] legacy headers.db migrate failed: %v", err)
-		return
-	} else if migrated {
-		log.Printf("[pq-wallet] migrated non-SQLite headers.db to %s", backup)
-	}
 	want := strings.Join(addrs, "\n")
 	prev, _ := os.ReadFile(s.spvWatchAddrPath())
 	pidRunning := false
@@ -378,11 +371,18 @@ func (s *Server) startSPVNode(w *WalletFile) {
 	}
 	hdb := filepath.Join(s.storageDir, "headers.db")
 	headersOK := false
-	if st, err := os.Stat(hdb); err == nil && !st.IsDir() && isSQLiteDBFile(hdb) {
+	if st, err := os.Stat(hdb); err == nil && !st.IsDir() {
 		headersOK = true
 	}
 	if pidRunning && strings.TrimSpace(string(prev)) == want && headersOK {
 		return
+	}
+	s.repairHeadersDBForSPVStart()
+	if migrated, backup, err := s.migrateLegacyHeadersDB(); err != nil {
+		log.Printf("[pq-wallet] legacy headers.db migrate failed: %v", err)
+		return
+	} else if migrated {
+		log.Printf("[pq-wallet] migrated non-SQLite headers.db to %s", backup)
 	}
 	s.stopSPVNode()
 	testnet := strings.EqualFold(w.Network, "testnet")

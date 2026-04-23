@@ -47,6 +47,7 @@ func (a *app) publicMetrics(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	allTime := hours <= 0
 	cutoff := time.Now().UTC().Add(-time.Duration(hours) * time.Hour)
 
 	byHour := map[string]map[string]int{}
@@ -60,7 +61,7 @@ func (a *app) publicMetrics(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		tt, err := time.Parse(time.RFC3339, ts)
-		if err != nil || tt.Before(cutoff) {
+		if err != nil || (!allTime && tt.Before(cutoff)) {
 			continue
 		}
 		bucket := tt.UTC().Format("2006-01-02T15:00:00Z")

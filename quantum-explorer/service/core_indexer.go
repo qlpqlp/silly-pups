@@ -849,7 +849,7 @@ func (ix *coreIndexer) metricBuckets(ctx context.Context, hours int) ([]map[stri
 		return nil, err
 	}
 	if latestHour <= 0 {
-		return []map[string]any{}, nil
+		return ix.metricBucketsFromCoreTables(ctx, hours)
 	}
 	var cutoff int64
 	if allTime {
@@ -886,7 +886,177 @@ func (ix *coreIndexer) metricBuckets(ctx context.Context, hours int) ([]map[stri
 			"wallet_creates":  ac,
 		})
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return ix.metricBucketsFromCoreTables(ctx, hours)
+	}
+	return out, nil
+}
+
+func (ix *coreIndexer) metricBucketsFromCoreTables(ctx context.Context, hours int) ([]map[string]any, error) {
+	if ix == nil || ix.db == nil {
+		return []map[string]any{}, nil
+	}
+	allTime := hours <= 0
+	if !allTime && hours < 1 {
+		hours = 24
+	}
+
+	var latestTx int64
+	var latestBlk int64
+	_ = ix.db.QueryRowContext(ctx, `SELECT COALESCE(MAX((time_unix / 3600) * 3600),0) FROM qe_core_txs`).Scan(&latestTx)
+	_ = ix.db.QueryRowContext(ctx, `SELECT COALESCE(MAX((time_unix / 3600) * 3600),0) FROM qe_core_blocks`).Scan(&latestBlk)
+	latestHour := latestTx
+	if latestBlk > latestHour {
+		latestHour = latestBlk
+	}
+	if latestHour <= 0 {
+		return []map[string]any{}, nil
+	}
+
+	var cutoff int64
+	if allTime {
+		var minTx int64
+		var minBlk int64
+		_ = ix.db.QueryRowContext(ctx, `SELECT COALESCE(MIN((time_unix / 3600) * 3600),0) FROM qe_core_txs`).Scan(&minTx)
+		_ = ix.db.QueryRowContext(ctx, `SELECT COALESCE(MIN((time_unix / 3600) * 3600),0) FROM qe_core_blocks`).Scan(&minBlk)
+		switch {
+		case minTx > 0 && minBlk > 0:
+			if minTx < minBlk {
+				cutoff = minTx
+			} else {
+				cutoff = minBlk
+			}
+		case minTx > 0:
+			cutoff = minTx
+		case minBlk > 0:
+			cutoff = minBlk
+		default:
+			cutoff = latestHour
+		}
+	} else {
+		cutoff = latestHour - int64((hours-1)*3600)
+	}
+
+	type hourRow struct {
+		allc int64
+		q    int64
+		nq   int64
+		iq   int64
+		bc   int64
+		ac   int64
+	}
+	byHour := make(map[int64]*hourRow)
+	for h := cutoff; h <= latestHour; h += 3600 {
+		byHour[h] = &hourRow{}
+	}
+
+	tRows, err := ix.db.QueryContext(ctx, `
+		SELECT (time_unix / 3600) * 3600 AS h,
+		       COUNT(*)::bigint AS all_count,
+		       SUM(CASE WHEN quantum_state='quantum' THEN 1 ELSE 0 END)::bigint AS quantum_count,
+		       SUM(CASE WHEN quantum_state='non-quantum' THEN 1 ELSE 0 END)::bigint AS non_quantum_count,
+		       SUM(CASE WHEN quantum_state='invalid-quantum' THEN 1 ELSE 0 END)::bigint AS invalid_quantum_count
+		FROM qe_core_txs
+		WHERE time_unix >= $1
+		GROUP BY 1`, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	for tRows.Next() {
+		var h, allc, q, nq, iq int64
+		if err := tRows.Scan(&h, &allc, &q, &nq, &iq); err != nil {
+			tRows.Close()
+			return nil, err
+		}
+		row := byHour[h]
+		if row == nil {
+			row = &hourRow{}
+			byHour[h] = row
+		}
+		row.allc, row.q, row.nq, row.iq = allc, q, nq, iq
+	}
+	if err := tRows.Err(); err != nil {
+		tRows.Close()
+		return nil, err
+	}
+	tRows.Close()
+
+	bRows, err := ix.db.QueryContext(ctx, `
+		SELECT (time_unix / 3600) * 3600 AS h, COUNT(*)::bigint AS block_count
+		FROM qe_core_blocks
+		WHERE time_unix >= $1
+		GROUP BY 1`, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	for bRows.Next() {
+		var h, bc int64
+		if err := bRows.Scan(&h, &bc); err != nil {
+			bRows.Close()
+			return nil, err
+		}
+		row := byHour[h]
+		if row == nil {
+			row = &hourRow{}
+			byHour[h] = row
+		}
+		row.bc = bc
+	}
+	if err := bRows.Err(); err != nil {
+		bRows.Close()
+		return nil, err
+	}
+	bRows.Close()
+
+	aRows, err := ix.db.QueryContext(ctx, `
+		SELECT ((b.time_unix / 3600) * 3600) AS h, COUNT(DISTINCT a.address)::bigint AS address_count
+		FROM qe_core_addresses a
+		INNER JOIN qe_core_blocks b ON b.height = a.block_height
+		WHERE b.time_unix >= $1
+		GROUP BY 1`, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	for aRows.Next() {
+		var h, ac int64
+		if err := aRows.Scan(&h, &ac); err != nil {
+			aRows.Close()
+			return nil, err
+		}
+		row := byHour[h]
+		if row == nil {
+			row = &hourRow{}
+			byHour[h] = row
+		}
+		row.ac = ac
+	}
+	if err := aRows.Err(); err != nil {
+		aRows.Close()
+		return nil, err
+	}
+	aRows.Close()
+
+	out := make([]map[string]any, 0, len(byHour))
+	for h := cutoff; h <= latestHour; h += 3600 {
+		row := byHour[h]
+		if row == nil {
+			row = &hourRow{}
+		}
+		out = append(out, map[string]any{
+			"hour_unix":       h,
+			"hour":            time.Unix(h, 0).UTC().Format("2006-01-02T15:00:00Z"),
+			"all":             row.allc,
+			"quantum":         row.q,
+			"non_quantum":     row.nq,
+			"invalid_quantum": row.iq,
+			"blocks":          row.bc,
+			"wallet_creates":  row.ac,
+		})
+	}
+	return out, nil
 }
 
 func (ix *coreIndexer) activityBuckets(ctx context.Context, hours int) ([]map[string]any, error) {

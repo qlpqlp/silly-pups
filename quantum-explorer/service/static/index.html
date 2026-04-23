@@ -1179,9 +1179,29 @@
       };
     }
 
+    function applyQuickSummary(summaryResp){
+      if (!summaryResp || !summaryResp.ok || !summaryResp.d) return;
+      const d = summaryResp.d || {};
+      const idx = d.indexer || {};
+      const core = d.core_rpc || {};
+      const rows = (idx.rows) || {};
+      const kCoreTip = document.getElementById("k-core-tip");
+      const kIxHeight = document.getElementById("k-ix-height");
+      const kIxTxs = document.getElementById("k-ix-txs");
+      const kIxBlocks = document.getElementById("k-ix-blocks");
+      const kDoge = document.getElementById("k-doge-addresses");
+      if (kCoreTip && core.blockcount != null) kCoreTip.textContent = String(core.blockcount);
+      if (kIxHeight && idx.last_height != null) kIxHeight.textContent = String(idx.last_height);
+      if (kIxTxs && rows.txs != null) kIxTxs.textContent = String(rows.txs);
+      if (kIxBlocks && rows.blocks != null) kIxBlocks.textContent = String(rows.blocks);
+      if (kDoge && rows.addresses != null) kDoge.textContent = String(rows.addresses);
+    }
+
     async function load(){
       const selected = RANGE_OPTIONS.find(o => o.id === selectedRange) || RANGE_OPTIONS[RANGE_OPTIONS.length - 1];
       const hours = selected.hours;
+      const pSummary = j("/api/public/core/summary");
+      pSummary.then(applyQuickSummary).catch(() => {});
       let r;
       try {
         r = await j("/api/public/status");

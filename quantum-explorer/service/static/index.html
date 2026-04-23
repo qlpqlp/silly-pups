@@ -1291,28 +1291,43 @@
           renderPQBlock(latestPQRows);
         }
       }
-      if (mr.ok) {
-        let metricBuckets = mr.d.buckets || [];
-        let metricSource = (mr.d.source || "unknown");
-        if ((!Array.isArray(metricBuckets) || metricBuckets.length === 0) && ex.enabled && ar.ok) {
-          const fb = (ar.d && ar.d.buckets) || [];
-          if (fb.length > 0) {
-            metricBuckets = fb.map(it => ({
-              hour: it.hour,
-              quantum: 0,
-              non_quantum: Number(it.transactions || 0)
-            }));
-            metricSource = "activity_buckets_fallback";
-          }
+      let metricBuckets = (mr.ok && Array.isArray(mr.d.buckets)) ? mr.d.buckets : [];
+      let metricSource = mr.ok ? (mr.d.source || "unknown") : "unavailable";
+      let activityBuckets = (ar.ok && Array.isArray(ar.d.buckets)) ? ar.d.buckets : [];
+      let usedAllTimeFallback = false;
+      if (hours > 0 && metricBuckets.length === 0 && activityBuckets.length === 0) {
+        const [mrAll, arAll] = await Promise.all([
+          j("/api/public/metrics?hours=0"),
+          j("/api/public/activity-buckets?hours=0")
+        ]);
+        if (mrAll.ok && Array.isArray(mrAll.d.buckets) && mrAll.d.buckets.length > 0) {
+          metricBuckets = mrAll.d.buckets;
+          metricSource = (mrAll.d.source || "unknown") + "_all_time_fallback";
+          usedAllTimeFallback = true;
         }
+        if (arAll.ok && Array.isArray(arAll.d.buckets) && arAll.d.buckets.length > 0) {
+          activityBuckets = arAll.d.buckets;
+          usedAllTimeFallback = true;
+        }
+      }
+      if (metricBuckets.length === 0 && ex.enabled && activityBuckets.length > 0) {
+        metricBuckets = activityBuckets.map(it => ({
+          hour: it.hour,
+          quantum: 0,
+          non_quantum: Number(it.transactions || 0)
+        }));
+        metricSource = "activity_buckets_fallback";
+      }
+      if (mr.ok || metricBuckets.length > 0) {
         renderMetricsBars(metricBuckets);
         const srcEl = document.getElementById("metrics-source");
-        srcEl.textContent = `Source: ${metricSource} · Range: ${selected.label}`;
+        const label = usedAllTimeFallback ? `${selected.label} (auto all-time fallback)` : selected.label;
+        srcEl.textContent = `Source: ${metricSource} · Range: ${label}`;
       } else {
         document.getElementById("metrics-bars").innerHTML = '<p class="muted">Could not load metrics.</p>';
       }
-      if (ar.ok) {
-        const b = ar.d.buckets || [];
+      if (ar.ok || activityBuckets.length > 0) {
+        const b = activityBuckets;
         renderSimpleSeries("activity-wallets", "Distinct addresses (outputs per hour)", b, "wallet_creates", "quantum");
         renderSimpleSeries("activity-transactions", "Number of transactions during time", b, "transactions", "nonq");
         renderSimpleSeries("activity-blocks", "Number of blocks created during time", b, "blocks", "quantum");

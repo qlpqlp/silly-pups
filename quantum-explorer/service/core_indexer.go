@@ -8,11 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
+
+var reDescriptorAddr = regexp.MustCompile(`addr\(([^)]+)\)`)
 
 type coreIndexer struct {
 	mu               sync.RWMutex
@@ -315,10 +318,15 @@ func (ix *coreIndexer) loop() {
 			_ = ix.persistState()
 			bfCtx, bfCancel := context.WithTimeout(context.Background(), 90*time.Second)
 			filled := ix.backfillMissingRawHexBatch(bfCtx)
+			addrFilled := ix.backfillMissingAddressRowsBatch(bfCtx)
 			bfCancel()
 			if filled > 0 {
 				_ = ix.refreshHourlyMetrics(72)
 				log.Printf("[quantum-explorer] stored raw tx backfill: %d txs (postgres)", filled)
+			}
+			if addrFilled > 0 {
+				_ = ix.refreshHourlyMetrics(72)
+				log.Printf("[quantum-explorer] rebuilt address rows: %d txs (postgres)", addrFilled)
 			}
 			time.Sleep(3 * time.Second)
 			continue
@@ -715,14 +723,31 @@ func scriptAddresses(spk map[string]any) []string {
 		return nil
 	}
 	out := []string{}
+	seen := map[string]struct{}{}
+	add := func(v string) {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return
+		}
+		if _, ok := seen[v]; ok {
+			return
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
 	if a := strings.TrimSpace(anyString(spk["address"])); a != "" {
-		out = append(out, a)
+		add(a)
 	}
 	if arr, ok := spk["addresses"].([]any); ok {
 		for _, v := range arr {
 			if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
-				out = append(out, strings.TrimSpace(s))
+				add(s)
 			}
+		}
+	}
+	if desc := strings.TrimSpace(anyString(spk["desc"])); desc != "" {
+		if m := reDescriptorAddr.FindStringSubmatch(desc); len(m) == 2 {
+			add(m[1])
 		}
 	}
 	return out
@@ -1332,6 +1357,72 @@ func (ix *coreIndexer) backfillMissingRawHexBatch(ctx context.Context) int {
 		}
 	}
 	return n
+}
+
+// backfillMissingAddressRowsBatch rebuilds qe_core_addresses from stored raw tx bytes
+// when address rows are absent (e.g. older index runs that lacked address extraction).
+func (ix *coreIndexer) backfillMissingAddressRowsBatch(ctx context.Context) int {
+	if ix == nil || ix.db == nil {
+		return 0
+	}
+	limit := envIntBounded("QE_CORE_ADDRESS_BACKFILL_BATCH", 60, 1, 400)
+	rows, err := ix.db.QueryContext(ctx, `
+		SELECT t.txid, t.block_height, t.raw_hex
+		FROM qe_core_txs t
+		WHERE LENGTH(TRIM(COALESCE(t.raw_hex,'')))>0
+		  AND NOT EXISTS (SELECT 1 FROM qe_core_addresses a WHERE a.txid=t.txid)
+		ORDER BY t.block_height ASC
+		LIMIT $1`, limit)
+	if err != nil {
+		return 0
+	}
+	defer rows.Close()
+	insertedTxs := 0
+	for rows.Next() {
+		var txid, raw string
+		var blockHeight int64
+		if err := rows.Scan(&txid, &blockHeight, &raw); err != nil {
+			continue
+		}
+		txid = strings.ToLower(strings.TrimSpace(txid))
+		raw = strings.TrimSpace(raw)
+		if len(txid) != 64 || raw == "" {
+			continue
+		}
+		dec := DecodeTxJSON(raw, ix.network)
+		outs, _ := dec["outputs"].([]map[string]any)
+		if len(outs) == 0 {
+			if outAny, ok := dec["outputs"].([]any); ok {
+				outs = make([]map[string]any, 0, len(outAny))
+				for _, item := range outAny {
+					if m, ok := item.(map[string]any); ok {
+						outs = append(outs, m)
+					}
+				}
+			}
+		}
+		added := 0
+		for _, o := range outs {
+			ad := strings.TrimSpace(anyString(o["address"]))
+			if ad == "" {
+				continue
+			}
+			voutN := int(anyInt64(o["n"]))
+			sats := anyInt64(o["value_sats"])
+			if sats <= 0 {
+				sats = dogeToSats(anyFloat64(o["value"]))
+			}
+			_, err := ix.db.ExecContext(ctx, `INSERT INTO qe_core_addresses (address, txid, vout_n, value_sats, block_height)
+				VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, ad, txid, voutN, sats, blockHeight)
+			if err == nil {
+				added++
+			}
+		}
+		if added > 0 {
+			insertedTxs++
+		}
+	}
+	return insertedTxs
 }
 
 func (ix *coreIndexer) txRowByID(ctx context.Context, txid string) (rawHex, quantumState, pqReason string, blockH, timeUnix, valueOut int64, blockHash string, ok bool, err error) {

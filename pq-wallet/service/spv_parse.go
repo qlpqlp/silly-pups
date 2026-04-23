@@ -22,7 +22,7 @@ var (
 	reMempoolExplicit1 = regexp.MustCompile(`(?i)mempool[^\n]{0,64}(?:size|count|transactions?|txs?)\s*[:=]\s*(\d{1,9})`)
 	reMempoolExplicit2 = regexp.MustCompile(`(?i)(?:^|\s)(\d{1,9})\s+transactions?\s+in\s+mempool`)
 	reMempoolExplicit3 = regexp.MustCompile(`(?i)\[(?:smpv|mempool)\][^\n]{0,120}(\d{1,9})\s*(?:tx|txn|transaction)`)
-	reSpvConfirmedLine = regexp.MustCompile(`(?i)\b(confirm|confirmed|merkle|inclusion|matched|proof)\b`)
+	reSpvConfirmedLine = regexp.MustCompile(`(?i)\b(confirm|confirmed|confirmation|confirmations|merkle|inclusion|matched|proof|block|height|depth|chain)\b`)
 )
 
 // PeerConnectionInfo is parsed from libdogecoin net.c log lines (current / last handshake in the tail).
@@ -474,11 +474,17 @@ func parseSPVConfirmedTxids(log string) map[string]struct{} {
 			continue
 		}
 		low := strings.ToLower(line)
-		// Skip pipe tip rows like: hash|height|...
-		if len(line) > 64 && line[64] == '|' && strings.Count(line, "|") >= 2 {
+		// A confirmation-like line usually references tx + block/height/merkle.
+		// We intentionally avoid requiring one exact string because libdogecoin logs vary by build.
+		hasConfirmCue := reSpvConfirmedLine.MatchString(low)
+		mentionsTx := strings.Contains(low, "txid") || strings.Contains(low, "transaction") ||
+			strings.Contains(low, " tx ") || strings.HasPrefix(low, "tx ") || strings.HasSuffix(low, " tx")
+		mentionsBlockCtx := strings.Contains(low, "block") || strings.Contains(low, "height") ||
+			strings.Contains(low, "header") || strings.Contains(low, "depth") || strings.Contains(low, "chain")
+		if !hasConfirmCue || (!mentionsTx && !mentionsBlockCtx) {
 			continue
 		}
-		if !reSpvConfirmedLine.MatchString(low) {
+		if strings.Contains(low, "mempool") || strings.Contains(low, "inv") {
 			continue
 		}
 		for _, hx := range reBlockHash.FindAllString(line, -1) {

@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "meta": {
     "name": "MemeTracker",
-    "version": "0.0.3",
+    "version": "0.0.4",
     "logoPath": "logo.png",
     "shortDescription": "Track Dogecoin payments to an address (mempool)",
     "longDescription": "MemeTracker is a Go-based Dogecoin mempool-only tracker: it does not download blocks or headers, only relayed transactions (P2P mempool + inv/getdata for tx). The web UI includes a dashboard (charts, P2P/mempool stats), tracking P2PKH addresses, listing transactions, peers view, optional API IP allowlist, and Start/Stop for the P2P watcher. DogeBOX env seeds memetracker_config.json on first boot so P2P can auto-start. You may still use GET /track/<P2PKH address> or the API. Parallel P2P sessions (default 3), DNS seeds and shuffled peer IPs improve gossip vs a single connection. For maximum reliability set P2P_HOST to your own Dogecoin Core. Addresses expire after retention days without /track refresh.",
@@ -95,7 +95,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "87d48ba8202c1f11d36006dca42a5dfbc946633939739236b7b3e5b0e7b81232"
+      "nixFileSha256": "52369a076c67bff0cdb8012995450139747ad676e6fa2a3ea5bdbdc3106ef814"
     },
     "services": [
       {
@@ -124,7 +124,7 @@
   "interfaces": [
     {
       "name": "memetracker-public",
-      "version": "0.0.3",
+      "version": "0.0.4",
       "permissionGroups": [
         {
           "name": "MemeTracker HTTP",

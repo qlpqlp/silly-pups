@@ -975,8 +975,18 @@ async function openTxDetailModal(tx) {
   state.txDetailTxid = txid;
   state.txDetailHex = "";
   modal.classList.remove("hidden");
-  body.textContent = "Loading…";
-  if (sub) sub.textContent = "Fetching explorer data when EXPLORER_TX_API is configured.";
+  const localSummary = {
+    txid: txid || "",
+    source: tx && tx.source ? String(tx.source) : "",
+    direction: tx && tx.direction ? String(tx.direction) : "",
+    amount_doge: tx && tx.amount_doge != null ? Number(tx.amount_doge) : null,
+    confirmations: tx && tx.confirmations != null ? Number(tx.confirmations) : 0,
+    pending: !!(tx && tx.pending),
+    pq_hint: !!(tx && tx.pq_hint),
+    pq_verified: !!(tx && tx.pq_verified),
+  };
+  body.textContent = JSON.stringify({ local_tx: localSummary }, null, 2);
+  if (sub) sub.textContent = "Local SPV/P2P wallet data (explorer lookup is optional).";
   if (ext) {
     ext.href = sochainTxUrl(txid);
     ext.textContent = "Open on SoChain";
@@ -984,12 +994,22 @@ async function openTxDetailModal(tx) {
   try {
     const res = await api("/api/explorer/tx/" + encodeURIComponent(txid));
     if (res.error) {
+      if (String(res.error).includes("EXPLORER_TX_API not set")) {
+        if (sub) sub.textContent = "Explorer API disabled (pure SPV/P2P mode).";
+        return;
+      }
       body.textContent =
-        String(res.error) +
-        "\n\nYou can still copy the txid and use SoChain or another explorer. Configure EXPLORER_TX_API on the pup for JSON/raw from your indexer.";
-      if (sub) sub.textContent = "Explorer API not configured or request failed.";
+        JSON.stringify({ local_tx: localSummary, explorer_error: String(res.error) }, null, 2);
+      if (sub) sub.textContent = "Explorer request failed; local SPV/P2P details are shown above.";
     } else if (res.raw != null && typeof res.raw === "string") {
-      body.textContent = res.raw.slice(0, 500000);
+      body.textContent = JSON.stringify(
+        {
+          local_tx: localSummary,
+          explorer_raw: res.raw.slice(0, 500000),
+        },
+        null,
+        2
+      );
       let parsed = null;
       try {
         parsed = JSON.parse(res.raw);
@@ -1000,16 +1020,26 @@ async function openTxDetailModal(tx) {
       if (!state.txDetailHex && /^[0-9a-f]+$/i.test(res.raw.trim()) && res.raw.trim().length >= 64) {
         state.txDetailHex = res.raw.trim();
       }
-      if (sub) sub.textContent = "Upstream response (may include raw transaction fields).";
+      if (sub) sub.textContent = "Local details + optional explorer response.";
     } else {
       const payload = res.data != null ? res.data : res;
-      const text = JSON.stringify(payload, null, 2);
-      body.textContent = text.slice(0, 500000);
+      body.textContent = JSON.stringify(
+        {
+          local_tx: localSummary,
+          explorer_data: payload,
+        },
+        null,
+        2
+      ).slice(0, 500000);
       state.txDetailHex = extractTxHexFromExplorerPayload(payload);
-      if (sub) sub.textContent = "Parsed JSON — copy hex for signing/broadcast if your API exposes it.";
+      if (sub) sub.textContent = "Local details + optional explorer JSON.";
     }
   } catch (e) {
-    body.textContent = String(e);
+    body.textContent = JSON.stringify(
+      { local_tx: localSummary, explorer_error: String(e) },
+      null,
+      2
+    );
   }
   const copyRawBtn = $("btn-tx-copy-raw");
   if (copyRawBtn) copyRawBtn.disabled = !state.txDetailHex;

@@ -268,6 +268,7 @@
     .msg.err { background: rgba(232,93,93,.12); border: 1px solid rgba(232,93,93,.35); }
     .pill { display: inline-block; font-size: .68rem; font-weight: 600; padding: .15rem .4rem; border-radius: 999px; background: rgba(93,190,138,.2); color: var(--ok); }
     .pill.off { background: rgba(139,156,184,.2); color: var(--muted); }
+    .pill.warn { background: rgba(232,93,93,.2); color: var(--danger); border: 1px solid rgba(232,93,93,.45); }
     .banner-start {
       background: linear-gradient(135deg, rgba(242,169,0,.18), rgba(28,38,56,.9));
       border: 1px solid rgba(242,169,0,.35); border-radius: var(--radius); padding: 1rem 1.25rem; margin-bottom: 1rem;
@@ -937,11 +938,12 @@ curl -s -X DELETE "BASE/api/transactions?txid=...&amp;hash160_hex=..."</code></p
         var tr = document.createElement("tr");
         var txidEsc = escapeHtml(tx.txid);
         var explore = sochainTxURL(tx.txid);
+        var dsBadge = tx.double_spent ? '<span class="pill warn">Double spent detected</span> ' : '';
         tr.innerHTML = '<td data-label="Time">' + escapeHtml(tx.datetime) + '</td>' +
           '<td data-label="Address" class="mono">' + escapeHtml(tx.address) + '</td>' +
           '<td data-label="Txid" class="mono txid-cell"><span class="txid-line">' + txidEsc +
           '<button type="button" class="copy-tx-badge" data-copy-tx="' + escapeHtml(tx.txid) + '" title="Copy txid" aria-label="Copy txid"><span class="material-icons" aria-hidden="true">content_copy</span></button></span></td>' +
-          '<td data-label="DOGE">' + escapeHtml(Number(tx.amount_doge).toFixed(8)) + '</td>' +
+          '<td data-label="DOGE">' + dsBadge + escapeHtml(Number(tx.amount_doge).toFixed(8)) + '</td>' +
           '<td data-label="Explorer / remove" class="row-actions"><div class="tx-links">' +
           '<a class="btn btn-sm btn-with-icon" href="' + explore + '" target="_blank" rel="noopener noreferrer"><span class="material-icons" aria-hidden="true">open_in_new</span><span>sochain</span></a>' +
           '<button type="button" class="btn btn-danger btn-sm btn-with-icon" data-rm-tx="' + encodeURIComponent(tx.hash160_hex) + '" data-txid="' + escapeHtml(tx.txid) + '"><span class="material-icons" aria-hidden="true">delete_outline</span><span>Remove</span></button>' +
@@ -955,7 +957,9 @@ curl -s -X DELETE "BASE/api/transactions?txid=...&amp;hash160_hex=..."</code></p
         var txid = String(tx.txid || "");
         var txidEsc = escapeHtml(txid);
         var tracked = !!tx.tracked_match;
+        var doubleSpent = !!tx.double_spent;
         var status = tracked ? '<span class="pill">tracked</span>' : '<span class="pill off">seen</span>';
+        if (doubleSpent) status += ' <span class="pill warn">Double spent detected</span>';
         var addr = tracked && tx.address ? escapeHtml(String(tx.address)) : "—";
         var amt = tracked && tx.amount_doge ? escapeHtml(Number(tx.amount_doge).toFixed(8)) : "—";
         var explore = sochainTxURL(txid);

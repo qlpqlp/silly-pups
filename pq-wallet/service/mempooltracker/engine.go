@@ -271,6 +271,11 @@ type txOutput struct {
 	script    []byte
 }
 
+type txInputOutpoint struct {
+	prevTxid string
+	vout     uint32
+}
+
 func parseTxOutputs(raw []byte) ([]txOutput, bool, error) {
 	if len(raw) < 8 {
 		return nil, false, nil
@@ -370,6 +375,51 @@ func parseTxOutputs(raw []byte) ([]txOutput, bool, error) {
 	}
 
 	return outs, isSegwit, nil
+}
+
+func parseTxInputOutpoints(raw []byte) ([]txInputOutpoint, error) {
+	if len(raw) < 8 {
+		return nil, nil
+	}
+	off := 0
+	if off+4 > len(raw) {
+		return nil, errors.New("truncated_version")
+	}
+	off += 4
+	if off+2 <= len(raw) && raw[off] == 0 && raw[off+1] == 1 {
+		off += 2
+	}
+	nin, err := readVarInt(raw, &off)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]txInputOutpoint, 0, int(nin))
+	for i := 0; i < int(nin); i++ {
+		if off+36 > len(raw) {
+			return out, errors.New("truncated_txin")
+		}
+		prevLE := raw[off : off+32]
+		rev := make([]byte, 32)
+		for j := 0; j < 32; j++ {
+			rev[j] = prevLE[31-j]
+		}
+		prevTxid := hex.EncodeToString(rev)
+		vout := binary.LittleEndian.Uint32(raw[off+32 : off+36])
+		out = append(out, txInputOutpoint{prevTxid: prevTxid, vout: vout})
+		off += 36
+		slen, err := readVarInt(raw, &off)
+		if err != nil {
+			return out, err
+		}
+		if !offsetAdd(&off, slen, len(raw)) {
+			return out, errors.New("truncated_scriptSig")
+		}
+		if off+4 > len(raw) {
+			return out, errors.New("truncated_sequence")
+		}
+		off += 4
+	}
+	return out, nil
 }
 
 func txidHex(raw []byte) string {
@@ -842,9 +892,10 @@ func buildVersionPayload(p2pPort int) []byte {
 // ------- Store (file-backed DB) -------
 
 type TxRecord struct {
-	Txid       string  `json:"txid"`
-	Datetime   string  `json:"datetime"`
-	AmountDoge float64 `json:"amount_doge"`
+	Txid        string  `json:"txid"`
+	Datetime    string  `json:"datetime"`
+	AmountDoge  float64 `json:"amount_doge"`
+	DoubleSpent bool    `json:"double_spent"`
 }
 
 type AddressData struct {
@@ -1026,7 +1077,7 @@ func (s *Store) UpsertTracking(address string, hash160 []byte, callbackURL strin
 	return false, ad.Txs, ad.CallbackURL, nil
 }
 
-func (s *Store) AddTx(hashHex string, txid string, dt time.Time, amountDoge float64) (inserted bool) {
+func (s *Store) AddTx(hashHex string, txid string, dt time.Time, amountDoge float64, doubleSpent bool) (inserted bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ad, ok := s.watchByHash[hashHex]
@@ -1035,16 +1086,23 @@ func (s *Store) AddTx(hashHex string, txid string, dt time.Time, amountDoge floa
 	}
 
 	// Dedupe by txid within the stored limited window.
-	for _, r := range ad.Txs {
+	for i := range ad.Txs {
+		r := ad.Txs[i]
 		if r.Txid == txid {
+			// Keep flags up to date if a conflict is discovered later.
+			if doubleSpent && !ad.Txs[i].DoubleSpent {
+				ad.Txs[i].DoubleSpent = true
+				_ = s.persistAddressLocked(ad)
+			}
 			return false
 		}
 	}
 
 	rec := TxRecord{
-		Txid:       txid,
-		Datetime:   dt.UTC().Format(time.RFC3339),
-		AmountDoge: amountDoge,
+		Txid:        txid,
+		Datetime:    dt.UTC().Format(time.RFC3339),
+		AmountDoge:  amountDoge,
+		DoubleSpent: doubleSpent,
 	}
 
 	// Store newest first.
@@ -1054,6 +1112,30 @@ func (s *Store) AddTx(hashHex string, txid string, dt time.Time, amountDoge floa
 	}
 	_ = s.persistAddressLocked(ad)
 	return true
+}
+
+func (s *Store) MarkTxDoubleSpent(txid string) bool {
+	txid = strings.TrimSpace(txid)
+	if txid == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	changed := false
+	for _, ad := range s.watchByHash {
+		localChanged := false
+		for i := range ad.Txs {
+			if ad.Txs[i].Txid == txid && !ad.Txs[i].DoubleSpent {
+				ad.Txs[i].DoubleSpent = true
+				localChanged = true
+				changed = true
+			}
+		}
+		if localChanged {
+			_ = s.persistAddressLocked(ad)
+		}
+	}
+	return changed
 }
 
 func (s *Store) CallbackTarget(hashHex string) (address string, callbackURL string, ok bool) {
@@ -1156,11 +1238,12 @@ func (s *Store) FlattenTransactions() []map[string]any {
 	for _, ad := range s.watchByHash {
 		for _, tx := range ad.Txs {
 			rows = append(rows, map[string]any{
-				"address":     ad.Address,
-				"hash160_hex": ad.Hash160Hex,
-				"txid":        tx.Txid,
-				"datetime":    tx.Datetime,
-				"amount_doge": tx.AmountDoge,
+				"address":      ad.Address,
+				"hash160_hex":  ad.Hash160Hex,
+				"txid":         tx.Txid,
+				"datetime":     tx.Datetime,
+				"amount_doge":  tx.AmountDoge,
+				"double_spent": tx.DoubleSpent,
 			})
 		}
 	}
@@ -1237,6 +1320,8 @@ type MetricsCollector struct {
 	mempoolTxIDs  map[string]struct{}
 	maxMempoolIDs int
 	liveTxByID    map[string]liveMempoolTx
+	outpointToTxs map[string]map[string]struct{}
+	txToOutpoints map[string][]string
 }
 
 type liveMempoolTx struct {
@@ -1244,6 +1329,7 @@ type liveMempoolTx struct {
 	FirstSeen    time.Time `json:"first_seen"`
 	LastSeen     time.Time `json:"last_seen"`
 	TrackedMatch bool      `json:"tracked_match"`
+	DoubleSpent  bool      `json:"double_spent"`
 	Address      string    `json:"address,omitempty"`
 	AmountDoge   float64   `json:"amount_doge,omitempty"`
 }
@@ -1257,6 +1343,8 @@ func NewMetricsCollector(maxMempool int) *MetricsCollector {
 		mempoolTxIDs:  make(map[string]struct{}),
 		maxMempoolIDs: maxMempool,
 		liveTxByID:    make(map[string]liveMempoolTx),
+		outpointToTxs: make(map[string]map[string]struct{}),
+		txToOutpoints: make(map[string][]string),
 	}
 }
 
@@ -1299,8 +1387,7 @@ func (m *MetricsCollector) observeMempoolTxid(txid string) {
 	}
 	for len(m.mempoolTxIDs) >= m.maxMempoolIDs {
 		for k := range m.mempoolTxIDs {
-			delete(m.mempoolTxIDs, k)
-			delete(m.liveTxByID, k)
+			m.dropTxLocked(k)
 			break
 		}
 	}
@@ -1315,6 +1402,79 @@ func (m *MetricsCollector) observeMempoolTxid(txid string) {
 			LastSeen:  now,
 		}
 	}
+}
+
+func (m *MetricsCollector) dropTxLocked(txid string) {
+	delete(m.mempoolTxIDs, txid)
+	delete(m.liveTxByID, txid)
+	ops := m.txToOutpoints[txid]
+	delete(m.txToOutpoints, txid)
+	for _, op := range ops {
+		set := m.outpointToTxs[op]
+		if set == nil {
+			continue
+		}
+		delete(set, txid)
+		if len(set) == 0 {
+			delete(m.outpointToTxs, op)
+		}
+	}
+}
+
+func (m *MetricsCollector) RegisterTxInputs(txid string, inputs []txInputOutpoint) []string {
+	txid = strings.TrimSpace(txid)
+	if txid == "" || len(inputs) == 0 {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	conflicts := make(map[string]struct{})
+	ops := make([]string, 0, len(inputs))
+	for _, in := range inputs {
+		if in.prevTxid == "" {
+			continue
+		}
+		op := in.prevTxid + ":" + strconv.FormatUint(uint64(in.vout), 10)
+		ops = append(ops, op)
+		set := m.outpointToTxs[op]
+		if set == nil {
+			set = make(map[string]struct{})
+			m.outpointToTxs[op] = set
+		}
+		for other := range set {
+			if other != txid {
+				conflicts[other] = struct{}{}
+				conflicts[txid] = struct{}{}
+			}
+		}
+		set[txid] = struct{}{}
+	}
+	if len(ops) > 0 {
+		m.txToOutpoints[txid] = ops
+	}
+	if len(conflicts) == 0 {
+		return nil
+	}
+	now := time.Now().UTC()
+	out := make([]string, 0, len(conflicts))
+	for id := range conflicts {
+		row, ok := m.liveTxByID[id]
+		if !ok {
+			row = liveMempoolTx{Txid: id, FirstSeen: now, LastSeen: now}
+		}
+		row.DoubleSpent = true
+		row.LastSeen = now
+		m.liveTxByID[id] = row
+		out = append(out, id)
+	}
+	return out
+}
+
+func (m *MetricsCollector) IsDoubleSpent(txid string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	row, ok := m.liveTxByID[strings.TrimSpace(txid)]
+	return ok && row.DoubleSpent
 }
 
 func (m *MetricsCollector) markTrackedHit(txid, address string, amountDoge float64) {
@@ -1361,8 +1521,7 @@ func (m *MetricsCollector) snapshotLiveMempool(limit int) []map[string]any {
 
 	for txid, row := range m.liveTxByID {
 		if row.LastSeen.Before(cutoff) {
-			delete(m.liveTxByID, txid)
-			delete(m.mempoolTxIDs, txid)
+			m.dropTxLocked(txid)
 		}
 	}
 
@@ -1383,6 +1542,7 @@ func (m *MetricsCollector) snapshotLiveMempool(limit int) []map[string]any {
 			"first_seen":    row.FirstSeen.Format(time.RFC3339),
 			"last_seen":     row.LastSeen.Format(time.RFC3339),
 			"tracked_match": row.TrackedMatch,
+			"double_spent":  row.DoubleSpent,
 			"address":       row.Address,
 			"amount_doge":   row.AmountDoge,
 		})
@@ -1823,6 +1983,14 @@ readLoop:
 			}
 			txid := txidHex(payload)
 			wtxid := wtxidHex(payload)
+			inputs, _ := parseTxInputOutpoints(payload)
+			conflictedTxids := mcol.RegisterTxInputs(txid, inputs)
+			if len(conflictedTxids) > 0 {
+				for _, ctid := range conflictedTxids {
+					_ = store.MarkTxDoubleSpent(ctid)
+				}
+				logf("double spend conflict detected peer=%s txid=%s conflicts=%d", stateLastPeer, txid, len(conflictedTxids))
+			}
 
 			if processed.Has(txid) || processed.Has(wtxid) {
 				continue
@@ -1853,7 +2021,8 @@ readLoop:
 					continue
 				}
 				amountDoge := float64(sats) / 1e8
-				if store.AddTx(hashHex, txid, dt, amountDoge) {
+				isDS := mcol.IsDoubleSpent(txid)
+				if store.AddTx(hashHex, txid, dt, amountDoge, isDS) {
 					matchedAny = true
 					addr, cbURL, ok := store.CallbackTarget(hashHex)
 					mcol.markTrackedHit(txid, addr, amountDoge)

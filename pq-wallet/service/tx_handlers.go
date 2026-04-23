@@ -120,3 +120,78 @@ func (s *Server) handleSPVStatus(w http.ResponseWriter, _ *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, s.readSPVStatus())
 }
+
+func (s *Server) handleTxLocalDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET only"})
+		return
+	}
+	txid := normalizeTxid(strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/api/tx/local/")))
+	if txid == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "valid txid required"})
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	st, err := s.loadState()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	var found *TxRecord
+	for i := range st.Transactions {
+		if normalizeTxid(st.Transactions[i].Txid) == txid {
+			cp := st.Transactions[i]
+			cp.Txid = txid
+			found = &cp
+			break
+		}
+	}
+
+	if wf, _ := s.loadWallet(); wf != nil {
+		if eng, eerr := s.ensureMempoolEngine(wf); eerr == nil && eng != nil {
+			_, mtrLive, _, _ := eng.DashboardSnapshot()
+			for _, m := range mtrLive {
+				if normalizeTxid(jsonStringAny(m["txid"])) != txid {
+					continue
+				}
+				if found == nil {
+					found = &TxRecord{
+						Txid:       txid,
+						Direction:  "unknown",
+						Source:     "memetracker",
+						RawHex:     strings.TrimSpace(jsonStringAny(m["raw_hex"])),
+						AmountDOGE: floatFromAny(m["amount_doge"]),
+						Address:    strings.TrimSpace(jsonStringAny(m["address"])),
+					}
+				} else {
+					if found.RawHex == "" {
+						found.RawHex = strings.TrimSpace(jsonStringAny(m["raw_hex"]))
+					}
+					if found.AmountDOGE == 0 {
+						found.AmountDOGE = floatFromAny(m["amount_doge"])
+					}
+					if found.Address == "" {
+						found.Address = strings.TrimSpace(jsonStringAny(m["address"]))
+					}
+				}
+				break
+			}
+		}
+	}
+
+	if found == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "tx not found in local state"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"source":            "local_p2p_spv",
+		"tx":                found,
+		"local_raw_hex":     found.RawHex,
+		"raw_hex_available": strings.TrimSpace(found.RawHex) != "",
+	})
+}

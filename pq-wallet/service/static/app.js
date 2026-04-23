@@ -985,6 +985,7 @@ async function openTxDetailModal(tx) {
     pq_hint: !!(tx && tx.pq_hint),
     pq_verified: !!(tx && tx.pq_verified),
   };
+  let localDetail = null;
   body.textContent = JSON.stringify({ local_tx: localSummary }, null, 2);
   if (sub) sub.textContent = "Local SPV/P2P wallet data (explorer lookup is optional).";
   if (ext) {
@@ -992,19 +993,48 @@ async function openTxDetailModal(tx) {
     ext.textContent = "Open on SoChain";
   }
   try {
+    const localRes = await api("/api/tx/local/" + encodeURIComponent(txid));
+    if (!localRes.error) {
+      localDetail = localRes;
+      if (localRes.local_raw_hex && /^[0-9a-f]+$/i.test(String(localRes.local_raw_hex))) {
+        state.txDetailHex = String(localRes.local_raw_hex).trim();
+      }
+      body.textContent = JSON.stringify(
+        {
+          local_tx: localSummary,
+          local_detail: localRes,
+        },
+        null,
+        2
+      ).slice(0, 500000);
+      if (sub) {
+        sub.textContent = state.txDetailHex
+          ? "Local SPV/P2P details with raw hex captured from P2P tx relay."
+          : "Local SPV/P2P details (raw hex not captured yet for this tx).";
+      }
+    }
+  } catch {
+    /* ignore local detail fetch errors */
+  }
+  try {
     const res = await api("/api/explorer/tx/" + encodeURIComponent(txid));
     if (res.error) {
       if (String(res.error).includes("EXPLORER_TX_API not set")) {
-        if (sub) sub.textContent = "Explorer API disabled (pure SPV/P2P mode).";
+        if (sub && !localDetail) sub.textContent = "Explorer API disabled (pure SPV/P2P mode).";
         return;
       }
       body.textContent =
-        JSON.stringify({ local_tx: localSummary, explorer_error: String(res.error) }, null, 2);
+        JSON.stringify(
+          { local_tx: localSummary, local_detail: localDetail, explorer_error: String(res.error) },
+          null,
+          2
+        );
       if (sub) sub.textContent = "Explorer request failed; local SPV/P2P details are shown above.";
     } else if (res.raw != null && typeof res.raw === "string") {
       body.textContent = JSON.stringify(
         {
           local_tx: localSummary,
+          local_detail: localDetail,
           explorer_raw: res.raw.slice(0, 500000),
         },
         null,
@@ -1026,6 +1056,7 @@ async function openTxDetailModal(tx) {
       body.textContent = JSON.stringify(
         {
           local_tx: localSummary,
+          local_detail: localDetail,
           explorer_data: payload,
         },
         null,
@@ -1036,7 +1067,7 @@ async function openTxDetailModal(tx) {
     }
   } catch (e) {
     body.textContent = JSON.stringify(
-      { local_tx: localSummary, explorer_error: String(e) },
+      { local_tx: localSummary, local_detail: localDetail, explorer_error: String(e) },
       null,
       2
     );

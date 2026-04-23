@@ -23,6 +23,7 @@ var (
 	reMempoolExplicit2 = regexp.MustCompile(`(?i)(?:^|\s)(\d{1,9})\s+transactions?\s+in\s+mempool`)
 	reMempoolExplicit3 = regexp.MustCompile(`(?i)\[(?:smpv|mempool)\][^\n]{0,120}(\d{1,9})\s*(?:tx|txn|transaction)`)
 	reSpvConfirmedLine = regexp.MustCompile(`(?i)\b(confirm|confirmed|confirmation|confirmations|merkle|inclusion|matched|proof|block|height|depth|chain)\b`)
+	reSpvRawTxLine     = regexp.MustCompile(`(?i)\bPQ_SPV_TX_RAW\b[^\n]{0,200}?\btxid=([a-f0-9]{64})\b[^\n]{0,200}?\braw=([a-f0-9]{64,})\b`)
 )
 
 // PeerConnectionInfo is parsed from libdogecoin net.c log lines (current / last handshake in the tail).
@@ -494,6 +495,32 @@ func parseSPVConfirmedTxids(log string) map[string]struct{} {
 			}
 			out[id] = struct{}{}
 		}
+	}
+	return out
+}
+
+// parseSPVRawTxHexByTxid extracts structured raw tx lines emitted by patched libdogecoin spvnode:
+// "PQ_SPV_TX_RAW txid=<64hex> raw=<hex...>".
+func parseSPVRawTxHexByTxid(log string) map[string]string {
+	out := make(map[string]string)
+	if strings.TrimSpace(log) == "" {
+		return out
+	}
+	for _, line := range strings.Split(log, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.Contains(line, "PQ_SPV_TX_RAW") {
+			continue
+		}
+		m := reSpvRawTxLine.FindStringSubmatch(line)
+		if len(m) != 3 {
+			continue
+		}
+		txid := normalizeTxid(m[1])
+		raw := strings.ToLower(strings.TrimSpace(m[2]))
+		if txid == "" || len(raw) < 64 || len(raw)%2 != 0 {
+			continue
+		}
+		out[txid] = raw
 	}
 	return out
 }

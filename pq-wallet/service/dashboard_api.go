@@ -48,9 +48,10 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	logTail, _ := spv["log_tail"].(string)
 	hdr := parseSPVLogHeaderInfo(logTail)
 	seenChanged := s.applySPVSeenTxids(st, logTail)
+	rawChanged := s.applySPVRawHex(st, logTail)
 	if s.applySPVConfirmations(st, logTail) {
 		_ = s.saveState(st)
-	} else if seenChanged {
+	} else if seenChanged || rawChanged {
 		_ = s.saveState(st)
 	}
 	if changed, err := s.maybeRotateHDReceiveAddress(wf, st); err == nil && changed {
@@ -257,7 +258,7 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 	spv := s.readSPVStatus()
 	if logTail, _ := spv["log_tail"].(string); logTail != "" {
 		changed := s.applySPVSeenTxids(st, logTail)
-		if s.applySPVConfirmations(st, logTail) || changed {
+		if s.applySPVConfirmations(st, logTail) || changed || s.applySPVRawHex(st, logTail) {
 			_ = s.saveState(st)
 		}
 	}
@@ -306,14 +307,19 @@ func floatFromAny(v any) float64 {
 
 // persistMemeTrackerTxs appends mempool-tracked txs to state so they remain listed after they leave the live mempool.
 func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any) bool {
-	existing := make(map[string]struct{}, len(st.Transactions))
-	for _, t := range st.Transactions {
-		id := normalizeTxid(t.Txid)
-		if id != "" {
-			existing[id] = struct{}{}
+	byTxid := make(map[string]int, len(st.Transactions))
+	for i := range st.Transactions {
+		id := normalizeTxid(st.Transactions[i].Txid)
+		if id == "" {
+			continue
+		}
+		st.Transactions[i].Txid = id
+		if _, ok := byTxid[id]; !ok {
+			byTxid[id] = i
 		}
 	}
 	var incoming []TxRecord
+	changed := false
 	for _, m := range mtrLive {
 		if !truthyAny(m["tracked_match"]) {
 			continue
@@ -322,24 +328,50 @@ func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any
 		if txid == "" {
 			continue
 		}
-		if _, ok := existing[txid]; ok {
+		amt := floatFromAny(m["amount_doge"])
+		rawHex := strings.TrimSpace(jsonStringAny(m["raw_hex"]))
+		if idx, ok := byTxid[txid]; ok {
+			row := &st.Transactions[idx]
+			if row.AmountDOGE == 0 && amt > 0 {
+				row.AmountDOGE = amt
+				changed = true
+			}
+			if row.RawHex == "" && rawHex != "" {
+				row.RawHex = rawHex
+				changed = true
+			}
+			if row.Direction == "" || strings.EqualFold(row.Direction, "unknown") {
+				row.Direction = "in"
+				changed = true
+			}
+			if row.Address == "" {
+				if addr := strings.TrimSpace(jsonStringAny(m["tracked_address"])); addr != "" {
+					row.Address = addr
+					changed = true
+				}
+			}
+			if row.Source == "" || strings.EqualFold(row.Source, "spv") {
+				row.Source = "memetracker"
+				changed = true
+			}
 			continue
 		}
-		existing[txid] = struct{}{}
 		incoming = append(incoming, TxRecord{
 			Txid:          txid,
 			Direction:     "in",
-			AmountDOGE:    floatFromAny(m["amount_doge"]),
+			AmountDOGE:    amt,
+			RawHex:        rawHex,
+			Address:       strings.TrimSpace(jsonStringAny(m["tracked_address"])),
 			Source:        "memetracker",
 			Confirmations: 0,
 			SeenAt:        time.Now().UTC(),
 		})
 	}
-	if len(incoming) == 0 {
-		return false
+	if len(incoming) > 0 {
+		st.Transactions = mergeTxRecords(st.Transactions, incoming)
+		changed = true
 	}
-	st.Transactions = mergeTxRecords(st.Transactions, incoming)
-	return true
+	return changed
 }
 
 func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []txListRow {
@@ -524,6 +556,29 @@ func (s *Server) applySPVConfirmations(st *WalletState, logTail string) bool {
 	return changed
 }
 
+func (s *Server) applySPVRawHex(st *WalletState, logTail string) bool {
+	byTxid := parseSPVRawTxHexByTxid(logTail)
+	if len(byTxid) == 0 {
+		return false
+	}
+	changed := false
+	for i := range st.Transactions {
+		id := normalizeTxid(st.Transactions[i].Txid)
+		if id == "" {
+			continue
+		}
+		raw := byTxid[id]
+		if raw == "" {
+			continue
+		}
+		if st.Transactions[i].RawHex == "" {
+			st.Transactions[i].RawHex = raw
+			changed = true
+		}
+	}
+	return changed
+}
+
 // applySPVSeenTxids ensures txids visible in SPV logs appear in state even when
 // explorer/mempool sources are unavailable.
 func (s *Server) applySPVSeenTxids(st *WalletState, logTail string) bool {
@@ -634,6 +689,7 @@ func (s *Server) backgroundMetricsLoop() {
 		spvTxSeen := parseSPVTxSeenCount(logTail)
 		_ = s.applySPVSeenTxids(st, logTail)
 		_ = s.applySPVConfirmations(st, logTail)
+		_ = s.applySPVRawHex(st, logTail)
 		mempoolRelay := 0
 		if eng, eerr := s.ensureMempoolEngine(wf); eerr == nil && eng != nil {
 			mempoolRelay, _, _, _ = eng.DashboardSnapshot()

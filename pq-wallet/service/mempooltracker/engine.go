@@ -1332,6 +1332,7 @@ type liveMempoolTx struct {
 	DoubleSpent  bool      `json:"double_spent"`
 	Address      string    `json:"address,omitempty"`
 	AmountDoge   float64   `json:"amount_doge,omitempty"`
+	RawHex       string    `json:"raw_hex,omitempty"`
 }
 
 func NewMetricsCollector(maxMempool int) *MetricsCollector {
@@ -1502,6 +1503,28 @@ func (m *MetricsCollector) markTrackedHit(txid, address string, amountDoge float
 	m.liveTxByID[txid] = row
 }
 
+func (m *MetricsCollector) setRawHex(txid, rawHex string) {
+	txid = strings.TrimSpace(txid)
+	rawHex = strings.TrimSpace(rawHex)
+	if txid == "" || rawHex == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	row, ok := m.liveTxByID[txid]
+	if !ok {
+		now := time.Now().UTC()
+		row = liveMempoolTx{
+			Txid:      txid,
+			FirstSeen: now,
+			LastSeen:  now,
+		}
+	}
+	row.LastSeen = time.Now().UTC()
+	row.RawHex = rawHex
+	m.liveTxByID[txid] = row
+}
+
 func (m *MetricsCollector) snapshot() (mempoolN int) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -1545,6 +1568,7 @@ func (m *MetricsCollector) snapshotLiveMempool(limit int) []map[string]any {
 			"double_spent":  row.DoubleSpent,
 			"address":       row.Address,
 			"amount_doge":   row.AmountDoge,
+			"raw_hex":       row.RawHex,
 		})
 	}
 	return out
@@ -1966,6 +1990,7 @@ readLoop:
 		case "tx":
 			txidEarly := txidHex(payload)
 			mcol.observeMempoolTxid(txidEarly)
+			mcol.setRawHex(txidEarly, hex.EncodeToString(payload))
 			logv("recv TX raw len=%d txid_le=%s", len(payload), txidEarly)
 
 			store.mu.RLock()

@@ -17,6 +17,7 @@ stdenv.mkDerivation rec {
     ./libdogecoin-libevent-hints.patch
     ./libdogecoin-with-net-link.patch
     ./libdogecoin-pq-peer-log.patch
+    ./libdogecoin-spv-tx-raw.patch
   ];
 
   nativeBuildInputs = [ cmake pkg-config ninja ];

@@ -15,6 +15,7 @@ type TxRecord struct {
 	Txid          string    `json:"txid"`
 	Direction     string    `json:"direction"` // in | out | unknown
 	AmountDOGE    float64   `json:"amount_doge"`
+	RawHex        string    `json:"raw_hex,omitempty"`
 	Address       string    `json:"address,omitempty"`
 	Confirmations int       `json:"confirmations"`
 	BlockHeight   int64     `json:"block_height,omitempty"`
@@ -123,6 +124,9 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 			}
 			if t.AmountDOGE != 0 && prev.AmountDOGE == 0 {
 				prev.AmountDOGE = t.AmountDOGE
+			}
+			if prev.RawHex == "" && t.RawHex != "" {
+				prev.RawHex = t.RawHex
 			}
 			if t.Direction != "" && t.Direction != "unknown" {
 				prev.Direction = t.Direction

@@ -182,6 +182,25 @@ func (s *Server) handleTxLocalDetail(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// Fallback: if state/live mempool don't have raw hex, scan a larger SPV log window
+	// for structured lines emitted by patched spvnode (PQ_SPV_TX_RAW ...).
+	if found != nil && strings.TrimSpace(found.RawHex) == "" {
+		if lb, err := readFileTail(s.spvLogPath(), 4*1024*1024); err == nil && strings.TrimSpace(lb) != "" {
+			if byTxid := parseSPVRawTxHexByTxid(lb); len(byTxid) > 0 {
+				if raw := strings.TrimSpace(byTxid[txid]); raw != "" {
+					found.RawHex = raw
+					// Persist for future reads so UI can show full detail consistently.
+					for i := range st.Transactions {
+						if normalizeTxid(st.Transactions[i].Txid) == txid && strings.TrimSpace(st.Transactions[i].RawHex) == "" {
+							st.Transactions[i].RawHex = raw
+							_ = s.saveState(st)
+							break
+						}
+					}
+				}
+			}
+		}
+	}
 
 	if found == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "tx not found in local state"})

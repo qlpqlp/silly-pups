@@ -492,7 +492,7 @@ func (s *Server) readSPVStatus() map[string]any {
 		out["spv_wallet_db_present"] = false
 	}
 	// Expose spv.log tail whenever the file exists so peer / height parsing works even if pid is stale.
-	if lb, err := readFileTail(logPath, 512*1024); err == nil {
+	if lb, err := readFileTail(logPath, 4*1024*1024); err == nil {
 		out["log_tail"] = lb
 	}
 	b, err := os.ReadFile(pidPath)

@@ -1,20 +1,20 @@
 --- a/src/spv.c
 +++ b/src/spv.c
-@@ -1331,6 +1331,17 @@ void dogecoin_net_spv_post_cmd(dogecoin_node *node, dogecoin_p2p_msg_hdr *hdr,
-                 char txid_hex[65];
-                 utils_bin_to_hex(txid, 32, txid_hex);
-                 client->nodegroup->log_write_cb("[merkle-tx] received tx %s (match_pending=%u)\n",
-                     txid_hex, client->merkle_match_pending);
-+                {
-+                    size_t raw_hex_len = ((size_t)hdr->data_len * 2u) + 1u;
-+                    char* raw_hex = (char*)dogecoin_calloc(1, raw_hex_len);
-+                    if (raw_hex) {
-+                        utils_bin_to_hex((unsigned char*)buf->p, (size_t)hdr->data_len, raw_hex);
-+                        client->nodegroup->log_write_cb("PQ_SPV_TX_RAW txid=%s raw=%s\n",
-+                            txid_hex, raw_hex);
-+                        dogecoin_free(raw_hex);
-+                    }
-+                }
+@@ -1332,7 +1332,17 @@ void dogecoin_net_spv_post_cmd(dogecoin_node *node, dogecoin_p2p_msg_hdr *hdr,
+  char txid_hex[65];
+  utils_bin_to_hex(txid, 32, txid_hex);
+  client->nodegroup->log_write_cb("[merkle-tx] received tx %s (match_pending=%u)\n",
+  txid_hex, client->merkle_match_pending);
++ {
++ size_t raw_hex_len = ((size_t)hdr->data_len * 2u) + 1u;
++ char* raw_hex = (char*)dogecoin_calloc(1, raw_hex_len);
++ if (raw_hex) {
++ utils_bin_to_hex((unsigned char*)buf->p, (size_t)hdr->data_len, raw_hex);
++ client->nodegroup->log_write_cb("PQ_SPV_TX_RAW txid=%s raw=%s\n",
++ txid_hex, raw_hex);
++ dogecoin_free(raw_hex);
++ }
++ }
  
-                 uint32_t match_pos = 0;
-                 if (dogecoin_bip37_merkle_match_consume(&client->merkle_match_tree,
+  uint32_t match_pos = 0;
+  if (dogecoin_bip37_merkle_match_consume(&client->merkle_match_tree,

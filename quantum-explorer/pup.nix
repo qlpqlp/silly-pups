@@ -5,7 +5,7 @@ let
 
   qe_bin = pkgs.buildGoModule {
     pname = "quantum-explorer";
-    version = "0.1.33";
+    version = "0.1.34";
     src = ./service;
     vendorHash = null;
     go = pkgs.go_1_24;
@@ -39,6 +39,17 @@ let
     export QE_EXPLORER_TX_API="''${QE_EXPLORER_TX_API:-}"
     export QE_ADMIN_USER="''${QE_ADMIN_USER:-shibe}"
     export QE_ADMIN_PASS="''${QE_ADMIN_PASS:-suchpass}"
+    # Dependency-aware Core RPC defaults:
+    # - when linked to CORE via interface "core-rpc", Dogebox injects DBX_IFACE_CORE_RPC_HOST/PORT
+    # - if user did not set QE_CORE_RPC_URL, auto-compose it from dependency host/port
+    # - keep username/password configurable, but provide sane defaults used by other pups
+    if [ -z "''${QE_CORE_RPC_URL:-}" ]; then
+      if [ -n "''${DBX_IFACE_CORE_RPC_HOST:-}" ] && [ -n "''${DBX_IFACE_CORE_RPC_PORT:-}" ]; then
+        export QE_CORE_RPC_URL="http://''${DBX_IFACE_CORE_RPC_HOST}:''${DBX_IFACE_CORE_RPC_PORT}"
+      fi
+    fi
+    export QE_CORE_RPC_USER="''${QE_CORE_RPC_USER:-dogebox_core_pup_temporary_static_username}"
+    export QE_CORE_RPC_PASSWORD="''${QE_CORE_RPC_PASSWORD:-dogebox_core_pup_temporary_static_password}"
 
     if [ -z "''${QE_POSTGRES_URL:-}" ]; then
       if [ ! -f "$PGDATA/PG_VERSION" ]; then

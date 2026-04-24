@@ -2,10 +2,11 @@
 
 let
   postgresql = pkgs.postgresql_16;
+  libdogecoinWithOqs = pkgs.callPackage ../pq-wallet/nix/libdogecoin.nix {};
 
   qe_bin = pkgs.buildGoModule {
     pname = "quantum-explorer";
-    version = "0.1.35";
+    version = "0.1.37";
     src = ./service;
     vendorHash = null;
     go = pkgs.go_1_24;
@@ -32,7 +33,8 @@ let
     mkdir -p "$SOCKET_DIR"
     PGPORT="''${PGPORT:-55432}"
 
-    export PATH="${postgresql}/bin:${pkgs.coreutils}/bin:${pkgs.gnugrep}/bin:$PATH"
+    export PATH="${libdogecoinWithOqs}/bin:${postgresql}/bin:${pkgs.coreutils}/bin:${pkgs.gnugrep}/bin:$PATH"
+    export QE_SUCH_PATH="''${QE_SUCH_PATH:-${libdogecoinWithOqs}/bin/such}"
     export PUBLIC_PORT="''${PUBLIC_PORT:-33666}"
     export QE_ADMIN_PORT="''${QE_ADMIN_PORT:-33667}"
     export NETWORK="''${NETWORK:-mainnet}"

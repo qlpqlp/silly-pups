@@ -39,12 +39,14 @@ func (a *app) publicMetrics(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 		if buckets, err := a.cidx.metricBuckets(ctx, hours); err == nil {
-			writeJSON(w, 200, map[string]any{
-				"hours":   hours,
-				"source":  "core_hourly_metrics",
-				"buckets": buckets,
-			})
-			return
+			if len(buckets) > 0 {
+				writeJSON(w, 200, map[string]any{
+					"hours":   hours,
+					"source":  "core_hourly_metrics",
+					"buckets": buckets,
+				})
+				return
+			}
 		}
 	}
 	allTime := hours <= 0
@@ -129,6 +131,57 @@ func (a *app) publicActivityBuckets(w http.ResponseWriter, r *http.Request) {
 	buckets, err := a.cidx.activityBuckets(ctx, hours)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	if len(buckets) == 0 {
+		allTime := hours <= 0
+		cutoff := time.Now().UTC().Add(-time.Duration(hours) * time.Hour)
+		byHour := map[string]map[string]int{}
+		rows := a.latest(10000)
+		for _, t := range rows {
+			ts := t.LastSeen
+			if strings.TrimSpace(ts) == "" {
+				ts = t.FirstSeen
+			}
+			if strings.TrimSpace(ts) == "" {
+				continue
+			}
+			tt, err := time.Parse(time.RFC3339, ts)
+			if err != nil || (!allTime && tt.Before(cutoff)) {
+				continue
+			}
+			k := tt.UTC().Format("2006-01-02T15:00:00Z")
+			b := byHour[k]
+			if b == nil {
+				b = map[string]int{
+					"transactions":   0,
+					"blocks":         0,
+					"wallet_creates": 0,
+				}
+				byHour[k] = b
+			}
+			b["transactions"]++
+		}
+		keys := make([]string, 0, len(byHour))
+		for k := range byHour {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		fallback := make([]map[string]any, 0, len(keys))
+		for _, k := range keys {
+			b := byHour[k]
+			fallback = append(fallback, map[string]any{
+				"hour":           k,
+				"transactions":   b["transactions"],
+				"blocks":         b["blocks"],
+				"wallet_creates": b["wallet_creates"],
+			})
+		}
+		writeJSON(w, 200, map[string]any{
+			"hours":   hours,
+			"source":  "pq_json_store",
+			"buckets": fallback,
+		})
 		return
 	}
 	normalized := make([]map[string]any, 0, len(buckets))

@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "meta": {
     "name": "Quantum Explorer",
-    "version": "0.1.35",
+    "version": "0.1.37",
     "logoPath": "logo.png",
     "shortDescription": "Dogecoin blockchain explorer with Core RPC indexer and PQ transaction metrics",
     "longDescription": "Quantum Explorer indexes Dogecoin blockchain data from Dogecoin Core RPC into local PostgreSQL tables and provides a public web explorer. Users can search by address, transaction id, block height, and block hash, then open detailed block and transaction views with decoded inputs, outputs, and OP_RETURN data. Quantum transactions are classified from decoded raw transaction bytes using OP_RETURN marker checks, with metrics and recent activity available in the interface.",
@@ -32,7 +32,8 @@
           { "name": "QE_CORE_INDEXER_AUTO_START", "label": "Start indexer with app (1=yes)", "type": "text", "default": "1" },
           { "name": "QE_CORE_BACKFILL_BATCH", "label": "Blocks per indexer batch", "type": "text", "default": "20" },
           { "name": "QE_CORE_RAW_BACKFILL_BATCH", "label": "Txs per idle pass to store raw hex in Postgres (getrawtransaction)", "type": "text", "default": "40" },
-          { "name": "QE_CORE_START_HEIGHT", "label": "Start height on fresh DB", "type": "text", "default": "6147099" }
+          { "name": "QE_CORE_START_HEIGHT", "label": "Start height on fresh DB", "type": "text", "default": "6147099" },
+          { "name": "QE_SUCH_PATH", "label": "Optional path to libdogecoin such binary (Falcon verify)", "type": "text", "default": "" }
         ]
       },
       {
@@ -60,7 +61,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "1b711a5bd6b1b8762d7f65fa02717f8ab495f5c4a39de30d72c5a16dd5862486"
+      "nixFileSha256": "fc1776769698b7c2b051584c55a72da6931fbcb985ae6e0c8fd3d36e8b84e31f"
     },
     "services": [
       {
@@ -83,7 +84,7 @@
   "interfaces": [
     {
       "name": "quantum-explorer-public",
-      "version": "0.1.35",
+      "version": "0.1.37",
       "permissionGroups": [
         {
           "name": "Quantum Explorer HTTP",

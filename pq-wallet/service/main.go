@@ -28,10 +28,10 @@ import (
 var staticFS embed.FS
 
 // pqWalletAppVersion is shown in /api/health, education JSON, and the UI footer (keep in sync with manifest.json).
-const pqWalletAppVersion = "0.0.29"
+const pqWalletAppVersion = "0.0.30"
 
 // pqWalletBuildHash is a release fingerprint (SHA-256 hex of "pq-wallet-<version>"); bump when cutting a release.
-const pqWalletBuildHash = "9f8466376b12886bf3a6dc7cb946948d399504ea2600e6e97b0e68e0fd898282"
+const pqWalletBuildHash = "d81ae32cd22d69ba4fcc3057e996909e65aa442f1210043368f0cec6905b1203"
 
 type Server struct {
 	mu            sync.Mutex

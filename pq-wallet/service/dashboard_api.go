@@ -49,9 +49,10 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	hdr := parseSPVLogHeaderInfo(logTail)
 	seenChanged := s.applySPVSeenTxids(st, logTail)
 	rawChanged := s.applySPVRawHex(st, logTail)
+	enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
 	if s.applySPVConfirmations(st, logTail) {
 		_ = s.saveState(st)
-	} else if seenChanged || rawChanged {
+	} else if seenChanged || rawChanged || enrichedChanged {
 		_ = s.saveState(st)
 	}
 	if changed, err := s.maybeRotateHDReceiveAddress(wf, st); err == nil && changed {
@@ -110,7 +111,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		mtrEngErr = engErr.Error()
 	}
 	if eng != nil && engErr == nil {
-		if s.persistMemeTrackerTxs(st, mtrLive) {
+		if s.persistMemeTrackerTxs(st, mtrLive) || s.enrichSPVTxFromRawHex(st, wf) {
 			_ = s.saveState(st)
 		}
 	}
@@ -258,7 +259,9 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 	spv := s.readSPVStatus()
 	if logTail, _ := spv["log_tail"].(string); logTail != "" {
 		changed := s.applySPVSeenTxids(st, logTail)
-		if s.applySPVConfirmations(st, logTail) || changed || s.applySPVRawHex(st, logTail) {
+		rawChanged := s.applySPVRawHex(st, logTail)
+		enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
+		if s.applySPVConfirmations(st, logTail) || changed || rawChanged || enrichedChanged {
 			_ = s.saveState(st)
 		}
 	}
@@ -562,11 +565,13 @@ func (s *Server) applySPVRawHex(st *WalletState, logTail string) bool {
 		return false
 	}
 	changed := false
+	existing := make(map[string]struct{}, len(st.Transactions))
 	for i := range st.Transactions {
 		id := normalizeTxid(st.Transactions[i].Txid)
 		if id == "" {
 			continue
 		}
+		existing[id] = struct{}{}
 		raw := byTxid[id]
 		if raw == "" {
 			continue
@@ -575,6 +580,26 @@ func (s *Server) applySPVRawHex(st *WalletState, logTail string) bool {
 			st.Transactions[i].RawHex = raw
 			changed = true
 		}
+	}
+	now := time.Now().UTC()
+	for id, raw := range byTxid {
+		if id == "" || raw == "" {
+			continue
+		}
+		if _, ok := existing[id]; ok {
+			continue
+		}
+		st.Transactions = append(st.Transactions, TxRecord{
+			Txid:          id,
+			Direction:     "unknown",
+			AmountDOGE:    0,
+			RawHex:        raw,
+			Confirmations: 0,
+			Source:        "spv",
+			SeenAt:        now,
+		})
+		existing[id] = struct{}{}
+		changed = true
 	}
 	return changed
 }
@@ -690,6 +715,7 @@ func (s *Server) backgroundMetricsLoop() {
 		_ = s.applySPVSeenTxids(st, logTail)
 		_ = s.applySPVConfirmations(st, logTail)
 		_ = s.applySPVRawHex(st, logTail)
+		_ = s.enrichSPVTxFromRawHex(st, wf)
 		mempoolRelay := 0
 		if eng, eerr := s.ensureMempoolEngine(wf); eerr == nil && eng != nil {
 			mempoolRelay, _, _, _ = eng.DashboardSnapshot()

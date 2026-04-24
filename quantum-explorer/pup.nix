@@ -5,7 +5,7 @@ let
 
   qe_bin = pkgs.buildGoModule {
     pname = "quantum-explorer";
-    version = "0.1.34";
+    version = "0.1.35";
     src = ./service;
     vendorHash = null;
     go = pkgs.go_1_24;
@@ -42,14 +42,35 @@ let
     # Dependency-aware Core RPC defaults:
     # - when linked to CORE via interface "core-rpc", Dogebox injects DBX_IFACE_CORE_RPC_HOST/PORT
     # - if user did not set QE_CORE_RPC_URL, auto-compose it from dependency host/port
-    # - keep username/password configurable, but provide sane defaults used by other pups
+    # - credentials can still be overridden manually via QE_CORE_RPC_USER/QE_CORE_RPC_PASSWORD
+    # - when available, also consume dependency-provided credential envs
     if [ -z "''${QE_CORE_RPC_URL:-}" ]; then
       if [ -n "''${DBX_IFACE_CORE_RPC_HOST:-}" ] && [ -n "''${DBX_IFACE_CORE_RPC_PORT:-}" ]; then
         export QE_CORE_RPC_URL="http://''${DBX_IFACE_CORE_RPC_HOST}:''${DBX_IFACE_CORE_RPC_PORT}"
       fi
     fi
-    export QE_CORE_RPC_USER="''${QE_CORE_RPC_USER:-dogebox_core_pup_temporary_static_username}"
-    export QE_CORE_RPC_PASSWORD="''${QE_CORE_RPC_PASSWORD:-dogebox_core_pup_temporary_static_password}"
+    if [ -z "''${QE_CORE_RPC_USER:-}" ]; then
+      if [ -n "''${DBX_IFACE_CORE_RPC_USER:-}" ]; then
+        export QE_CORE_RPC_USER="$DBX_IFACE_CORE_RPC_USER"
+      elif [ -n "''${DBX_IFACE_CORE_RPC_USERNAME:-}" ]; then
+        export QE_CORE_RPC_USER="$DBX_IFACE_CORE_RPC_USERNAME"
+      elif [ -n "''${CORE_RPC_USER:-}" ]; then
+        export QE_CORE_RPC_USER="$CORE_RPC_USER"
+      else
+        export QE_CORE_RPC_USER="dogebox_core_pup_temporary_static_username"
+      fi
+    fi
+    if [ -z "''${QE_CORE_RPC_PASSWORD:-}" ]; then
+      if [ -n "''${DBX_IFACE_CORE_RPC_PASSWORD:-}" ]; then
+        export QE_CORE_RPC_PASSWORD="$DBX_IFACE_CORE_RPC_PASSWORD"
+      elif [ -n "''${DBX_IFACE_CORE_RPC_PASS:-}" ]; then
+        export QE_CORE_RPC_PASSWORD="$DBX_IFACE_CORE_RPC_PASS"
+      elif [ -n "''${CORE_RPC_PASSWORD:-}" ]; then
+        export QE_CORE_RPC_PASSWORD="$CORE_RPC_PASSWORD"
+      else
+        export QE_CORE_RPC_PASSWORD="dogebox_core_pup_temporary_static_password"
+      fi
+    fi
 
     if [ -z "''${QE_POSTGRES_URL:-}" ]; then
       if [ ! -f "$PGDATA/PG_VERSION" ]; then

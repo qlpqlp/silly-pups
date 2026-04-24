@@ -1,0 +1,23 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -214,6 +214,8 @@
+ ENDIF()
+ IF(USE_LIBOQS)
+     ADD_DEFINITIONS(-DUSE_LIBOQS=1)
++    find_package(PkgConfig REQUIRED)
++    pkg_check_modules(OQS REQUIRED liboqs)
+ ENDIF()
+ IF(TEST_PASSWD)
+     ADD_DEFINITIONS(-DTEST_PASSWD=1)
+@@ -312,6 +314,11 @@
+     src/pqc_falcon.c
+ )
+ ENDIF()
++IF(USE_LIBOQS)
++    target_include_directories(${LIBDOGECOIN_NAME} PUBLIC ${OQS_INCLUDE_DIRS})
++    target_link_libraries(${LIBDOGECOIN_NAME} PUBLIC ${OQS_LIBRARIES})
++ENDIF()
++
+ TARGET_SOURCES(${LIBDOGECOIN_NAME} PUBLIC
+     src/chainparams.c
+ )

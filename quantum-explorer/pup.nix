@@ -2,11 +2,11 @@
 
 let
   postgresql = pkgs.postgresql_16;
-  libdogecoinWithOqs = pkgs.callPackage ../pq-wallet/nix/libdogecoin.nix {};
+  libdogecoinWithOqs = pkgs.callPackage ./nix/libdogecoin.nix {};
 
   qe_bin = pkgs.buildGoModule {
     pname = "quantum-explorer";
-    version = "0.1.37";
+    version = "0.1.38";
     src = ./service;
     vendorHash = null;
     go = pkgs.go_1_24;

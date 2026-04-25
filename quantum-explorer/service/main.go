@@ -26,9 +26,10 @@ import (
 var staticFS embed.FS
 
 // qeAppVersion is shown in the public UI and /api/public/status (keep in sync with manifest.json).
-const qeAppVersion = "0.1.38"
+const qeAppVersion = "0.1.39"
+
 // qeAppBuildHash is a release fingerprint (SHA-256 hex of "quantum-explorer-<version>"); bump when cutting a release.
-const qeAppBuildHash = "03e13a7196eb77f600cd8a944c635ebfef9fddd81d03f863f3bea334fdf532e1"
+const qeAppBuildHash = "18c1dab505ec7fb157ec091772f4700427958a2a2e8287983c048be682a6c9c0"
 
 type Checkpoint struct {
 	Height    int    `json:"height"`
@@ -850,6 +851,54 @@ func (a *app) enrichCarrierVerification(ctx context.Context, pq map[string]any, 
 	return pq
 }
 
+func strictCommitmentFromPQ(pq map[string]any) (algoTag, commitment32 string, ok bool) {
+	if pq == nil {
+		return "", "", false
+	}
+	strict, _ := pq["strict"].(map[string]any)
+	ev, _ := strict["evidence"].([]string)
+	if len(ev) == 0 {
+		rawEv, _ := strict["evidence"].([]any)
+		for _, v := range rawEv {
+			ev = append(ev, fmt.Sprint(v))
+		}
+	}
+	for _, e := range ev {
+		e = strings.TrimSpace(e)
+		switch {
+		case strings.HasPrefix(e, "phase1_tag:"):
+			algoTag = strings.TrimSpace(strings.TrimPrefix(e, "phase1_tag:"))
+		case strings.HasPrefix(e, "commitment32:"):
+			commitment32 = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(e, "commitment32:")))
+		}
+	}
+	if len(commitment32) != 64 || !isHex64String(commitment32) {
+		return "", "", false
+	}
+	return strings.ToUpper(strings.TrimSpace(algoTag)), commitment32, true
+}
+
+func (a *app) enrichReverseCarrierVerification(ctx context.Context, pq map[string]any, txid string, blockHeight int64) map[string]any {
+	if a == nil || a.cidx == nil || pq == nil || blockHeight < 0 {
+		return pq
+	}
+	algo, commit, ok := strictCommitmentFromPQ(pq)
+	if !ok {
+		return pq
+	}
+	match, err := a.cidx.findCarrierRevealByCommitment(ctx, commit, txid, blockHeight)
+	if err != nil || match == nil {
+		return pq
+	}
+	match["commitment32"] = commit
+	match["matched_txc_txid"] = strings.ToLower(strings.TrimSpace(txid))
+	if algo != "" {
+		match["algorithm"] = algo
+	}
+	pq["carrier_reverse_phase1"] = match
+	return pq
+}
+
 func (a *app) enrichDecodeWithPrevouts(ctx context.Context, pq map[string]any) map[string]any {
 	if a == nil || a.cidx == nil || pq == nil {
 		return pq
@@ -1240,6 +1289,7 @@ func (a *app) publicTxDetail(w http.ResponseWriter, r *http.Request) {
 			pq := buildPQVerificationDetail(rawHex, net)
 			pq = a.enrichDecodeWithPrevouts(ctx, pq)
 			pq = a.enrichCarrierVerification(ctx, pq, q, blkH, rawHex)
+			pq = a.enrichReverseCarrierVerification(ctx, pq, q, blkH)
 			writeJSON(w, 200, map[string]any{
 				"source":          "core_index",
 				"tx":              &cp,
@@ -1279,6 +1329,7 @@ func (a *app) publicTxDetail(w http.ResponseWriter, r *http.Request) {
 		_, _, _, blkH, _, _, _, okRow, _ := a.cidx.txRowByID(ctx, q)
 		if okRow {
 			pq = a.enrichCarrierVerification(ctx, pq, q, blkH, rawHex)
+			pq = a.enrichReverseCarrierVerification(ctx, pq, q, blkH)
 		}
 		cancel()
 	}
@@ -1464,6 +1515,7 @@ func (a *app) adminCoreInspect(w http.ResponseWriter, r *http.Request) {
 				if pq, ok := row["pq_verification"].(map[string]any); ok {
 					pq = a.enrichDecodeWithPrevouts(ctx, pq)
 					pq = a.enrichCarrierVerification(ctx, pq, txid, blkHeight, rawHex)
+					pq = a.enrichReverseCarrierVerification(ctx, pq, txid, blkHeight)
 					row["pq_verification"] = pq
 				}
 			}

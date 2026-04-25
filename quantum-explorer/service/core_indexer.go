@@ -1537,6 +1537,68 @@ func (ix *coreIndexer) blockTxRows(ctx context.Context, blockHeight int64) ([]ma
 	return out, rows.Err()
 }
 
+// findCarrierRevealByCommitment scans indexed raw transactions after TX_C and returns first TX_R
+// whose carrier payload hashes to commitment32 and matches txcTxid.
+func (ix *coreIndexer) findCarrierRevealByCommitment(ctx context.Context, commitment32, txcTxid string, txcBlockHeight int64) (map[string]any, error) {
+	if ix == nil || ix.db == nil || txcBlockHeight < 0 {
+		return nil, nil
+	}
+	commitment32 = strings.ToLower(strings.TrimSpace(commitment32))
+	txcTxid = strings.ToLower(strings.TrimSpace(txcTxid))
+	if len(commitment32) != 64 || !isHex64String(commitment32) || len(txcTxid) != 64 || !isHex64String(txcTxid) {
+		return nil, nil
+	}
+	maxH := txcBlockHeight + pqCarrierCommitmentLookbackBlocks()
+	if maxH < txcBlockHeight {
+		maxH = txcBlockHeight
+	}
+	rows, err := ix.db.QueryContext(ctx, `SELECT txid, raw_hex, block_height
+		FROM qe_core_txs
+		WHERE block_height >= $1 AND block_height <= $2
+		AND txid <> $3
+		AND LENGTH(TRIM(COALESCE(raw_hex,''))) > 0
+		ORDER BY block_height ASC, txid ASC`, txcBlockHeight, maxH, txcTxid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	commitments := map[string]map[string]any{
+		commitment32: {
+			"txid":         txcTxid,
+			"tag":          "FLC1",
+			"block_height": txcBlockHeight,
+		},
+	}
+	for rows.Next() {
+		var txid, raw string
+		var bh int64
+		if err := rows.Scan(&txid, &raw, &bh); err != nil {
+			return nil, err
+		}
+		txid = strings.ToLower(strings.TrimSpace(txid))
+		raw = strings.TrimSpace(raw)
+		if txid == "" || raw == "" {
+			continue
+		}
+		car := verifyCarrierPhase1(raw, commitments)
+		if v, _ := car["verified"].(bool); !v {
+			continue
+		}
+		mt := strings.ToLower(strings.TrimSpace(fmt.Sprint(car["matched_txc_txid"])))
+		if mt != txcTxid {
+			continue
+		}
+		return map[string]any{
+			"matched_txr_txid":         txid,
+			"matched_txr_block_height": bh,
+			"algorithm":                car["algorithm"],
+			"carrier_tag":              car["carrier_tag"],
+			"carrier_input_index":      car["carrier_input_index"],
+		}, nil
+	}
+	return nil, rows.Err()
+}
+
 func (ix *coreIndexer) backfillRawHex(ctx context.Context, txid, rawHex string) error {
 	if ix == nil || ix.db == nil || strings.TrimSpace(rawHex) == "" {
 		return nil

@@ -471,8 +471,17 @@
       return (n / 1e8).toFixed(8) + " DOGE";
     }
 
-    function quantumVisual(state){
+    function quantumVisual(state, pq){
       const s = String(state || "");
+      const carrier = (pq && pq.carrier_phase1) || {};
+      const falcon = (carrier && carrier.falcon_crypto_verify) || {};
+      const falconPassed = String(falcon.status || "").toLowerCase() === "passed";
+      if (carrier.verified && falconPassed) {
+        return { cls: "quantum", title: "Post-quantum verified (carrier + Falcon)", sub: "Carrier commitment linked to TX_C and Falcon signature verification passed.", icon: "verified" };
+      }
+      if (carrier.verified && s === "invalid-quantum") {
+        return { cls: "quantum", title: "Carrier-linked transaction (TX_R)", sub: "carrier-linked (TX_R) but strict-opreturn-invalid + falcon-verify-failed", icon: "hub" };
+      }
       if (s === "quantum") return { cls: "quantum", title: "Post-quantum transaction", sub: "OP_RETURN markers match the explorer’s PQ commitment rules.", icon: "verified" };
       if (s === "invalid-quantum") return { cls: "invalid", title: "Post-quantum payload flagged", sub: "Commitment data present but markers did not validate as expected.", icon: "warning" };
       return { cls: "standard", title: "Standard transaction", sub: "No post-quantum markers detected in decoded raw bytes.", icon: "receipt_long" };
@@ -661,7 +670,7 @@
     }
 
     function renderPQBlock(rows){
-      const filtered = (Array.isArray(rows) ? rows : []).filter(t => t && t.pq_valid);
+      const filtered = (Array.isArray(rows) ? rows : []).filter(t => t && (t.pq_valid || t.carrier_verified));
       const rowsEl = document.getElementById("pq-block-rows");
       const ctx = document.getElementById("pq-block-context");
       const bb = document.getElementById("pq-block-badges");
@@ -682,18 +691,35 @@
       const moreBtn = document.getElementById("btn-pq-more");
       if (moreBtn) moreBtn.style.display = visibleRows.length < filtered.length ? "" : "none";
       rowsEl.innerHTML = visibleRows.map(t => `
-        <button type="button" class="pq-tx-row" data-txid="${esc(t.txid)}">
+        <div class="pq-tx-row clickable" data-txid="${esc(t.txid)}" tabindex="0">
           <div class="mono"><span class="material-symbols-outlined tx-type-ico" title="${esc(txTypeLabel(t))}" aria-hidden="true">${txTypeIcon(t)}</span>${esc(t.txid)}</div>
           <div class="badges" style="margin:.4rem 0">
             ${badge(t.confirmed ? "confirmed":"pending", t.confirmed ? "Confirmed":"Pending")}
-            ${badge(t.pq_valid ? "pq-ok":"pq-bad", t.pq_valid ? "PQ valid":"PQ invalid")}
+            ${badge(t.pq_valid || t.carrier_verified ? "pq-ok":"pq-bad", t.pq_valid ? "PQ valid" : (t.carrier_verified ? "Carrier-linked (TX_R)" : "PQ invalid"))}
+            ${badge(t.falcon_status === "passed" ? "pq-ok" : (t.falcon_status === "failed" || t.falcon_status === "error" ? "pq-bad" : ""), `Falcon ${t.falcon_status || "n/a"}`)}
             ${badge("", (t.pq_score ?? 0) + "% PQ")}
           </div>
           <div class="row-meta">Block ${esc(String(t.block_height ?? "—"))} · ${esc(t.last_seen || t.first_seen || "—")} · Verifier: ${esc(t.verifier || "strict-v1")}</div>
+          <div class="row-meta" style="margin-top:.2rem">
+            ${t.matched_txc_txid ? `TX_C <button type="button" class="link-tx" data-open-txid="${esc(t.matched_txc_txid)}">${esc(t.matched_txc_txid.slice(0, 16))}…</button>` : ""}
+            ${t.matched_txr_txid ? `TX_R <button type="button" class="link-tx" data-open-txid="${esc(t.matched_txr_txid)}">${esc(t.matched_txr_txid.slice(0, 16))}…</button>` : ""}
+          </div>
           <div class="row-meta pq-bad" style="margin-top:.2rem">${t.pq_reason ? esc(t.pq_reason) : ""}</div>
-        </button>`).join("");
+        </div>`).join("");
       rowsEl.querySelectorAll(".pq-tx-row").forEach(btn => {
         btn.onclick = () => openTxDetail(btn.getAttribute("data-txid"), true);
+        btn.onkeydown = (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            openTxDetail(btn.getAttribute("data-txid"), true);
+          }
+        };
+      });
+      rowsEl.querySelectorAll(".pq-tx-row .link-tx").forEach(btn => {
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          openTxDetail(btn.getAttribute("data-open-txid"), true);
+        };
       });
     }
 
@@ -758,25 +784,17 @@
       }
       const last = buckets[buckets.length - 1] || {};
       const qd = seriesToChartData(buckets, "quantum");
-      const nqd = seriesToChartData(buckets, "non_quantum");
       if (!document.getElementById("qe-chart-m-q")) {
         el.innerHTML = `
           <div class="wave-card">
             <div class="wave-head"><strong>Quantum transactions</strong><span id="qe-m-latest-q">Latest: 0</span></div>
             <div class="chart-canvas-wrap"><canvas id="qe-chart-m-q" height="140"></canvas></div>
-          </div>
-          <div class="wave-card">
-            <div class="wave-head"><strong>Non-quantum transactions</strong><span id="qe-m-latest-nq">Latest: 0</span></div>
-            <div class="chart-canvas-wrap"><canvas id="qe-chart-m-nq" height="140"></canvas></div>
           </div>`;
       }
       const qLatest = document.getElementById("qe-m-latest-q");
       if (qLatest) qLatest.textContent = `Latest: ${Number(last.quantum || 0)}`;
-      const nqLatest = document.getElementById("qe-m-latest-nq");
-      if (nqLatest) nqLatest.textContent = `Latest: ${Number(last.non_quantum || 0)}`;
       requestAnimationFrame(() => {
         qeUpsertLineChart("qe-chart-m-q", "Quantum", qd.labels, qd.data, "#63c7ff");
-        qeUpsertLineChart("qe-chart-m-nq", "Non-quantum", nqd.labels, nqd.data, "#ff8f8f");
       });
     }
 
@@ -940,9 +958,10 @@
       const core = r.d.core || {};
       const fromCore = r.d.source === "core_index";
       const qState = core.quantum_state || (tx.pq_valid ? "quantum" : "non-quantum");
-      const vis = fromCore ? quantumVisual(qState) : (tx.pq_valid
+      const vis = fromCore ? quantumVisual(qState, pq) : (tx.pq_valid
         ? { cls: "quantum", title: "Post-quantum (local classifier)", sub: "PQ valid flag from local index.", icon: "verified" }
         : { cls: "standard", title: "Transaction", sub: "From local PQ store.", icon: "receipt_long" });
+      const reverseCarrier = pq.carrier_reverse_phase1 || {};
       title.textContent = "Transaction";
       body.innerHTML = `
         <div class="detail-section" style="border-top:none;padding-top:0">
@@ -991,6 +1010,11 @@
             ${carrier.commitment_lookback_blocks != null ? `<div class="detail-kv muted" style="font-size:.76rem"><strong>TX_C search</strong> last ${esc(String(carrier.commitment_lookback_blocks))} blocks · ${esc(String(carrier.indexed_commitment_count ?? "—"))} commitment(s) in map</div>` : ""}
             ${carrier.reason ? `<div class="detail-kv muted" style="font-size:.78rem">${esc(String(carrier.reason))}</div>` : ""}
             ${renderFalconCryptoVerify(carrier.falcon_crypto_verify)}
+          </div>` : ""}
+          ${reverseCarrier.matched_txr_txid ? `<div class="tx-io-card" style="margin-top:.45rem">
+            <strong>Reverse carrier link (TX_C → TX_R)</strong>
+            <div class="detail-kv" style="margin-top:.35rem">This Phase-1 commitment is also referenced by a carrier reveal transaction.</div>
+            <div class="detail-kv mono"><strong>Matched TX_R</strong> <button type="button" class="link-tx" data-open-txid="${esc(String(reverseCarrier.matched_txr_txid))}">${esc(String(reverseCarrier.matched_txr_txid))}</button>${reverseCarrier.matched_txr_block_height != null ? ` <span class="muted">(block ${esc(String(reverseCarrier.matched_txr_block_height))})</span>` : ""}</div>
           </div>` : ""}
         </div>`;
       initTxTabs(body);
@@ -1166,16 +1190,24 @@
 
     function mapQuantumRow(x){
       const when = x.time_unix ? new Date(Number(x.time_unix) * 1000).toISOString() : "";
+      const pq = (x && x.pq_verification) || {};
+      const car = (pq && pq.carrier_phase1) || {};
+      const fcv = (car && car.falcon_crypto_verify) || {};
+      const falconStatus = String(x.falcon_status || fcv.status || "").toLowerCase();
       return {
         txid: x.txid,
         block_height: x.block_height,
         confirmed: true,
-        pq_valid: true,
+        pq_valid: String(x.quantum_state || "").toLowerCase() === "quantum",
+        carrier_verified: !!car.verified,
         pq_score: 100,
         pq_reason: x.pq_reason || "PQ marker recognized",
         verifier: "strict-v1",
         first_seen: when,
-        last_seen: when
+        last_seen: when,
+        falcon_status: falconStatus || "",
+        matched_txc_txid: String(x.matched_txc_txid || ""),
+        matched_txr_txid: String(x.matched_txr_txid || "")
       };
     }
 
@@ -1277,7 +1309,7 @@
       const pMetrics = j("/api/public/metrics?hours=" + hoursQ);
       const pActivity = j("/api/public/activity-buckets?hours=" + hoursQ);
       const needBlocks = !!(ex.enabled) && (!Array.isArray(ex.recent_blocks) || ex.recent_blocks.length < blocksVisibleCount);
-      const needQuantum = !!(ex.enabled) && (!Array.isArray(ex.recent_quantum) || ex.recent_quantum.length === 0);
+      const needQuantum = !!(ex.enabled);
       const pBlocks = needBlocks ? j("/api/public/core/recent-blocks?limit=" + encodeURIComponent(String(blocksVisibleCount))) : Promise.resolve({ ok: true, d: {} });
       const pQuantum = needQuantum ? j("/api/public/core/recent-txs?mode=quantum&limit=120") : Promise.resolve({ ok: true, d: {} });
       const [mr, ar, rb, rr] = await Promise.all([pMetrics, pActivity, pBlocks, pQuantum]);
@@ -1286,7 +1318,7 @@
           latestBlockRows = rb.d.rows;
           renderExplorerBlocks(ex);
         }
-        if (needQuantum && rr.ok && Array.isArray(rr.d.rows) && rr.d.rows.length) {
+        if (rr.ok && Array.isArray(rr.d.rows) && rr.d.rows.length) {
           latestPQRows = rr.d.rows.map(mapQuantumRow);
           renderPQBlock(latestPQRows);
         }

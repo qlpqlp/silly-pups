@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -83,18 +84,78 @@ func (a *app) publicCoreRecentTxs(w http.ResponseWriter, r *http.Request) {
 		limit = n
 	}
 	mode := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("mode")))
-	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+	fetchLimit := limit
+	if mode == "quantum" {
+		fetchLimit = limit * 4
+		if fetchLimit > 500 {
+			fetchLimit = 500
+		}
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	rows, err := a.cidx.recentTransactions(ctx, limit, mode)
+	rows, err := a.cidx.recentTransactions(ctx, fetchLimit, "")
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
+	}
+	net := strings.ToLower(strings.TrimSpace(a.cfg.Network))
+	enriched := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		txid := strings.ToLower(strings.TrimSpace(rowString(row, "txid")))
+		if len(txid) != 64 || !isHex64String(txid) {
+			continue
+		}
+		rawHex, qState, pqReason, blkH, _, _, _, okRow, err := a.cidx.txRowByID(ctx, txid)
+		if err != nil || !okRow {
+			continue
+		}
+		row["quantum_state"] = qState
+		row["pq_reason"] = pqReason
+		pq := buildPQVerificationDetail(rawHex, net)
+		pq = a.enrichDecodeWithPrevouts(ctx, pq)
+		pq = a.enrichCarrierVerification(ctx, pq, txid, blkH, rawHex)
+		pq = a.enrichReverseCarrierVerification(ctx, pq, txid, blkH)
+		row["pq_verification"] = pq
+		if car, ok := pq["carrier_phase1"].(map[string]any); ok {
+			if fcv, ok := car["falcon_crypto_verify"].(map[string]any); ok {
+				row["falcon_status"] = strings.ToLower(strings.TrimSpace(rowString(fcv, "status")))
+			}
+			row["matched_txc_txid"] = strings.ToLower(strings.TrimSpace(rowString(car, "matched_txc_txid")))
+		}
+		if rev, ok := pq["carrier_reverse_phase1"].(map[string]any); ok {
+			row["matched_txr_txid"] = strings.ToLower(strings.TrimSpace(rowString(rev, "matched_txr_txid")))
+		}
+		enriched = append(enriched, row)
+	}
+	rows = enriched
+	if mode == "quantum" {
+		filtered := make([]map[string]any, 0, len(rows))
+		for _, row := range rows {
+			if rowHasQuantumPQ(row) {
+				filtered = append(filtered, row)
+				continue
+			}
+			if strings.EqualFold(rowString(row, "quantum_state"), "quantum") {
+				filtered = append(filtered, row)
+			}
+		}
+		rows = filtered
+	}
+	if len(rows) > limit {
+		rows = rows[:limit]
 	}
 	writeJSON(w, 200, map[string]any{
 		"rows":  rows,
 		"limit": limit,
 		"mode":  mode,
 	})
+}
+
+func rowString(m map[string]any, key string) string {
+	if m == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(m[key]))
 }
 
 func (a *app) publicCoreRecentBlocks(w http.ResponseWriter, r *http.Request) {

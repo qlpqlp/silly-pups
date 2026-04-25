@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -25,6 +26,7 @@ var (
 	reSuchPubKeyHex   = regexp.MustCompile(`(?i)public key hex:\s*([0-9a-f]+)`)
 	reSuchP2PKHAddr   = regexp.MustCompile(`(?i)p2pkh address:\s*(\S+)`)
 	reSuchAnyHexValue = regexp.MustCompile(`(?i)\b([0-9a-f]{64,})\b`)
+	reSuchUTXOLine    = regexp.MustCompile(`(?i)\btxid[=: ]+([a-f0-9]{64})\b.*?\bvout[=: ]+(\d+)\b.*?\b(?:value|amount|koinu|satoshis)[=: ]+(-?\d+(?:\.\d+)?)`)
 )
 
 // runSuchP2PKHWallet runs `such -c generate_private_key` then `such -c generate_public_key -p <WIF>` (libdogecoin ECC + base58).
@@ -274,6 +276,131 @@ func (s *Server) runSuchFalconSign(msgHex, privHex string, testnet bool) (string
 		return "", fmt.Errorf("falcon signature parse failed")
 	}
 	return strings.ToLower(strings.TrimSpace(best)), nil
+}
+
+// runSuchListUnspent tries to use a native libdogecoin/such unspent query command.
+// If the current such build does not support it, caller should fallback to local sqlite parsing.
+func (s *Server) runSuchListUnspent(address string, testnet bool) ([]ExplorerUTXO, error) {
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return nil, fmt.Errorf("empty address")
+	}
+	spvWalletDB := filepath.Join(s.storageDir, "spv_wallet.db")
+	args := []string{
+		"-c", "list_unspent",
+		"-a", address,
+		"-w", spvWalletDB,
+	}
+	if testnet {
+		args = append([]string{"-t"}, args...)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, s.suchPath(), args...)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("such list_unspent unavailable: %w — %s", err, truncateStr(out.String(), 600))
+	}
+	return parseSuchListUnspentOutput(out.String())
+}
+
+func parseSuchListUnspentOutput(raw string) ([]ExplorerUTXO, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, fmt.Errorf("empty such list_unspent output")
+	}
+	if strings.HasPrefix(raw, "{") || strings.HasPrefix(raw, "[") {
+		if utxos, err := parseSuchListUnspentJSON(raw); err == nil && len(utxos) > 0 {
+			return utxos, nil
+		}
+	}
+	var out []ExplorerUTXO
+	for _, ln := range strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n") {
+		ln = strings.TrimSpace(ln)
+		if ln == "" {
+			continue
+		}
+		m := reSuchUTXOLine.FindStringSubmatch(ln)
+		if len(m) < 4 {
+			continue
+		}
+		txid := normalizeTxid(m[1])
+		if txid == "" {
+			continue
+		}
+		vout, err := strconv.ParseUint(strings.TrimSpace(m[2]), 10, 32)
+		if err != nil {
+			continue
+		}
+		val, err := parseValueKoinu(m[3])
+		if err != nil || val <= 0 {
+			continue
+		}
+		out = append(out, ExplorerUTXO{
+			TxID:  txid,
+			Vout:  uint32(vout),
+			Value: val,
+		})
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("could not parse such list_unspent output")
+	}
+	return out, nil
+}
+
+func parseSuchListUnspentJSON(raw string) ([]ExplorerUTXO, error) {
+	var anyRoot any
+	if err := json.Unmarshal([]byte(raw), &anyRoot); err != nil {
+		return nil, err
+	}
+	candidates := []any{anyRoot}
+	if m, ok := anyRoot.(map[string]any); ok {
+		for _, k := range []string{"utxos", "unspent", "rows", "data"} {
+			if v, ok := m[k]; ok {
+				candidates = append(candidates, v)
+			}
+		}
+	}
+	var out []ExplorerUTXO
+	for _, c := range candidates {
+		arr, ok := c.([]any)
+		if !ok {
+			continue
+		}
+		for _, item := range arr {
+			m, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			txid := normalizeTxid(jsonStringAny(m["txid"]))
+			if txid == "" {
+				txid = normalizeTxid(jsonStringAny(m["tx_hash"]))
+			}
+			if txid == "" {
+				continue
+			}
+			vout := uint32(parseIntDefault(jsonStringAny(m["vout"]), 0))
+			val, err := parseValueKoinu(jsonStringAny(m["value"]))
+			if err != nil || val <= 0 {
+				val, err = parseValueKoinu(jsonStringAny(m["amount"]))
+				if err != nil || val <= 0 {
+					continue
+				}
+			}
+			out = append(out, ExplorerUTXO{
+				TxID:         txid,
+				Vout:         vout,
+				Value:        val,
+				ScriptPubHex: strings.TrimSpace(jsonStringAny(m["script_pubkey"])),
+			})
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no json utxos parsed")
+	}
+	return out, nil
 }
 
 // runSendtx broadcasts a signed raw hex transaction via libdogecoin P2P.

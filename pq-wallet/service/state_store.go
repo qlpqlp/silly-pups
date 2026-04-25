@@ -10,7 +10,7 @@ import (
 
 const maxMetricPoints = 400
 
-// TxRecord is a cached transaction row for the UI (merged from SPV hints, explorer, RPC).
+// TxRecord is a cached transaction row for the UI (merged from SPV hints and P2P mempool visibility).
 type TxRecord struct {
 	Txid          string    `json:"txid"`
 	Direction     string    `json:"direction"` // in | out | unknown
@@ -21,7 +21,7 @@ type TxRecord struct {
 	BlockHeight   int64     `json:"block_height,omitempty"`
 	PQHint        bool      `json:"pq_hint"`
 	PQVerified    bool      `json:"pq_verified"`
-	Source        string    `json:"source"` // explorer | rpc | spv | manual
+	Source        string    `json:"source"` // spv | memetracker | manual
 	SeenAt        time.Time `json:"seen_at"`
 }
 
@@ -43,8 +43,6 @@ type WalletState struct {
 	Version             int           `json:"version"`
 	Transactions        []TxRecord    `json:"transactions"`
 	Metrics             []MetricPoint `json:"metrics"`
-	ExplorerBalanceDOGE float64       `json:"explorer_balance_doge,omitempty"`
-	LastExplorerSync    time.Time     `json:"last_explorer_sync,omitempty"`
 }
 
 func (s *Server) statePath() string {

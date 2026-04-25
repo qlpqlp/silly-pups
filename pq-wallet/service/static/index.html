@@ -166,6 +166,7 @@
               <span class="pill" id="pill-height">height —</span>
             </div>
             <p class="mono hash" id="hdr-hash">—</p>
+            <p class="small muted" id="spv-sync-lag">Sync status: —</p>
           </div>
           <div class="card tx-list-card dash-latest-tx-card">
             <h3><span class="material-symbols-outlined icon-inline">receipt_long</span> Latest transactions</h3>
@@ -201,13 +202,13 @@
         <section id="view-transactions" class="view hidden">
           <div class="toolbar toolbar-actions tx-toolbar-row">
             <div class="tx-toolbar-left">
-              <button type="button" class="btn primary" id="btn-sync-tx"><span class="material-symbols-outlined btn-ico">swap_horiz</span> Sync with explorer</button>
+              <button type="button" class="btn primary" id="btn-sync-tx"><span class="material-symbols-outlined btn-ico">refresh</span> Refresh list</button>
               <span class="small muted tx-sync-hint" id="tx-sync-hint"></span>
             </div>
           </div>
           <div class="card tx-list-card">
             <div class="tx-list" id="tx-list" role="list" aria-label="Transactions"></div>
-            <p class="small muted tx-list-empty hidden" id="tx-list-empty">No transactions yet. Sync with explorer or wait for MemeTracker payments.</p>
+            <p class="small muted tx-list-empty hidden" id="tx-list-empty">No transactions yet. Wait for SPV sync / P2P relay activity.</p>
           </div>
         </section>
 
@@ -385,7 +386,7 @@
         </button>
       </div>
       <p class="small muted" id="spv-repair-storage-line" style="margin:.35rem 0 .5rem">Loading storage path…</p>
-      <p class="small muted">If a new receive address is not picking up coins, try <strong>Sync with explorer</strong> above, then use these controls. <strong>Full rescan</strong> deletes local <code class="mono">headers.db</code> and <code class="mono">spv_wallet.db</code>, saves the sync mode below, and restarts <code class="mono">spvnode</code>. <strong>Rollback</strong> needs an on-disk SQLite <code class="mono">headers.db</code>: pick a bundled checkpoint (height, hash, UTC time from libdogecoin) or choose Custom and paste hash/height. Headers above the chosen height are removed and <code class="mono">spv_wallet.db</code> is cleared so SPV rescans from that chain tip. If <code class="mono">headers.db</code> is missing, use full rescan first.</p>
+      <p class="small muted"><strong>Full rescan</strong> deletes local <code class="mono">headers.db</code> and <code class="mono">spv_wallet.db</code>, saves the sync mode below, and restarts <code class="mono">spvnode</code>. <strong>Rollback</strong> needs an on-disk SQLite <code class="mono">headers.db</code>: pick a bundled checkpoint (height, hash, UTC time from libdogecoin) or choose Custom and paste hash/height. Headers above the chosen height are removed and <code class="mono">spv_wallet.db</code> is cleared so SPV rescans from that chain tip. If <code class="mono">headers.db</code> is missing, use full rescan first.</p>
       <label class="field"><span class="field-label">Rollback to checkpoint (libdogecoin bundled)</span>
         <select id="spv-rollback-checkpoint-select" class="input-modern" aria-describedby="spv-rollback-checkpoint-hint"></select>
       </label>
@@ -415,11 +416,11 @@
     <div class="tx-detail-modal-backdrop" id="tx-detail-backdrop"></div>
     <div class="tx-detail-modal-panel card">
       <h3 id="tx-detail-title">Transaction</h3>
-      <p class="small muted" id="tx-detail-sub">Explorer data and raw fields when available (copy for signing or verification).</p>
+      <p class="small muted" id="tx-detail-sub">Local SPV/P2P fields and raw transaction data when available.</p>
       <div class="tx-detail-actions">
         <button type="button" class="btn btn-sm" id="btn-tx-copy-txid"><span class="material-symbols-outlined btn-ico">content_copy</span> Copy txid</button>
         <button type="button" class="btn btn-sm" id="btn-tx-copy-raw" title="Copy hex if the explorer returned it"><span class="material-symbols-outlined btn-ico">content_copy</span> Copy raw hex</button>
-        <a class="btn btn-sm" id="btn-tx-external" href="#" target="_blank" rel="noopener noreferrer">Open in explorer</a>
+        <a class="btn btn-sm" id="btn-tx-external" href="#" target="_blank" rel="noopener noreferrer">Open on SoChain</a>
       </div>
       <pre class="mono small tx-detail-pre" id="tx-detail-body">…</pre>
       <button type="button" class="btn" id="btn-tx-detail-close">Close</button>

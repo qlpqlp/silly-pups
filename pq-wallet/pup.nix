@@ -7,7 +7,7 @@ let
 
   pq_bin = pkgs.buildGoModule {
     pname = "pq-wallet";
-    version = "0.0.30";
+    version = "0.0.31";
     src = ./service;
     vendorHash = null;
     go = pkgs.go_1_24;
@@ -35,8 +35,6 @@ let
     export LIBDOGECOIN_SUCH="''${LIBDOGECOIN_SUCH:-${libdogecoin}/bin/such}"
     export LIBDOGECOIN_SENDTX="''${LIBDOGECOIN_SENDTX:-${libdogecoin}/bin/sendtx}"
     export LIBDOGECOIN_SPVNODE="''${LIBDOGECOIN_SPVNODE:-${libdogecoin}/bin/spvnode}"
-    export EXPLORER_TX_API="''${EXPLORER_TX_API:-}"
-    export EXPLORER_ADDRESS_API="''${EXPLORER_ADDRESS_API:-}"
     export SPVNODE_ENABLE="''${SPVNODE_ENABLE:-1}"
     export MTR_P2P_PORT="''${MTR_P2P_PORT:-}"
     export MTR_P2P_PARALLEL="''${MTR_P2P_PARALLEL:-}"

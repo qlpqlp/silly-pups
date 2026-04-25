@@ -148,7 +148,7 @@ function showView(name) {
     dashboard: ["Dashboard", "SPV headers, balances, and post-quantum hints"],
     receive: ["Receive Dogecoin", "QR and address for your primary receiving address"],
     addresses: ["Addresses", "Generate keys and choose which address SPV watches"],
-    transactions: ["Transactions", "PQ badges = explorer OP_RETURN hints (not a full audit)"],
+    transactions: ["Transactions", "Local SPV/P2P transaction history"],
     tools: ["Send Doge", "Destination & amount, or paste a signed raw hex for P2P broadcast"],
     learn: ["Help", "ECDSA vs PQ · send · verify · broadcast"],
     settings: ["Settings", "Encryption, logs, backup and wallet controls"],
@@ -703,6 +703,10 @@ async function refreshDashboard() {
   const h = spv.header_height;
   $("pill-height").textContent = h != null && Number(h) > 0 ? `height ${h}` : "height —";
   $("hdr-hash").textContent = spv.best_block_hash || "—";
+  const lagEl = $("spv-sync-lag");
+  if (lagEl) {
+    lagEl.textContent = "Sync status: " + (spv.sync_lag_label || "—");
+  }
   const sample = data.dashboard.metrics_sample || [];
   initCharts();
   updateCharts(sample);
@@ -734,11 +738,11 @@ $("btn-svc-mtr-stop")?.addEventListener("click", () => postServiceControl({ meme
 $("btn-svc-mtr-start")?.addEventListener("click", () => postServiceControl({ memetracker_enabled: true }));
 
 async function refreshTxList(refresh) {
-  const q = refresh ? "?refresh=1" : "";
+  const q = "";
   const data = await api("/api/transactions" + q);
   const txs = data.transactions || [];
   const hint = $("tx-sync-hint");
-  if (hint) hint.textContent = refresh ? "Synced" : "";
+  if (hint) hint.textContent = refresh ? "Refreshed" : "";
   const list = $("tx-list");
   const emptyEl = $("tx-list-empty");
   if (!list) return;
@@ -759,28 +763,32 @@ async function refreshTxList(refresh) {
     const txidFull = String(tx.txid || "").trim();
     if (txidFull) {
       card.style.cursor = "pointer";
-      card.title = "Details (explorer + raw hex if available)";
+      card.title = "Details (local SPV/P2P + raw hex if available)";
       card.addEventListener("click", (e) => {
         if (e.target.closest("a, button")) return;
         openTxDetailModal(tx);
       });
     }
     const short = (tx.txid || "").slice(0, 22) + (tx.txid && tx.txid.length > 22 ? "…" : "");
+    const conf = Number(tx.confirmations || 0);
+    const dir = String(tx.direction || "unknown").toLowerCase();
+    const sign = dir === "out" ? "-" : dir === "in" ? "+" : "";
+    const relTime = tx.seen_at ? fmtTime(tx.seen_at) : "—";
     const head = document.createElement("div");
     head.className = "tx-card-head";
     const status = document.createElement("span");
-    if (showPending) {
+    if (showPending || conf <= 0) {
       status.className = "badge badge-tx-pending";
       status.textContent = "Pending";
     } else {
       status.className = "muted small";
-      status.textContent = "Confirmed";
+      status.textContent = `${conf} conf`;
     }
     const amt = document.createElement("span");
     amt.className = "tx-card-amt mono";
     amt.textContent =
       tx.amount_doge != null && !Number.isNaN(Number(tx.amount_doge))
-        ? `${Number(tx.amount_doge).toFixed(2)} DOGE`
+        ? `${sign}${Number(tx.amount_doge).toFixed(2)} DOGE`
         : "—";
     head.appendChild(status);
     head.appendChild(amt);
@@ -804,6 +812,13 @@ async function refreshTxList(refresh) {
     const dirEl = document.createElement("span");
     dirEl.textContent = tx.direction || "";
     addRow("Dir", dirEl);
+    const seenEl = document.createElement("span");
+    seenEl.textContent = relTime;
+    addRow("Seen", seenEl);
+    const addrEl = document.createElement("span");
+    addrEl.className = "mono";
+    addrEl.textContent = tx.address || "—";
+    addRow("Address", addrEl);
     const pqWrap = document.createElement("span");
     if (tx.pq_hint) {
       pqWrap.className = "badge-pq";
@@ -931,40 +946,6 @@ function sochainTxUrl(txid) {
   return "https://sochain.com/tx/" + coin + "/" + encodeURIComponent(raw);
 }
 
-/** Best-effort extract of a long transaction hex from explorer JSON (field names vary by API). */
-function extractTxHexFromExplorerPayload(obj, depth) {
-  if (depth === undefined) depth = 0;
-  if (depth > 12 || obj == null) return "";
-  if (typeof obj === "string") {
-    const s = obj.trim();
-    if (/^[0-9a-f]{64,}$/i.test(s) && s.length % 2 === 0) return s;
-    return "";
-  }
-  if (typeof obj === "object" && !Array.isArray(obj)) {
-    const keys = ["raw_hex", "hex", "transaction_hex", "tx_hex", "raw", "data_hex"];
-    for (const k of keys) {
-      if (obj[k] != null && typeof obj[k] === "string") {
-        const h = extractTxHexFromExplorerPayload(obj[k], depth + 1);
-        if (h) return h;
-      }
-    }
-  }
-  if (typeof obj === "object") {
-    if (Array.isArray(obj)) {
-      for (const it of obj) {
-        const h = extractTxHexFromExplorerPayload(it, depth + 1);
-        if (h) return h;
-      }
-    } else {
-      for (const v of Object.values(obj)) {
-        const h = extractTxHexFromExplorerPayload(v, depth + 1);
-        if (h) return h;
-      }
-    }
-  }
-  return "";
-}
-
 async function openTxDetailModal(tx) {
   const modal = $("tx-detail-modal");
   const body = $("tx-detail-body");
@@ -987,7 +968,7 @@ async function openTxDetailModal(tx) {
   };
   let localDetail = null;
   body.textContent = JSON.stringify({ local_tx: localSummary }, null, 2);
-  if (sub) sub.textContent = "Local SPV/P2P wallet data (explorer lookup is optional).";
+  if (sub) sub.textContent = "Local SPV/P2P wallet data only.";
   if (ext) {
     ext.href = sochainTxUrl(txid);
     ext.textContent = "Open on SoChain";
@@ -1015,62 +996,6 @@ async function openTxDetailModal(tx) {
     }
   } catch {
     /* ignore local detail fetch errors */
-  }
-  try {
-    const res = await api("/api/explorer/tx/" + encodeURIComponent(txid));
-    if (res.error) {
-      if (String(res.error).includes("EXPLORER_TX_API not set")) {
-        if (sub && !localDetail) sub.textContent = "Explorer API disabled (pure SPV/P2P mode).";
-        return;
-      }
-      body.textContent =
-        JSON.stringify(
-          { local_tx: localSummary, local_detail: localDetail, explorer_error: String(res.error) },
-          null,
-          2
-        );
-      if (sub) sub.textContent = "Explorer request failed; local SPV/P2P details are shown above.";
-    } else if (res.raw != null && typeof res.raw === "string") {
-      body.textContent = JSON.stringify(
-        {
-          local_tx: localSummary,
-          local_detail: localDetail,
-          explorer_raw: res.raw.slice(0, 500000),
-        },
-        null,
-        2
-      );
-      let parsed = null;
-      try {
-        parsed = JSON.parse(res.raw);
-      } catch {
-        parsed = null;
-      }
-      state.txDetailHex = parsed ? extractTxHexFromExplorerPayload(parsed) : "";
-      if (!state.txDetailHex && /^[0-9a-f]+$/i.test(res.raw.trim()) && res.raw.trim().length >= 64) {
-        state.txDetailHex = res.raw.trim();
-      }
-      if (sub) sub.textContent = "Local details + optional explorer response.";
-    } else {
-      const payload = res.data != null ? res.data : res;
-      body.textContent = JSON.stringify(
-        {
-          local_tx: localSummary,
-          local_detail: localDetail,
-          explorer_data: payload,
-        },
-        null,
-        2
-      ).slice(0, 500000);
-      state.txDetailHex = extractTxHexFromExplorerPayload(payload);
-      if (sub) sub.textContent = "Local details + optional explorer JSON.";
-    }
-  } catch (e) {
-    body.textContent = JSON.stringify(
-      { local_tx: localSummary, local_detail: localDetail, explorer_error: String(e) },
-      null,
-      2
-    );
   }
   const copyRawBtn = $("btn-tx-copy-raw");
   if (copyRawBtn) copyRawBtn.disabled = !state.txDetailHex;

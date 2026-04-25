@@ -23,7 +23,6 @@ var (
 	reMempoolExplicit2 = regexp.MustCompile(`(?i)(?:^|\s)(\d{1,9})\s+transactions?\s+in\s+mempool`)
 	reMempoolExplicit3 = regexp.MustCompile(`(?i)\[(?:smpv|mempool)\][^\n]{0,120}(\d{1,9})\s*(?:tx|txn|transaction)`)
 	reSpvConfirmedLine = regexp.MustCompile(`(?i)\b(confirm|confirmed|confirmation|confirmations|merkle|inclusion|matched|proof|block|height|depth|chain)\b`)
-	reSpvRawTxLine     = regexp.MustCompile(`(?i)\bPQ_SPV_TX_RAW\b[^\n]{0,200}?\btxid=([a-f0-9]{64})\b[^\n]{0,200}?\braw=([a-f0-9]{64,})\b`)
 )
 
 // PeerConnectionInfo is parsed from libdogecoin net.c log lines (current / last handshake in the tail).
@@ -39,6 +38,7 @@ type PeerConnectionInfo struct {
 type SPVHeaderInfo struct {
 	HeaderHeight    int64
 	BestBlockHash   string
+	HeaderUnixTime  int64
 	PeerCount       int
 	HeaderCountHint int64 // e.g. lone first line "25139" (header index count)
 	SPVPeerHosts    []string
@@ -60,10 +60,11 @@ func parseSPVLogHeaderInfo(log string) SPVHeaderInfo {
 	}
 
 	out.HeaderCountHint = parseLeadingCountHint(tail)
-	h, hash := parsePipeHeaderTip(tail)
+	h, hash, ts := parsePipeHeaderTip(tail)
 	if h > 0 {
 		out.HeaderHeight = h
 		out.BestBlockHash = hash
+		out.HeaderUnixTime = ts
 	}
 	out.PeerCount = parsePeerCountFromLog(tail)
 	out.SPVPeerHosts = parsePeerHostsFromLog(tail)
@@ -103,10 +104,11 @@ func parseSPVLogHeaderInfo(log string) SPVHeaderInfo {
 	return out
 }
 
-// parsePipeHeaderTip scans hash|height|… rows and returns the row with maximum height.
-func parsePipeHeaderTip(s string) (height int64, hash string) {
+// parsePipeHeaderTip scans hash|height|timestamp|... rows and returns the row with maximum height.
+func parsePipeHeaderTip(s string) (height int64, hash string, unixTime int64) {
 	var best int64
 	var bestHash string
+	var bestTs int64
 	for _, line := range strings.Split(s, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || !strings.Contains(line, "|") {
@@ -128,9 +130,14 @@ func parsePipeHeaderTip(s string) (height int64, hash string) {
 		if h >= best {
 			best = h
 			bestHash = strings.ToLower(hx)
+			if len(parts) > 2 {
+				if ts, err := strconv.ParseInt(strings.TrimSpace(parts[2]), 10, 64); err == nil && ts > 0 {
+					bestTs = ts
+				}
+			}
 		}
 	}
-	return best, bestHash
+	return best, bestHash, bestTs
 }
 
 // heightForHeaderHashInSPVLog finds a header row like "hash|height|…" matching wantHash (64 hex).
@@ -501,26 +508,54 @@ func parseSPVConfirmedTxids(log string) map[string]struct{} {
 
 // parseSPVRawTxHexByTxid extracts structured raw tx lines emitted by patched libdogecoin spvnode:
 // "PQ_SPV_TX_RAW txid=<64hex> raw=<hex...>".
+//
+// We parse with string indices instead of a single regexp: raw= can be hundreds of kilobytes
+// of hex on one line, which is brittle for regex and unnecessary.
 func parseSPVRawTxHexByTxid(log string) map[string]string {
 	out := make(map[string]string)
 	if strings.TrimSpace(log) == "" {
 		return out
 	}
 	for _, line := range strings.Split(log, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || !strings.Contains(line, "PQ_SPV_TX_RAW") {
+		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
+		if line == "" {
 			continue
 		}
-		m := reSpvRawTxLine.FindStringSubmatch(line)
-		if len(m) != 3 {
+		low := strings.ToLower(line)
+		if !strings.Contains(low, "pq_spv_tx_raw") {
 			continue
 		}
-		txid := normalizeTxid(m[1])
-		raw := strings.ToLower(strings.TrimSpace(m[2]))
-		if txid == "" || len(raw) < 64 || len(raw)%2 != 0 {
+		pq := strings.Index(low, "pq_spv_tx_raw")
+		if pq < 0 {
 			continue
 		}
-		out[txid] = raw
+		ti := strings.Index(low[pq:], "txid=")
+		if ti < 0 {
+			continue
+		}
+		ti += pq + len("txid=")
+		if ti+64 > len(line) {
+			continue
+		}
+		txidCandidate := line[ti : ti+64]
+		if len(txidCandidate) != 64 || !isHex64(txidCandidate) {
+			continue
+		}
+		afterTxid := ti + 64
+		ri := strings.Index(low[afterTxid:], "raw=")
+		if ri < 0 {
+			continue
+		}
+		rawStart := afterTxid + ri + len("raw=")
+		if rawStart > len(line) {
+			continue
+		}
+		raw := strings.TrimSpace(line[rawStart:])
+		raw = strings.ToLower(raw)
+		if len(raw) < 64 || len(raw)%2 != 0 || !isHex64(raw) {
+			continue
+		}
+		out[normalizeTxid(txidCandidate)] = raw
 	}
 	return out
 }

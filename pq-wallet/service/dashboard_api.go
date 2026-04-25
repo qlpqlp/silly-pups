@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"net/http"
 	"strconv"
@@ -13,7 +12,7 @@ import (
 	"time"
 )
 
-// txListRow is one row for /api/transactions (explorer cache + MemeTracker mempool matches).
+// txListRow is one row for /api/transactions (SPV + MemeTracker).
 type txListRow struct {
 	TxRecord
 	Pending bool `json:"pending"`
@@ -50,9 +49,10 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	seenChanged := s.applySPVSeenTxids(st, logTail)
 	rawChanged := s.applySPVRawHex(st, logTail)
 	enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
+	dbChanged := s.mergeTransactionsFromSPVWalletDB(wf, st)
 	if s.applySPVConfirmations(st, logTail) {
 		_ = s.saveState(st)
-	} else if seenChanged || rawChanged || enrichedChanged {
+	} else if seenChanged || rawChanged || enrichedChanged || dbChanged {
 		_ = s.saveState(st)
 	}
 	if changed, err := s.maybeRotateHDReceiveAddress(wf, st); err == nil && changed {
@@ -72,19 +72,16 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	running, _ := spv["running"].(bool)
 
-	spendable := st.ExplorerBalanceDOGE
-	if spendable <= 0 {
-		var inSum, outSum float64
-		for _, t := range st.Transactions {
-			if strings.EqualFold(t.Direction, "in") {
-				inSum += t.AmountDOGE
-			}
-			if strings.EqualFold(t.Direction, "out") {
-				outSum += t.AmountDOGE
-			}
+	var inSum, outSum float64
+	for _, t := range st.Transactions {
+		if strings.EqualFold(t.Direction, "in") {
+			inSum += t.AmountDOGE
 		}
-		spendable = math.Max(0, inSum-outSum)
+		if strings.EqualFold(t.Direction, "out") {
+			outSum += t.AmountDOGE
+		}
 	}
+	spendable := math.Max(0, inSum-outSum)
 
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
@@ -138,6 +135,9 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 				"running":          running,
 				"header_height":    hdr.HeaderHeight,
 				"best_block_hash":  hdr.BestBlockHash,
+				"header_unix_time": hdr.HeaderUnixTime,
+				"sync_lag_seconds": syncLagSeconds(hdr.HeaderUnixTime),
+				"sync_lag_label":   syncLagLabel(hdr.HeaderUnixTime),
 				"mempool_tx_count": mempoolDisplay,
 			},
 			"memetracker": map[string]any{
@@ -153,7 +153,6 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 				"pending_mempool_doge": round2(pendingMeme),
 				"memetracker_error":    memeErrStr,
 				"tx_count":             len(st.Transactions),
-				"last_explorer_sync":   st.LastExplorerSync,
 			},
 			"metrics_sample": metricsLast24Hours(st.Metrics),
 		},
@@ -209,13 +208,12 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"metrics": st.Metrics})
 }
 
-// handleTransactions lists cached transactions; ?refresh=1 triggers explorer/RPC sync.
+// handleTransactions lists cached transactions from local SPV/P2P state.
 func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET only"})
 		return
 	}
-	refresh := strings.TrimSpace(r.URL.Query().Get("refresh")) == "1"
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	wf, err := s.loadWallet()
@@ -243,25 +241,13 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 			_ = s.saveState(st)
 		}
 	}
-	if refresh {
-		ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
-		defer cancel()
-		incoming, bal, err := s.syncTransactionsFromNetwork(ctx, wf)
-		if err == nil {
-			st.Transactions = mergeTxRecords(st.Transactions, incoming)
-			if bal > 0 {
-				st.ExplorerBalanceDOGE = bal
-			}
-			st.LastExplorerSync = time.Now().UTC()
-			_ = s.saveState(st)
-		}
-	}
 	spv := s.readSPVStatus()
 	if logTail, _ := spv["log_tail"].(string); logTail != "" {
 		changed := s.applySPVSeenTxids(st, logTail)
 		rawChanged := s.applySPVRawHex(st, logTail)
 		enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
-		if s.applySPVConfirmations(st, logTail) || changed || rawChanged || enrichedChanged {
+		dbChanged := s.mergeTransactionsFromSPVWalletDB(wf, st)
+		if s.applySPVConfirmations(st, logTail) || changed || rawChanged || enrichedChanged || dbChanged {
 			_ = s.saveState(st)
 		}
 	}
@@ -271,6 +257,40 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 	}
 	out := s.mergeTxListWithMemeTracker(wf, st)
 	writeJSON(w, http.StatusOK, map[string]any{"transactions": out})
+}
+
+func syncLagSeconds(headerUnix int64) int64 {
+	if headerUnix <= 0 {
+		return 0
+	}
+	lag := time.Now().UTC().Unix() - headerUnix
+	if lag < 0 {
+		return 0
+	}
+	return lag
+}
+
+func syncLagLabel(headerUnix int64) string {
+	lag := syncLagSeconds(headerUnix)
+	if lag <= 0 {
+		return "Synced"
+	}
+	const (
+		hour  = int64(3600)
+		day   = int64(24 * 3600)
+		week  = int64(7 * 24 * 3600)
+		month = int64(30 * 24 * 3600)
+	)
+	switch {
+	case lag < 2*day:
+		return fmt.Sprintf("%d hours behind", lag/hour)
+	case lag < 2*week:
+		return fmt.Sprintf("%d days behind", lag/day)
+	case lag < 3*month:
+		return fmt.Sprintf("%d weeks behind", lag/week)
+	default:
+		return fmt.Sprintf("%d months behind", lag/month)
+	}
 }
 
 func truthyAny(v any) bool {
@@ -405,133 +425,6 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 	return out
 }
 
-func (s *Server) syncTransactionsFromNetwork(ctx context.Context, wf *WalletFile) ([]TxRecord, float64, error) {
-	var out []TxRecord
-	var balance float64
-	addrs := wf.AllDistinctP2PKHAddresses()
-	if len(addrs) == 0 {
-		return out, 0, nil
-	}
-
-	base := strings.TrimSpace(s.explorerAddr)
-	if base != "" {
-		for _, addr := range addrs {
-			addr = strings.TrimSpace(addr)
-			if addr == "" {
-				continue
-			}
-			txs, bal, err := s.fetchBlockchairAddress(ctx, base, addr)
-			if err != nil {
-				continue
-			}
-			out = append(out, txs...)
-			balance += bal
-		}
-	}
-
-	seen := make(map[string]struct{})
-	for _, t := range out {
-		id := normalizeTxid(t.Txid)
-		if id == "" || strings.HasPrefix(id, "_") {
-			continue
-		}
-		if len(seen) >= 12 {
-			break
-		}
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		if s.txPQHintFromExplorer(ctx, id) {
-			for i := range out {
-				if normalizeTxid(out[i].Txid) == id {
-					out[i].PQHint = true
-					out[i].PQVerified = true
-				}
-			}
-		}
-	}
-
-	return out, balance, nil
-}
-
-func (s *Server) fetchBlockchairAddress(ctx context.Context, baseURL, address string) ([]TxRecord, float64, error) {
-	url := strings.ReplaceAll(strings.TrimRight(baseURL, "/"), "{address}", address)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, 0, err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if err != nil {
-		return nil, 0, err
-	}
-	var root map[string]any
-	if err := json.Unmarshal(body, &root); err != nil {
-		return nil, 0, err
-	}
-	data, _ := root["data"].(map[string]any)
-	if data == nil {
-		return nil, 0, nil
-	}
-	addrObj, _ := data[address].(map[string]any)
-	if addrObj == nil {
-		for _, v := range data {
-			if m, ok := v.(map[string]any); ok {
-				addrObj = m
-				break
-			}
-		}
-	}
-	var rawBal float64
-	if addrObj != nil {
-		if a, ok := addrObj["address"].(map[string]any); ok {
-			rawBal = parseFloatAny(a["balance"])
-			if rawBal == 0 {
-				rawBal = parseFloatAny(a["received"])
-			}
-		}
-	}
-	balance := normalizeDogecoinUnits(rawBal)
-	var txs []TxRecord
-	if addrObj != nil {
-		rawList, _ := addrObj["transactions"].([]any)
-		for _, item := range rawList {
-			h := ""
-			switch t := item.(type) {
-			case string:
-				h = t
-			case map[string]any:
-				if x, ok := t["hash"].(string); ok {
-					h = x
-				} else if x, ok := t["transaction_hash"].(string); ok {
-					h = x
-				}
-			}
-			if h == "" {
-				continue
-			}
-			h = normalizeTxid(h)
-			if h == "" {
-				continue
-			}
-			txs = append(txs, TxRecord{
-				Txid:          h,
-				Direction:     "in",
-				AmountDOGE:    0,
-				Address:       address,
-				Source:        "explorer",
-				SeenAt:        time.Now().UTC(),
-				Confirmations: 0,
-			})
-		}
-	}
-	return txs, balance, nil
-}
 
 func (s *Server) applySPVConfirmations(st *WalletState, logTail string) bool {
 	confirmed := parseSPVConfirmedTxids(logTail)
@@ -662,29 +555,6 @@ func parseFloatAny(v any) float64 {
 	}
 }
 
-func (s *Server) txPQHintFromExplorer(ctx context.Context, txid string) bool {
-	base := strings.TrimSpace(s.explorer)
-	if base == "" {
-		return false
-	}
-	url := strings.ReplaceAll(base, "{txid}", txid)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return false
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	b, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
-	if err != nil {
-		return false
-	}
-	lower := strings.ToLower(string(b))
-	return strings.Contains(lower, `"script_hex":"6a`) || strings.Contains(lower, `"script_hex": "6a`)
-}
-
 // backgroundMetricsLoop samples SPV + header info and appends metric points.
 func (s *Server) backgroundMetricsLoop() {
 	tick := time.NewTicker(20 * time.Second)
@@ -716,6 +586,7 @@ func (s *Server) backgroundMetricsLoop() {
 		_ = s.applySPVConfirmations(st, logTail)
 		_ = s.applySPVRawHex(st, logTail)
 		_ = s.enrichSPVTxFromRawHex(st, wf)
+		_ = s.mergeTransactionsFromSPVWalletDB(wf, st)
 		mempoolRelay := 0
 		if eng, eerr := s.ensureMempoolEngine(wf); eerr == nil && eng != nil {
 			mempoolRelay, _, _, _ = eng.DashboardSnapshot()

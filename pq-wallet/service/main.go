@@ -6,11 +6,9 @@
 package main
 
 import (
-	"context"
 	"embed"
 	"encoding/json"
 	"errors"
-	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -28,10 +26,10 @@ import (
 var staticFS embed.FS
 
 // pqWalletAppVersion is shown in /api/health, education JSON, and the UI footer (keep in sync with manifest.json).
-const pqWalletAppVersion = "0.0.30"
+const pqWalletAppVersion = "0.0.31"
 
 // pqWalletBuildHash is a release fingerprint (SHA-256 hex of "pq-wallet-<version>"); bump when cutting a release.
-const pqWalletBuildHash = "d81ae32cd22d69ba4fcc3057e996909e65aa442f1210043368f0cec6905b1203"
+const pqWalletBuildHash = "a81ea1accc7e3ec7eb196299c80b14dc46c358b391c269af04f841565738a99f"
 
 type Server struct {
 	mu            sync.Mutex
@@ -39,8 +37,6 @@ type Server struct {
 	storageDir    string
 	walletPath    string
 	watchPath     string
-	explorer      string
-	explorerAddr  string
 	mempoolMu     sync.Mutex
 	mempoolEngine *mempooltracker.Engine
 	walletKey     []byte
@@ -136,40 +132,6 @@ func (s *Server) handleWalletCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "wallet": wf})
 }
 
-func (s *Server) handleExplorerTx(w http.ResponseWriter, r *http.Request) {
-	txid := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/api/explorer/tx/"))
-	if txid == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing txid"})
-		return
-	}
-	base := strings.TrimRight(strings.TrimSpace(s.explorer), "/")
-	if base == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "EXPLORER_TX_API not set (HTTP GET template with {txid} placeholder for optional tx lookup)"})
-		return
-	}
-	url := strings.ReplaceAll(base, "{txid}", txid)
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
-		return
-	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
-	var parsed any
-	if err := json.Unmarshal(b, &parsed); err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"raw": string(b), "upstream_status": resp.StatusCode})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"upstream_status": resp.StatusCode, "data": parsed})
-}
-
 func staticHandler() http.Handler {
 	sub, err := fs.Sub(staticFS, "static")
 	if err != nil {
@@ -185,11 +147,9 @@ func main() {
 	walletPath := filepath.Join(storage, "wallet.json")
 
 	srv := &Server{
-		storageDir:   storage,
-		walletPath:   walletPath,
-		watchPath:    filepath.Join(storage, "spv_watch_state.json"),
-		explorer:     env("EXPLORER_TX_API", ""),
-		explorerAddr: env("EXPLORER_ADDRESS_API", ""),
+		storageDir: storage,
+		walletPath: walletPath,
+		watchPath:  filepath.Join(storage, "spv_watch_state.json"),
 	}
 
 	go srv.backgroundMetricsLoop()
@@ -238,7 +198,6 @@ func main() {
 	mux.HandleFunc("/api/metrics", srv.handleMetrics)
 	mux.HandleFunc("/api/transactions", srv.handleTransactions)
 	mux.HandleFunc("/api/tx/local/", srv.handleTxLocalDetail)
-	mux.HandleFunc("/api/explorer/tx/", srv.handleExplorerTx)
 	mux.HandleFunc("/api/spv/status", srv.handleSPVStatus)
 	mux.HandleFunc("/api/spv/rescan", srv.handleSPVRescan)
 	mux.HandleFunc("/api/services/control", srv.handleServicesControl)

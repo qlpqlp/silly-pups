@@ -29,7 +29,7 @@ func (s *Server) mergeTransactionsFromSPVWalletDB(wf *WalletFile, st *WalletStat
 	if _, err := os.Stat(dbPath); err != nil {
 		return false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 	rows, err := s.readSPVWalletDBTxRows(ctx, dbPath, wf.AllDistinctP2PKHAddresses())
 	if err != nil || len(rows) == 0 {
@@ -199,7 +199,15 @@ func (s *Server) readSPVWalletDBTable(ctx context.Context, dbPath, table string,
 	} else {
 		sel = append(sel, "'0' AS ts")
 	}
-	q := "SELECT " + strings.Join(sel, ",") + " FROM " + sqliteIdent(table) + " LIMIT 1500"
+	q := "SELECT " + strings.Join(sel, ",") + " FROM " + sqliteIdent(table)
+	if timeCol != "" {
+		q += " ORDER BY " + sqliteIdent(timeCol) + " DESC"
+	} else if heightCol != "" {
+		q += " ORDER BY " + sqliteIdent(heightCol) + " DESC"
+	} else {
+		q += " ORDER BY rowid DESC"
+	}
+	q += " LIMIT 5000"
 	rows, err := s.sqliteRows(ctx, dbPath, q)
 	if err != nil {
 		return nil, err
@@ -215,9 +223,11 @@ func (s *Server) readSPVWalletDBTable(ctx context.Context, dbPath, table string,
 			continue
 		}
 		addr := strings.TrimSpace(parts[1])
+		// Keep non-wallet counterparties too (closer to dogecoin-wallet transaction rows).
+		// If the DB row has one of our receive addresses, keep that as-is.
 		if len(addrSet) > 0 && addr != "" {
 			if _, ok := addrSet[strings.ToLower(addr)]; !ok {
-				continue
+				// leave address untouched; direction/amount still provide useful detail.
 			}
 		}
 		amountDOGE := parseDBMoneyToDOGE(parts[2])

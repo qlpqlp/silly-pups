@@ -38,6 +38,7 @@ const state = {
   wallet: null,
   walletLocked: false,
   lastPendingDoge: 0,
+  lastTxs: [],
   view: "dashboard",
   charts: { mempool: null },
   pollFast: null,
@@ -718,17 +719,70 @@ function renderDashboardTxPreview() {
   const list = $("dash-tx-list");
   if (!list) return;
   list.innerHTML = "";
-  const txList = $("tx-list");
-  if (!txList || !txList.children || !txList.children.length) {
+  const txs = Array.isArray(state.lastTxs) ? state.lastTxs : [];
+  if (!txs.length) {
     const p = document.createElement("p");
     p.className = "small muted";
     p.textContent = "No transactions yet.";
     list.appendChild(p);
     return;
   }
-  const max = Math.min(6, txList.children.length);
+  const max = Math.min(6, txs.length);
   for (let i = 0; i < max; i++) {
-    list.appendChild(txList.children[i].cloneNode(true));
+    const tx = txs[i] || {};
+    const card = document.createElement("article");
+    card.className = "tx-card";
+    card.setAttribute("role", "listitem");
+    const txid = String(tx.txid || "").trim();
+    if (txid) {
+      card.style.cursor = "pointer";
+      card.title = "Open transaction details";
+      card.addEventListener("click", () => openTxDetailModal(tx));
+    }
+    const conf = Number(tx.confirmations || 0);
+    const pending = !!tx.pending || conf <= 0 || String(tx.source || "").toLowerCase() === "memetracker";
+    const dir = String(tx.direction || "unknown").toLowerCase();
+    const dirLabel = dir === "in" ? "Received" : dir === "out" ? "Sent" : "Unknown";
+    const sign = dir === "out" ? "-" : dir === "in" ? "+" : "";
+    const when = tx.seen_at ? fmtTime(tx.seen_at) : "—";
+    const short = txid ? txid.slice(0, 20) + (txid.length > 20 ? "…" : "") : "—";
+    const amount = tx.amount_doge != null && !Number.isNaN(Number(tx.amount_doge))
+      ? `${sign}${Number(tx.amount_doge).toFixed(2)} DOGE`
+      : "—";
+
+    const head = document.createElement("div");
+    head.className = "tx-card-head";
+    const status = document.createElement("span");
+    status.className = pending ? "badge badge-tx-pending" : "muted small";
+    status.textContent = pending ? "Pending" : `${conf} conf`;
+    const amt = document.createElement("span");
+    amt.className = "tx-card-amt mono";
+    amt.textContent = amount;
+    head.appendChild(status);
+    head.appendChild(amt);
+
+    const body = document.createElement("div");
+    body.className = "tx-card-body";
+    function addRow(label, value, mono) {
+      const row = document.createElement("div");
+      row.className = "tx-card-row";
+      const k = document.createElement("span");
+      k.className = "tx-card-k";
+      k.textContent = label;
+      const v = document.createElement("span");
+      if (mono) v.className = "mono";
+      v.textContent = value;
+      row.appendChild(k);
+      row.appendChild(v);
+      body.appendChild(row);
+    }
+    addRow("Txid", short, true);
+    addRow("Type", dirLabel, false);
+    addRow("Time", when, false);
+    if (tx.address) addRow("Address", String(tx.address), true);
+    card.appendChild(head);
+    card.appendChild(body);
+    list.appendChild(card);
   }
 }
 
@@ -740,7 +794,13 @@ $("btn-svc-mtr-start")?.addEventListener("click", () => postServiceControl({ mem
 async function refreshTxList(refresh) {
   const q = "";
   const data = await api("/api/transactions" + q);
-  const txs = data.transactions || [];
+  const txs = (data.transactions || []).slice().sort((a, b) => {
+    const ta = new Date(a && a.seen_at ? a.seen_at : 0).getTime() || 0;
+    const tb = new Date(b && b.seen_at ? b.seen_at : 0).getTime() || 0;
+    if (tb !== ta) return tb - ta;
+    return String((b && b.txid) || "").localeCompare(String((a && a.txid) || ""));
+  });
+  state.lastTxs = txs;
   const hint = $("tx-sync-hint");
   if (hint) hint.textContent = refresh ? "Refreshed" : "";
   const list = $("tx-list");

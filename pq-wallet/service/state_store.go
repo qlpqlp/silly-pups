@@ -40,9 +40,9 @@ type MetricPoint struct {
 
 // WalletState is persisted as state.json (separate from keys).
 type WalletState struct {
-	Version             int           `json:"version"`
-	Transactions        []TxRecord    `json:"transactions"`
-	Metrics             []MetricPoint `json:"metrics"`
+	Version      int           `json:"version"`
+	Transactions []TxRecord    `json:"transactions"`
+	Metrics      []MetricPoint `json:"metrics"`
 }
 
 func (s *Server) statePath() string {
@@ -123,6 +123,9 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 			if t.AmountDOGE != 0 && prev.AmountDOGE == 0 {
 				prev.AmountDOGE = t.AmountDOGE
 			}
+			if prev.Address == "" && t.Address != "" {
+				prev.Address = t.Address
+			}
 			if prev.RawHex == "" && t.RawHex != "" {
 				prev.RawHex = t.RawHex
 			}
@@ -131,6 +134,9 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 			}
 			if t.Source != "" {
 				prev.Source = t.Source
+			}
+			if prev.SeenAt.IsZero() && !t.SeenAt.IsZero() {
+				prev.SeenAt = t.SeenAt
 			}
 			byID[id] = prev
 			continue

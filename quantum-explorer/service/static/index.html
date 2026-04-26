@@ -696,6 +696,7 @@
           <div class="badges" style="margin:.4rem 0">
             ${badge(t.confirmed ? "confirmed":"pending", t.confirmed ? "Confirmed":"Pending")}
             ${badge(t.pq_valid || t.carrier_verified ? "pq-ok":"pq-bad", t.pq_valid ? "PQ valid" : (t.carrier_verified ? "Carrier-linked (TX_R)" : "PQ invalid"))}
+            ${t.pq_carrier_role === "tx_r" ? badge("pq-ok", "TX_R (reveal)") : t.pq_carrier_role === "tx_c" ? badge("", "TX_C (commitment)") : ""}
             ${badge(t.falcon_status === "passed" ? "pq-ok" : (t.falcon_status === "failed" || t.falcon_status === "error" ? "pq-bad" : ""), `Falcon ${t.falcon_status || "n/a"}`)}
             ${badge("", (t.pq_score ?? 0) + "% PQ")}
           </div>
@@ -1207,7 +1208,8 @@
         last_seen: when,
         falcon_status: falconStatus || "",
         matched_txc_txid: String(x.matched_txc_txid || ""),
-        matched_txr_txid: String(x.matched_txr_txid || "")
+        matched_txr_txid: String(x.matched_txr_txid || ""),
+        pq_carrier_role: String(x.pq_carrier_role || "")
       };
     }
 

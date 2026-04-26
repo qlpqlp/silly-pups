@@ -29,6 +29,9 @@ func (s *Server) mergeTransactionsFromSPVWalletDB(wf *WalletFile, st *WalletStat
 	if _, err := os.Stat(dbPath); err != nil {
 		return false
 	}
+	if !isSQLiteDatabaseFile(dbPath) {
+		return false
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 	rows, err := s.readSPVWalletDBTxRows(ctx, dbPath, wf.AllDistinctP2PKHAddresses())
@@ -157,7 +160,7 @@ func (s *Server) readSPVWalletDBTable(ctx context.Context, dbPath, table string,
 			cols = append(cols, strings.TrimSpace(parts[1]))
 		}
 	}
-	txidCol := pickCol(cols, "txid", "tx_hash", "transaction_hash", "hash")
+	txidCol := pickCol(cols, "txid", "tx_hash", "transaction_hash", "outpoint_txid", "hash")
 	if txidCol == "" {
 		return nil, nil
 	}
@@ -320,4 +323,88 @@ func absFloat(v float64) float64 {
 		return -v
 	}
 	return v
+}
+
+// mergeTransactionsFromSuchListUnspent builds receive-side transaction rows from libdogecoin's
+// wallet file via `such list_unspent` (works for the default binary spv_wallet.db). SQLite-only
+// parsers miss this entirely; SPV log raw lines are optional.
+func (s *Server) mergeTransactionsFromSuchListUnspent(wf *WalletFile, st *WalletState) bool {
+	if wf == nil || st == nil {
+		return false
+	}
+	dbPath := filepath.Join(s.storageDir, "spv_wallet.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		return false
+	}
+	testnet := strings.EqualFold(wf.Network, "testnet")
+	byTxid := make(map[string]TxRecord)
+	for _, addr := range wf.AllDistinctP2PKHAddresses() {
+		addr = strings.TrimSpace(addr)
+		if addr == "" {
+			continue
+		}
+		utxos, err := s.runSuchListUnspent(addr, testnet)
+		if err != nil || len(utxos) == 0 {
+			continue
+		}
+		for _, u := range utxos {
+			id := normalizeTxid(u.TxID)
+			if id == "" {
+				continue
+			}
+			doge := float64(u.Value) / 1e8
+			prev, ok := byTxid[id]
+			if !ok {
+				byTxid[id] = TxRecord{
+					Txid:          id,
+					Direction:     "in",
+					AmountDOGE:    doge,
+					Address:       addr,
+					Source:        "spv",
+					Confirmations: 0,
+				}
+				continue
+			}
+			prev.AmountDOGE += doge
+			if prev.Address == "" {
+				prev.Address = addr
+			}
+			byTxid[id] = prev
+		}
+	}
+	if len(byTxid) == 0 {
+		return false
+	}
+	incoming := make([]TxRecord, 0, len(byTxid))
+	for _, tr := range byTxid {
+		incoming = append(incoming, tr)
+	}
+	before := len(st.Transactions)
+	merged := mergeTxRecords(st.Transactions, incoming)
+	changed := len(merged) != before
+	if !changed {
+		oldByID := map[string]TxRecord{}
+		for _, t := range st.Transactions {
+			id := normalizeTxid(t.Txid)
+			if id != "" {
+				oldByID[id] = t
+			}
+		}
+		for _, t := range merged {
+			id := normalizeTxid(t.Txid)
+			o, ok := oldByID[id]
+			if !ok {
+				changed = true
+				break
+			}
+			if t.AmountDOGE != o.AmountDOGE || t.Direction != o.Direction || t.Address != o.Address {
+				changed = true
+				break
+			}
+		}
+	}
+	if changed {
+		st.Transactions = merged
+	}
+	return changed
 }

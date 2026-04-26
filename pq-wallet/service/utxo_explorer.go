@@ -37,6 +37,9 @@ func (s *Server) fetchUTXOsFromExplorer(ctx context.Context, address string) ([]
 	if utxos, err := s.runSuchListUnspent(address, testnet); err == nil && len(utxos) > 0 {
 		return utxos, nil
 	}
+	if !isSQLiteDatabaseFile(dbPath) {
+		return nil, fmt.Errorf("spv wallet file is not SQLite and such list_unspent returned no UTXOs for this address")
+	}
 
 	tablesRaw, err := s.sqliteRows(ctx, dbPath, "SELECT name FROM sqlite_master WHERE type='table'")
 	if err != nil {
@@ -74,6 +77,21 @@ func (s *Server) fetchUTXOsFromExplorer(ctx context.Context, address string) ([]
 		return nil, fmt.Errorf("no spendable UTXOs found in local spv wallet db yet")
 	}
 	return out, nil
+}
+
+// isSQLiteDatabaseFile returns true when path looks like a SQLite3 database (libdogecoin's
+// default spv_wallet.db is often a binary logdb file with the same .db extension — not SQLite).
+func isSQLiteDatabaseFile(path string) bool {
+	b := make([]byte, 16)
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	if _, err := f.Read(b); err != nil || len(b) < 15 {
+		return false
+	}
+	return string(b[:15]) == "SQLite format 3"
 }
 
 func (s *Server) sqliteRows(ctx context.Context, dbPath, query string) ([]string, error) {

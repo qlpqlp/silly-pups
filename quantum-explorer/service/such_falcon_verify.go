@@ -3,9 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"regexp"
@@ -17,6 +21,7 @@ import (
 var (
 	reSuchSighashHex   = regexp.MustCompile(`(?i)\b([0-9a-f]{64})\b`)
 	reFalconVerifyLine = regexp.MustCompile(`(?i)valid:\s*(yes|no|true|false)`)
+	reFalconFailedLine = regexp.MustCompile(`(?i)\b(failed|invalid)\b`)
 )
 
 func explorerSuchPath() string {
@@ -102,10 +107,10 @@ func runSuchFalconVerify(ctx context.Context, pubHex, messageHex, sigHex string,
 		v := strings.ToLower(strings.TrimSpace(m[1]))
 		passed = v == "yes" || v == "true"
 		summary = strings.TrimSpace(m[0])
-		if runErr != nil && !passed {
-			return false, summary, fmt.Errorf("%w — %s", runErr, truncateExplorerOut(txt, 600))
-		}
 		return passed, summary, nil
+	}
+	if reFalconFailedLine.MatchString(txt) {
+		return false, strings.TrimSpace(truncateExplorerOut(txt, 180)), nil
 	}
 	if runErr != nil {
 		return false, "", fmt.Errorf("falcon_verify: %w — %s", runErr, truncateExplorerOut(txt, 800))
@@ -172,22 +177,342 @@ func (a *app) maybeEnrichFalconCryptoVerify(ctx context.Context, carrier map[str
 		return
 	}
 	passed, line, err := runSuchFalconVerify(ctx, pubHex, msgHex, sigHex, testnet)
+	if err == nil {
+		if passed {
+			out["status"] = "passed"
+		} else {
+			out["status"] = "failed"
+		}
+		out["verify_line"] = line
+		out["message_hex"] = msgHex
+		out["hash_type"] = 1
+		out["context"] = "tx_r_direct"
+		out["input_index"] = vin
+		out["prevout_scriptpubkey_hex"] = spkHex
+		out["such_path"] = explorerSuchPath()
+		if passed {
+			return
+		}
+	}
+	// Spec-aligned fallback: reconstruct TX_BASE from TX_C + TX_R carrier link and try common hash types.
+	fallback := a.tryFalconVerifyWithBaseTx(ctx, carrier, rawTxHex, pubHex, sigHex, testnet)
+	if fallback != nil {
+		for k, v := range fallback {
+			out[k] = v
+		}
+		return
+	}
 	if err != nil {
 		out["status"] = "error"
 		out["reason"] = "falcon_verify invocation failed"
 		out["detail"] = err.Error()
 		return
 	}
-	if passed {
-		out["status"] = "passed"
-	} else {
-		out["status"] = "failed"
-	}
+	out["status"] = "failed"
+	out["reason"] = "signature invalid for derived sighash context"
 	out["verify_line"] = line
 	out["message_hex"] = msgHex
+	out["hash_type"] = 1
+	out["context"] = "tx_r_direct"
 	out["input_index"] = vin
 	out["prevout_scriptpubkey_hex"] = spkHex
 	out["such_path"] = explorerSuchPath()
+}
+
+func (a *app) tryFalconVerifyWithBaseTx(ctx context.Context, carrier map[string]any, rawTxRHex, pubHex, sigHex string, testnet bool) map[string]any {
+	if a == nil || a.cidx == nil || a.core == nil || !a.core.enabled() {
+		return nil
+	}
+	txcTxid := strings.ToLower(strings.TrimSpace(fmt.Sprint(carrier["matched_txc_txid"])))
+	commit := strings.ToLower(strings.TrimSpace(fmt.Sprint(carrier["commitment32"])))
+	if len(txcTxid) != 64 || !isHex64String(txcTxid) || len(commit) != 64 || !isHex64String(commit) {
+		return nil
+	}
+	rawHexTXC, _, _, _, _, _, blkHash, okRow, err := a.cidx.txRowByID(ctx, txcTxid)
+	if err != nil || !okRow {
+		return nil
+	}
+	rawHexTXC = strings.TrimSpace(rawHexTXC)
+	if rawHexTXC == "" {
+		if h, err := a.core.getRawTransactionHex(ctx, txcTxid, blkHash); err == nil && strings.TrimSpace(h) != "" {
+			rawHexTXC = strings.TrimSpace(h)
+		}
+	}
+	if rawHexTXC == "" {
+		return nil
+	}
+	baseRawHex, baseInIdx, scriptPubHex, berr := a.reconstructBaseTxContext(ctx, rawHexTXC, rawTxRHex, commit)
+	if berr != nil || baseRawHex == "" || scriptPubHex == "" || baseInIdx < 0 {
+		return nil
+	}
+	// Try common sighash variants for robustness.
+	hashTypes := []int{1, 129, 131, 3, 2}
+	attempts := make([]map[string]any, 0, len(hashTypes))
+	for _, ht := range hashTypes {
+		msgHex, err := runSuchTxSighash32(ctx, baseRawHex, scriptPubHex, baseInIdx, ht, testnet)
+		if err != nil {
+			attempts = append(attempts, map[string]any{"hash_type": ht, "status": "error", "detail": err.Error()})
+			continue
+		}
+		passed, line, err := runSuchFalconVerify(ctx, pubHex, msgHex, sigHex, testnet)
+		if err != nil {
+			attempts = append(attempts, map[string]any{"hash_type": ht, "status": "error", "detail": err.Error(), "message_hex": msgHex})
+			continue
+		}
+		if passed {
+			return map[string]any{
+				"status":                    "passed",
+				"context":                   "tx_base_reconstructed",
+				"reason":                    "validated with reconstructed TX_BASE (spec-aligned fallback)",
+				"hash_type":                 ht,
+				"message_hex":               msgHex,
+				"verify_line":               line,
+				"input_index":               baseInIdx,
+				"prevout_scriptpubkey_hex":  scriptPubHex,
+				"such_path":                 explorerSuchPath(),
+				"fallback_attempts_checked": len(attempts) + 1,
+			}
+		}
+		attempts = append(attempts, map[string]any{"hash_type": ht, "status": "failed", "verify_line": line, "message_hex": msgHex})
+	}
+	return map[string]any{
+		"status":                   "failed",
+		"context":                  "tx_base_reconstructed",
+		"reason":                   "signature invalid across reconstructed TX_BASE sighash attempts",
+		"input_index":              baseInIdx,
+		"prevout_scriptpubkey_hex": scriptPubHex,
+		"such_path":                explorerSuchPath(),
+		"attempts":                 attempts,
+	}
+}
+
+func (a *app) reconstructBaseTxContext(ctx context.Context, rawHexTXC, rawHexTXR, commitment32 string) (baseRawHex string, inputIndex int, prevScriptPubHex string, err error) {
+	rawC, err := hex.DecodeString(strings.TrimSpace(rawHexTXC))
+	if err != nil {
+		return "", -1, "", err
+	}
+	rawR, err := hex.DecodeString(strings.TrimSpace(rawHexTXR))
+	if err != nil {
+		return "", -1, "", err
+	}
+	txc, err := parseRawTxForBase(rawC)
+	if err != nil {
+		return "", -1, "", err
+	}
+	txrIns, err := parseTxInputs(rawR)
+	if err != nil {
+		return "", -1, "", err
+	}
+	// Carrier outputs are the TX_C outputs spent by TX_R inputs.
+	spentCarrierVouts := map[uint32]struct{}{}
+	var carrierRestore int64
+	for _, in := range txrIns {
+		prevTx := wirePrevTxidHexLE(in.prevTxidLE)
+		if prevTx != strings.ToLower(strings.TrimSpace(txc.txidHex)) {
+			continue
+		}
+		spentCarrierVouts[in.prevVout] = struct{}{}
+		if int(in.prevVout) >= 0 && int(in.prevVout) < len(txc.outputs) {
+			carrierRestore += txc.outputs[in.prevVout].valueSats
+		}
+	}
+	if len(spentCarrierVouts) == 0 {
+		return "", -1, "", fmt.Errorf("no TX_C carrier outputs referenced by TX_R")
+	}
+	// Remove OP_RETURN commitment output and carrier outputs.
+	outsBase := make([]txOutput, 0, len(txc.outputs))
+	for i, o := range txc.outputs {
+		if _, ok := spentCarrierVouts[uint32(i)]; ok {
+			continue
+		}
+		if tag, c, ok := parseCanonicalPQCommitment(o.script); ok {
+			if strings.EqualFold(c, commitment32) && strings.EqualFold(tag, "FLC1") {
+				continue
+			}
+		}
+		outsBase = append(outsBase, o)
+	}
+	if len(outsBase) == 0 {
+		return "", -1, "", fmt.Errorf("could not build TX_BASE outputs")
+	}
+	outsBase[0].valueSats += carrierRestore
+	base := parsedTxBase{
+		version:  txc.version,
+		inputs:   txc.inputs,
+		outputs:  outsBase,
+		locktime: txc.locktime,
+	}
+	baseRaw := serializeParsedTxBase(base)
+	if len(baseRaw) == 0 {
+		return "", -1, "", fmt.Errorf("failed to serialize TX_BASE")
+	}
+	// Per spec and current libdogecoin workflows, bind signature to the first base input.
+	if len(base.inputs) < 1 {
+		return "", -1, "", fmt.Errorf("TX_BASE has no inputs")
+	}
+	prevTxid := wirePrevTxidHexLE(base.inputs[0].prevTxidLE)
+	prevVout := int64(base.inputs[0].prevVout)
+	spk, err := a.core.getVoutScriptPubKeyHex(ctx, prevTxid, prevVout)
+	if err != nil || spk == "" {
+		return "", -1, "", fmt.Errorf("TX_BASE prevout scriptPubKey unavailable: %v", err)
+	}
+	return strings.ToLower(hex.EncodeToString(baseRaw)), 0, strings.ToLower(strings.TrimSpace(spk)), nil
+}
+
+type parsedTxBase struct {
+	txidHex  string
+	version  uint32
+	inputs   []txInput
+	outputs  []txOutput
+	locktime uint32
+}
+
+func parseRawTxForBase(raw []byte) (parsedTxBase, error) {
+	if len(raw) < 10 {
+		return parsedTxBase{}, errors.New("short tx")
+	}
+	off := 0
+	if off+4 > len(raw) {
+		return parsedTxBase{}, io.EOF
+	}
+	version := binary.LittleEndian.Uint32(raw[off:])
+	off += 4
+	if off+2 <= len(raw) && raw[off] == 0 && raw[off+1] == 1 {
+		return parsedTxBase{}, errors.New("segwit tx not supported in base parser")
+	}
+	nin, err := readVarInt(raw, &off)
+	if err != nil {
+		return parsedTxBase{}, err
+	}
+	ins := make([]txInput, 0, nin)
+	for i := 0; i < int(nin); i++ {
+		if off+36 > len(raw) {
+			return parsedTxBase{}, errors.New("truncated input")
+		}
+		in := txInput{
+			prevTxidLE: append([]byte(nil), raw[off:off+32]...),
+			prevVout:   binary.LittleEndian.Uint32(raw[off+32 : off+36]),
+		}
+		off += 36
+		slen, err := readVarInt(raw, &off)
+		if err != nil || off+int(slen) > len(raw) {
+			return parsedTxBase{}, errors.New("truncated scriptSig")
+		}
+		in.scriptSig = append([]byte(nil), raw[off:off+int(slen)]...)
+		off += int(slen)
+		if off+4 > len(raw) {
+			return parsedTxBase{}, errors.New("truncated sequence")
+		}
+		in.sequence = binary.LittleEndian.Uint32(raw[off:])
+		off += 4
+		ins = append(ins, in)
+	}
+	nout, err := readVarInt(raw, &off)
+	if err != nil {
+		return parsedTxBase{}, err
+	}
+	outs := make([]txOutput, 0, nout)
+	for i := 0; i < int(nout); i++ {
+		if off+8 > len(raw) {
+			return parsedTxBase{}, errors.New("truncated output value")
+		}
+		val := int64(binary.LittleEndian.Uint64(raw[off:]))
+		off += 8
+		slen, err := readVarInt(raw, &off)
+		if err != nil || off+int(slen) > len(raw) {
+			return parsedTxBase{}, errors.New("truncated scriptPubKey")
+		}
+		scr := append([]byte(nil), raw[off:off+int(slen)]...)
+		off += int(slen)
+		outs = append(outs, txOutput{valueSats: val, script: scr})
+	}
+	if off+4 > len(raw) {
+		return parsedTxBase{}, errors.New("truncated locktime")
+	}
+	locktime := binary.LittleEndian.Uint32(raw[off:])
+	return parsedTxBase{
+		txidHex:  strings.ToLower(hex.EncodeToString(txidFromRaw(raw))),
+		version:  version,
+		inputs:   ins,
+		outputs:  outs,
+		locktime: locktime,
+	}, nil
+}
+
+func serializeParsedTxBase(tx parsedTxBase) []byte {
+	var b bytes.Buffer
+	tmp4 := make([]byte, 4)
+	tmp8 := make([]byte, 8)
+	binary.LittleEndian.PutUint32(tmp4, tx.version)
+	b.Write(tmp4)
+	writeVarInt(&b, uint64(len(tx.inputs)))
+	for _, in := range tx.inputs {
+		if len(in.prevTxidLE) != 32 {
+			return nil
+		}
+		b.Write(in.prevTxidLE)
+		binary.LittleEndian.PutUint32(tmp4, in.prevVout)
+		b.Write(tmp4)
+		writeVarInt(&b, uint64(len(in.scriptSig)))
+		b.Write(in.scriptSig)
+		binary.LittleEndian.PutUint32(tmp4, in.sequence)
+		b.Write(tmp4)
+	}
+	writeVarInt(&b, uint64(len(tx.outputs)))
+	for _, o := range tx.outputs {
+		binary.LittleEndian.PutUint64(tmp8, uint64(o.valueSats))
+		b.Write(tmp8)
+		writeVarInt(&b, uint64(len(o.script)))
+		b.Write(o.script)
+	}
+	binary.LittleEndian.PutUint32(tmp4, tx.locktime)
+	b.Write(tmp4)
+	return b.Bytes()
+}
+
+func writeVarInt(w *bytes.Buffer, v uint64) {
+	switch {
+	case v < 0xfd:
+		w.WriteByte(byte(v))
+	case v <= 0xffff:
+		w.WriteByte(0xfd)
+		var b [2]byte
+		binary.LittleEndian.PutUint16(b[:], uint16(v))
+		w.Write(b[:])
+	case v <= 0xffffffff:
+		w.WriteByte(0xfe)
+		var b [4]byte
+		binary.LittleEndian.PutUint32(b[:], uint32(v))
+		w.Write(b[:])
+	default:
+		w.WriteByte(0xff)
+		var b [8]byte
+		binary.LittleEndian.PutUint64(b[:], v)
+		w.Write(b[:])
+	}
+}
+
+func txidFromRaw(raw []byte) []byte {
+	// Non-segwit txid path (Dogecoin legacy tx format in this explorer).
+	h := Sha256d(raw)
+	out := make([]byte, len(h))
+	copy(out, h)
+	for i := 0; i < len(out)/2; i++ {
+		out[i], out[len(out)-1-i] = out[len(out)-1-i], out[i]
+	}
+	return out
+}
+
+func Sha256d(b []byte) []byte {
+	h1 := sha256Sum(b)
+	h2 := sha256Sum(h1)
+	return h2
+}
+
+func sha256Sum(b []byte) []byte {
+	h := sha256.New()
+	_, _ = h.Write(b)
+	return h.Sum(nil)
 }
 
 func jsonIntAny(v any) int {

@@ -26,10 +26,10 @@ import (
 var staticFS embed.FS
 
 // pqWalletAppVersion is shown in /api/health, education JSON, and the UI footer (keep in sync with manifest.json).
-const pqWalletAppVersion = "0.0.32"
+const pqWalletAppVersion = "0.0.33"
 
 // pqWalletBuildHash is a release fingerprint (SHA-256 hex of "pq-wallet-<version>"); bump when cutting a release.
-const pqWalletBuildHash = "e657e9377f50b08542052d88dd8aa88899c081c2eb55596ae9dcaf2b1a0a7267"
+const pqWalletBuildHash = "4be85c86c8b022a70ee4515e6b8cbfef024e7d45e37e84549bd923d09acc117d"
 
 type Server struct {
 	mu            sync.Mutex
@@ -200,6 +200,7 @@ func main() {
 	mux.HandleFunc("/api/tx/local/", srv.handleTxLocalDetail)
 	mux.HandleFunc("/api/spv/status", srv.handleSPVStatus)
 	mux.HandleFunc("/api/spv/rescan", srv.handleSPVRescan)
+	mux.HandleFunc("/api/debug/spv-wallet-db", srv.handleDebugSPVWalletDB)
 	mux.HandleFunc("/api/services/control", srv.handleServicesControl)
 	mux.HandleFunc("/api/logs/spv", srv.handleLogsSPV)
 	mux.HandleFunc("/api/logs/mempooltracker", srv.handleLogsMempoolTracker)

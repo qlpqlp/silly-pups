@@ -50,9 +50,13 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	rawChanged := s.applySPVRawHex(st, logTail)
 	enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
 	dbChanged := s.mergeTransactionsFromSPVWalletDB(wf, st)
+	suchChanged := s.mergeTransactionsFromSuchListUnspent(wf, st)
+	if suchChanged && s.enrichSPVTxFromRawHex(st, wf) {
+		enrichedChanged = true
+	}
 	if s.applySPVConfirmations(st, logTail) {
 		_ = s.saveState(st)
-	} else if seenChanged || rawChanged || enrichedChanged || dbChanged {
+	} else if seenChanged || rawChanged || enrichedChanged || dbChanged || suchChanged {
 		_ = s.saveState(st)
 	}
 	if changed, err := s.maybeRotateHDReceiveAddress(wf, st); err == nil && changed {
@@ -247,7 +251,13 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 		rawChanged := s.applySPVRawHex(st, logTail)
 		enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
 		dbChanged := s.mergeTransactionsFromSPVWalletDB(wf, st)
-		if s.applySPVConfirmations(st, logTail) || changed || rawChanged || enrichedChanged || dbChanged {
+		suchChanged := s.mergeTransactionsFromSuchListUnspent(wf, st)
+		if suchChanged {
+			if s.enrichSPVTxFromRawHex(st, wf) {
+				enrichedChanged = true
+			}
+		}
+		if s.applySPVConfirmations(st, logTail) || changed || rawChanged || enrichedChanged || dbChanged || suchChanged {
 			_ = s.saveState(st)
 		}
 	}
@@ -587,6 +597,9 @@ func (s *Server) backgroundMetricsLoop() {
 		_ = s.applySPVRawHex(st, logTail)
 		_ = s.enrichSPVTxFromRawHex(st, wf)
 		_ = s.mergeTransactionsFromSPVWalletDB(wf, st)
+		if s.mergeTransactionsFromSuchListUnspent(wf, st) {
+			_ = s.enrichSPVTxFromRawHex(st, wf)
+		}
 		mempoolRelay := 0
 		if eng, eerr := s.ensureMempoolEngine(wf); eerr == nil && eng != nil {
 			mempoolRelay, _, _, _ = eng.DashboardSnapshot()

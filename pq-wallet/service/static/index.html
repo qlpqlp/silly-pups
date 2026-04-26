@@ -342,6 +342,20 @@
             </div>
           </div>
           <div class="card">
+            <h2><span class="material-symbols-outlined icon-inline">database</span> SPV wallet file (debug)</h2>
+            <p class="small muted">Libdogecoin usually stores <code class="mono">spv_wallet.db</code> as a <strong>binary wallet</strong>, not SQLite. The wallet merges receive transactions from <code class="mono">such list_unspent</code>. Use this panel to see which format you have and to run <strong>read-only</strong> SQL when the file is SQLite.</p>
+            <p class="small muted mono" id="spv-db-debug-meta">—</p>
+            <div class="toolbar toolbar-actions" style="margin:.35rem 0">
+              <button type="button" class="btn btn-sm" id="btn-spv-db-probe">Probe format</button>
+              <button type="button" class="btn btn-sm" id="btn-spv-db-tables">List tables</button>
+            </div>
+            <label class="field"><span class="field-label">PRAGMA / SELECT (max 200 rows)</span>
+              <input type="text" class="input-modern mono" id="spv-db-debug-query" placeholder="PRAGMA table_info(&quot;mytable&quot;)" autocomplete="off" spellcheck="false" />
+            </label>
+            <button type="button" class="btn btn-sm primary" id="btn-spv-db-run" style="margin-top:.35rem">Run query</button>
+            <pre class="dos-screen" id="spv-db-debug-out" style="margin-top:.5rem;max-height:14rem;overflow:auto">—</pre>
+          </div>
+          <div class="card">
             <h2>Backup</h2>
             <p class="small muted">Downloads wallet JSON (only while not sealed, or export after unlock).</p>
             <button type="button" class="btn primary" id="btn-backup"><span class="material-symbols-outlined btn-ico">payments</span> Download backup</button>

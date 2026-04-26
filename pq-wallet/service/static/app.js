@@ -1461,6 +1461,50 @@ if (spvRepairBackdrop) spvRepairBackdrop.addEventListener("click", closeSpvRepai
 const btnSpvRepairClose = $("btn-spv-repair-close");
 if (btnSpvRepairClose) btnSpvRepairClose.addEventListener("click", closeSpvRepairModal);
 
+function spvDbDebugShow(obj) {
+  const out = $("spv-db-debug-out");
+  const meta = $("spv-db-debug-meta");
+  if (out) out.textContent = JSON.stringify(obj, null, 2);
+  if (meta && obj) {
+    const parts = [];
+    if (obj.path) parts.push(String(obj.path));
+    if (obj.format) parts.push(String(obj.format));
+    if (obj.tables && Array.isArray(obj.tables)) parts.push(obj.tables.length + " tables");
+    if (obj.row_count != null) parts.push(String(obj.row_count) + " rows" + (obj.truncated ? " (truncated)" : ""));
+    meta.textContent = parts.length ? parts.join(" · ") : "—";
+  }
+}
+
+const btnSpvDbProbe = $("btn-spv-db-probe");
+if (btnSpvDbProbe) {
+  btnSpvDbProbe.addEventListener("click", async () => {
+    const res = await api("/api/debug/spv-wallet-db?op=meta");
+    if (res.error) alert(res.error);
+    spvDbDebugShow(res);
+  });
+}
+const btnSpvDbTables = $("btn-spv-db-tables");
+if (btnSpvDbTables) {
+  btnSpvDbTables.addEventListener("click", async () => {
+    const res = await api("/api/debug/spv-wallet-db?op=tables");
+    if (res.error) alert(res.error);
+    spvDbDebugShow(res);
+  });
+}
+const btnSpvDbRun = $("btn-spv-db-run");
+if (btnSpvDbRun) {
+  btnSpvDbRun.addEventListener("click", async () => {
+    const q = ($("spv-db-debug-query") && $("spv-db-debug-query").value.trim()) || "";
+    if (!q) {
+      alert("Enter a query");
+      return;
+    }
+    const res = await api("/api/debug/spv-wallet-db?op=query&q=" + encodeURIComponent(q));
+    if (res.error) alert(res.error);
+    spvDbDebugShow(res);
+  });
+}
+
 document.getElementById("btn-backup").addEventListener("click", async () => {
   const data = await api("/api/wallet");
   if (!data.wallet) return;

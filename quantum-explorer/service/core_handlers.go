@@ -70,6 +70,37 @@ func (a *app) publicCoreSummary(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// pqCarrierTXRole classifies carrier-flow rows for the homepage: TX_C (Phase-1 OP_RETURN commitment)
+// vs TX_R (reveal that matched a commitment or carried verified carrier material).
+func pqCarrierTXRole(row map[string]any) string {
+	if row == nil {
+		return ""
+	}
+	txcLink := strings.TrimSpace(rowString(row, "matched_txc_txid"))
+	txrLink := strings.TrimSpace(rowString(row, "matched_txr_txid"))
+	pq, _ := row["pq_verification"].(map[string]any)
+	var strictOK, carVer bool
+	if pq != nil {
+		if st, ok := pq["strict"].(map[string]any); ok {
+			if v, ok := st["valid"].(bool); ok {
+				strictOK = v
+			}
+		}
+		if car, ok := pq["carrier_phase1"].(map[string]any); ok {
+			if v, ok := car["verified"].(bool); ok {
+				carVer = v
+			}
+		}
+	}
+	if txcLink != "" || carVer {
+		return "tx_r"
+	}
+	if txrLink != "" || (strings.EqualFold(rowString(row, "quantum_state"), "quantum") && strictOK) {
+		return "tx_c"
+	}
+	return ""
+}
+
 func (a *app) publicCoreRecentTxs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
@@ -125,6 +156,7 @@ func (a *app) publicCoreRecentTxs(w http.ResponseWriter, r *http.Request) {
 		if rev, ok := pq["carrier_reverse_phase1"].(map[string]any); ok {
 			row["matched_txr_txid"] = strings.ToLower(strings.TrimSpace(rowString(rev, "matched_txr_txid")))
 		}
+		row["pq_carrier_role"] = pqCarrierTXRole(row)
 		enriched = append(enriched, row)
 	}
 	rows = enriched

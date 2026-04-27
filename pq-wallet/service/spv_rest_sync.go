@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -12,11 +15,18 @@ import (
 
 type spvRESTTxRow struct {
 	Txid          string
+	Vout          uint32
 	Address       string
 	AmountDOGE    float64
 	Direction     string
 	Confirmations int
+	SeenAt        time.Time
 }
+
+var (
+	reSPVHex64 = regexp.MustCompile(`(?i)\b([0-9a-f]{64})\b`)
+	reSPVInt   = regexp.MustCompile(`\b(\d{1,16})\b`)
+)
 
 func (s *Server) fetchSPVREST(path string) (string, error) {
 	base := s.spvHTTPBaseURL()
@@ -44,6 +54,67 @@ func parseSPVRESTRows(raw, direction string) []spvRESTTxRow {
 	lines := strings.Split(raw, "\n")
 	var rows []spvRESTTxRow
 	cur := map[string]string{}
+	parseUnixToTime := func(s string) time.Time {
+		n := int64(parseIntDefault(strings.TrimSpace(s), 0))
+		if n <= 0 {
+			return time.Time{}
+		}
+		if n > 1_000_000_000_000 {
+			n = n / 1000
+		}
+		if n <= 0 {
+			return time.Time{}
+		}
+		return time.Unix(n, 0).UTC()
+	}
+	parsePipeFallback := func(ln string) (spvRESTTxRow, bool) {
+		var row spvRESTTxRow
+		row.Direction = direction
+		if m := reSPVHex64.FindStringSubmatch(ln); len(m) >= 2 {
+			row.Txid = normalizeTxid(m[1])
+		}
+		if row.Txid == "" {
+			return spvRESTTxRow{}, false
+		}
+		parts := strings.Split(ln, "|")
+		for _, p := range parts {
+			tok := strings.TrimSpace(p)
+			if tok == "" {
+				continue
+			}
+			low := strings.ToLower(tok)
+			if row.Address == "" && (strings.HasPrefix(tok, "D") || strings.HasPrefix(tok, "A") || strings.HasPrefix(tok, "n")) && len(tok) >= 26 && len(tok) <= 64 {
+				row.Address = tok
+				continue
+			}
+			if row.SeenAt.IsZero() {
+				if ts := parseUnixToTime(tok); !ts.IsZero() && ts.Unix() >= 1231006505 {
+					row.SeenAt = ts
+					continue
+				}
+			}
+			if strings.Contains(tok, ".") {
+				if f, err := strconv.ParseFloat(tok, 64); err == nil && f > 0 {
+					row.AmountDOGE = math.Abs(f)
+					continue
+				}
+			}
+			if row.Vout == 0 && reSPVInt.MatchString(tok) && !strings.ContainsAny(tok, ".-") {
+				n := parseIntDefault(tok, -1)
+				if n >= 0 && n < 100000 {
+					row.Vout = uint32(n)
+					continue
+				}
+			}
+			if row.Confirmations == 0 && strings.Contains(low, "conf") {
+				if n := parseIntDefault(tok, 0); n > 0 {
+					row.Confirmations = n
+					continue
+				}
+			}
+		}
+		return row, true
+	}
 	flush := func() {
 		txid := normalizeTxid(cur["txid"])
 		if txid == "" {
@@ -53,12 +124,28 @@ func parseSPVRESTRows(raw, direction string) []spvRESTTxRow {
 		amt, _ := strconv.ParseFloat(strings.TrimSpace(cur["amount"]), 64)
 		conf := parseIntDefault(cur["confirmations"], 0)
 		addr := strings.TrimSpace(cur["address"])
+		vout := parseIntDefault(cur["vout"], 0)
+		if vout < 0 {
+			vout = 0
+		}
+		seen := parseUnixToTime(cur["timestamp"])
+		if seen.IsZero() {
+			seen = parseUnixToTime(cur["time"])
+		}
+		if seen.IsZero() {
+			seen = parseUnixToTime(cur["block_time"])
+		}
+		if seen.IsZero() {
+			seen = parseUnixToTime(cur["seen_at"])
+		}
 		rows = append(rows, spvRESTTxRow{
 			Txid:          txid,
+			Vout:          uint32(vout),
 			Address:       addr,
 			AmountDOGE:    absFloat(amt),
 			Direction:     direction,
 			Confirmations: conf,
+			SeenAt:        seen,
 		})
 		cur = map[string]string{}
 	}
@@ -71,8 +158,13 @@ func parseSPVRESTRows(raw, direction string) []spvRESTTxRow {
 			flush()
 			continue
 		}
-		i := strings.Index(ln, ":")
+		i := strings.IndexAny(ln, ":=")
 		if i <= 0 {
+			if strings.Contains(ln, "|") {
+				if row, ok := parsePipeFallback(ln); ok {
+					rows = append(rows, row)
+				}
+			}
 			continue
 		}
 		k := strings.ToLower(strings.TrimSpace(ln[:i]))
@@ -84,18 +176,42 @@ func parseSPVRESTRows(raw, direction string) []spvRESTTxRow {
 }
 
 func parseSPVRESTChaintip(raw string) (height int64, bestHash string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, ""
+	}
+	if strings.HasPrefix(raw, "{") {
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(raw), &obj); err == nil {
+			for _, k := range []string{"height", "chain_height", "tip_height", "best_height"} {
+				if n := int64(parseIntDefault(fmt.Sprint(obj[k]), 0)); n > 0 {
+					height = n
+					break
+				}
+			}
+			for _, k := range []string{"hash", "best_block_hash", "block_hash", "tip_hash"} {
+				h := normalizeTxid(fmt.Sprint(obj[k]))
+				if h != "" {
+					bestHash = h
+					break
+				}
+			}
+		}
+	}
 	raw = strings.ReplaceAll(raw, "\r\n", "\n")
 	for _, ln := range strings.Split(raw, "\n") {
 		low := strings.ToLower(strings.TrimSpace(ln))
 		if strings.Contains(low, "height") {
-			i := strings.Index(ln, ":")
-			if i > 0 {
-				height = int64(parseIntDefault(strings.TrimSpace(ln[i+1:]), 0))
+			i := strings.IndexAny(ln, ":=")
+			if i > 0 && height <= 0 {
+				if n := int64(parseIntDefault(strings.TrimSpace(ln[i+1:]), 0)); n > 0 {
+					height = n
+				}
 			}
 		}
 		if strings.Contains(low, "hash") {
-			i := strings.Index(ln, ":")
-			if i > 0 {
+			i := strings.IndexAny(ln, ":=")
+			if i > 0 && bestHash == "" {
 				h := strings.ToLower(strings.TrimSpace(ln[i+1:]))
 				if len(h) == 64 && normalizeTxid(h) != "" {
 					bestHash = h
@@ -103,20 +219,59 @@ func parseSPVRESTChaintip(raw string) (height int64, bestHash string) {
 			}
 		}
 	}
+	if bestHash == "" {
+		if m := reSPVHex64.FindStringSubmatch(raw); len(m) >= 2 {
+			bestHash = normalizeTxid(m[1])
+		}
+	}
+	if height <= 0 {
+		matches := reSPVInt.FindAllStringSubmatch(raw, -1)
+		for _, m := range matches {
+			if len(m) < 2 {
+				continue
+			}
+			n := int64(parseIntDefault(m[1], 0))
+			if n > height {
+				height = n
+			}
+		}
+	}
 	return
 }
 
 func parseSPVRESTTimestamp(raw string) int64 {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0
+	}
+	if reSPVInt.MatchString(raw) && !strings.ContainsAny(raw, " \n\t:={}") {
+		return int64(parseIntDefault(raw, 0))
+	}
+	if strings.HasPrefix(raw, "{") {
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(raw), &obj); err == nil {
+			for _, k := range []string{"timestamp", "time", "header_unix_time", "header_time"} {
+				if n := int64(parseIntDefault(fmt.Sprint(obj[k]), 0)); n > 0 {
+					return n
+				}
+			}
+		}
+	}
 	raw = strings.ReplaceAll(raw, "\r\n", "\n")
 	for _, ln := range strings.Split(raw, "\n") {
-		i := strings.Index(ln, ":")
+		i := strings.IndexAny(ln, ":=")
 		if i <= 0 {
 			continue
 		}
 		k := strings.ToLower(strings.TrimSpace(ln[:i]))
 		if strings.Contains(k, "time") || strings.Contains(k, "timestamp") {
-			return int64(parseIntDefault(strings.TrimSpace(ln[i+1:]), 0))
+			if n := int64(parseIntDefault(strings.TrimSpace(ln[i+1:]), 0)); n > 0 {
+				return n
+			}
 		}
+	}
+	if m := reSPVInt.FindStringSubmatch(raw); len(m) >= 2 {
+		return int64(parseIntDefault(m[1], 0))
 	}
 	return 0
 }
@@ -152,6 +307,7 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState) bool {
 				Address:       r.Address,
 				Confirmations: r.Confirmations,
 				Source:        "spv",
+				SeenAt:        r.SeenAt,
 			}
 			continue
 		}
@@ -161,6 +317,9 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState) bool {
 		}
 		if r.Confirmations > prev.Confirmations {
 			prev.Confirmations = r.Confirmations
+		}
+		if prev.SeenAt.IsZero() && !r.SeenAt.IsZero() {
+			prev.SeenAt = r.SeenAt
 		}
 		byTxid[id] = prev
 	}

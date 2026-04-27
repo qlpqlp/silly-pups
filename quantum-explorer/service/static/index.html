@@ -13,7 +13,11 @@
   <style>
     :root { --bg:#0c121a; --card:#121c29; --txt:#eef5ff; --muted:#95a7c2; --doge:#f2cb2c; --line:#26384f; --ok:#41d18e; --warn:#ffb347; --bad:#ff7d7d; }
     * { box-sizing:border-box; }
-    body { margin:0; font-family:"Comic Neue","Segoe UI",sans-serif; background:radial-gradient(1000px 600px at 80% -10%,#1d2a3d 0,var(--bg) 60%); color:var(--txt); }
+    body { margin:0; font-family:"Comic Neue","Segoe UI",sans-serif; background:
+      radial-gradient(900px 540px at 90% -20%, rgba(61,214,224,.12) 0%, rgba(61,214,224,0) 55%),
+      radial-gradient(900px 540px at -15% -10%, rgba(242,203,44,.1) 0%, rgba(242,203,44,0) 55%),
+      radial-gradient(1000px 600px at 80% -10%,#1d2a3d 0,var(--bg) 60%);
+      color:var(--txt); }
     .wrap { max-width:1100px; margin:0 auto; padding:1rem; }
     .hero { display:flex; align-items:flex-start; gap:.75rem; margin:.2rem 0 1rem; }
     .hero img { width:40px; height:40px; flex:0 0 40px; }
@@ -21,7 +25,7 @@
     .hero h1 { margin:0; font-size:clamp(1.02rem, 2.2vw, 1.45rem); letter-spacing:-.02em; line-height:1.15; overflow-wrap:anywhere; }
     .sub { color:var(--muted); margin:.22rem 0 0; line-height:1.35; overflow-wrap:anywhere; }
     .grid { display:grid; grid-template-columns:2fr 1fr; gap:.8rem; }
-    .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:.9rem; }
+    .card { background:linear-gradient(180deg, rgba(18,28,41,.94) 0%, rgba(15,24,36,.94) 100%); border:1px solid var(--line); border-radius:14px; padding:.9rem; box-shadow:0 8px 22px rgba(0,0,0,.22); backdrop-filter: blur(2px); }
     .card h2 { margin:0 0 .6rem; font-size:1.05rem; }
     .row { display:flex; gap:.5rem; flex-wrap:wrap; }
     .search-wrap { position:relative; max-width:100%; }
@@ -63,9 +67,9 @@
     .pq-block-head h2 { margin:0; font-size:1.1rem; }
     .pq-block-meta { font-size:.82rem; color:var(--muted); }
     .pq-block-rows { padding:.35rem 0; }
-    .pq-tx-row { display:block; width:100%; text-align:left; border:none; border-bottom:1px solid var(--line); padding:.65rem .9rem; background:transparent; color:var(--txt); font:inherit; cursor:pointer; transition:background .15s; }
+    .pq-tx-row { display:block; width:100%; text-align:left; border:none; border-bottom:1px solid var(--line); padding:.72rem .95rem; background:transparent; color:var(--txt); font:inherit; cursor:pointer; transition:background .15s, transform .12s; }
     .pq-tx-row:last-child { border-bottom:none; }
-    .pq-tx-row:hover, .pq-tx-row:focus-visible { background:rgba(242,203,44,.08); outline:none; }
+    .pq-tx-row:hover, .pq-tx-row:focus-visible { background:rgba(242,203,44,.08); outline:none; transform:translateY(-1px); }
     .pq-tx-row .mono { font-size:.78rem; opacity:.95; }
     .pq-tx-row .row-meta { margin-top:.35rem; font-size:.8rem; color:var(--muted); }
     .modal-backdrop { display:none; position:fixed; inset:0; z-index:200; background:rgba(5,8,12,.78); align-items:flex-start; justify-content:center; padding:1rem; overflow-y:auto; }
@@ -497,7 +501,7 @@
     let latestPQRows = [];
     let latestBlockRows = [];
     let pqVisibleCount = 3;
-    let blocksVisibleCount = 3;
+    const blocksVisibleCount = 3;
     let searchVisibleCount = 3;
     let lastSearchData = null;
     let searchTimer = null;
@@ -516,6 +520,7 @@
     let currentDetail = null;
     let searchBackState = null;
     const qeCharts = {};
+    let lastPQRenderSig = "";
 
     function openDetailFromState(st, pushCurrent){
       if (!st || !st.kind) return;
@@ -688,6 +693,22 @@
         return;
       }
       const visibleRows = filtered.slice(0, pqVisibleCount);
+      const renderSig = JSON.stringify(visibleRows.map(t => ({
+        txid: t.txid,
+        pq_valid: !!t.pq_valid,
+        carrier_verified: !!t.carrier_verified,
+        falcon_status: String(t.falcon_status || ""),
+        pq_reason: String(t.pq_reason || ""),
+        matched_txc_txid: String(t.matched_txc_txid || ""),
+        matched_txr_txid: String(t.matched_txr_txid || ""),
+        pq_carrier_role: String(t.pq_carrier_role || ""),
+        block_height: t.block_height ?? null,
+        last_seen: String(t.last_seen || t.first_seen || "")
+      })));
+      if (rowsEl && lastPQRenderSig === renderSig) {
+        return;
+      }
+      lastPQRenderSig = renderSig;
       const moreBtn = document.getElementById("btn-pq-more");
       if (moreBtn) moreBtn.style.display = visibleRows.length < filtered.length ? "" : "none";
       rowsEl.innerHTML = visibleRows.map(t => `
@@ -930,6 +951,12 @@
           const qEl = document.getElementById("q");
           if (qEl) qEl.value = addr;
           closeTxModal();
+          const searchInput = document.getElementById("q");
+          if (searchInput && typeof searchInput.scrollIntoView === "function") {
+            searchInput.scrollIntoView({ behavior: "smooth", block: "start" });
+          } else {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }
           document.getElementById("btn-search").click();
         };
       });
@@ -1118,7 +1145,8 @@
       const status=document.getElementById("spv-pq-status");
       const tipCard=document.getElementById("spv-tip-card");
       const spvBadges=document.getElementById("spv-badges");
-      const rows = Array.isArray(latestBlockRows) && latestBlockRows.length ? latestBlockRows : ((ex && ex.recent_blocks) || []);
+      const allRows = Array.isArray(latestBlockRows) && latestBlockRows.length ? latestBlockRows : ((ex && ex.recent_blocks) || []);
+      const rows = allRows.slice(0, blocksVisibleCount);
       const sum = (ex && ex.summary) || {};
       const rrows = (sum && sum.rows) || {};
       const pq = (ex && ex.pq) || {};
@@ -1155,7 +1183,7 @@
         };
       });
       const moreBtn = document.getElementById("btn-blocks-more");
-      if (moreBtn) moreBtn.style.display = "";
+      if (moreBtn) moreBtn.style.display = "none";
     }
 
     function renderChainIndexFallback(ci){
@@ -1211,6 +1239,29 @@
         matched_txr_txid: String(x.matched_txr_txid || ""),
         pq_carrier_role: String(x.pq_carrier_role || "")
       };
+    }
+
+    function mergeQuantumRowsPreserve(existing, incoming){
+      const prevByTxid = new Map((Array.isArray(existing) ? existing : []).map(r => [String(r.txid || ""), r]));
+      return (Array.isArray(incoming) ? incoming : []).map(r => {
+        const id = String(r.txid || "");
+        const prev = prevByTxid.get(id);
+        if (!prev) return r;
+        const merged = { ...prev, ...r };
+        if (!String(r.falcon_status || "").trim() && String(prev.falcon_status || "").trim()) {
+          merged.falcon_status = prev.falcon_status;
+        }
+        if (!String(r.pq_carrier_role || "").trim() && String(prev.pq_carrier_role || "").trim()) {
+          merged.pq_carrier_role = prev.pq_carrier_role;
+        }
+        if (!String(r.matched_txc_txid || "").trim() && String(prev.matched_txc_txid || "").trim()) {
+          merged.matched_txc_txid = prev.matched_txc_txid;
+        }
+        if (!String(r.matched_txr_txid || "").trim() && String(prev.matched_txr_txid || "").trim()) {
+          merged.matched_txr_txid = prev.matched_txr_txid;
+        }
+        return merged;
+      });
     }
 
     function applyQuickSummary(summaryResp){
@@ -1284,7 +1335,7 @@
         }
         renderExplorerBlocks(ex);
         const fromStatus = Array.isArray(ex.recent_quantum) ? ex.recent_quantum : [];
-        latestPQRows = fromStatus.length ? fromStatus.map(mapQuantumRow) : [];
+        latestPQRows = mergeQuantumRowsPreserve(latestPQRows, fromStatus.length ? fromStatus.map(mapQuantumRow) : []);
         renderPQBlock(latestPQRows);
       } else {
         document.getElementById("k-core-tip").textContent = (core.blockcount != null) ? String(core.blockcount) : "—";
@@ -1321,7 +1372,7 @@
           renderExplorerBlocks(ex);
         }
         if (rr.ok && Array.isArray(rr.d.rows)) {
-          latestPQRows = rr.d.rows.map(mapQuantumRow);
+          latestPQRows = mergeQuantumRowsPreserve(latestPQRows, rr.d.rows.map(mapQuantumRow));
           renderPQBlock(latestPQRows);
         }
       }
@@ -1392,10 +1443,10 @@
       pqVisibleCount += 10;
       renderPQBlock(latestPQRows);
     };
-    document.getElementById("btn-blocks-more").onclick = () => {
-      blocksVisibleCount += 10;
-      load();
-    };
+    const blocksMoreBtn = document.getElementById("btn-blocks-more");
+    if (blocksMoreBtn) {
+      blocksMoreBtn.style.display = "none";
+    }
     document.getElementById("btn-clear-search").onclick = () => {
       document.getElementById("q").value = "";
       document.getElementById("search-out").innerHTML = "";

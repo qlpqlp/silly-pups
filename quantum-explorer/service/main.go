@@ -26,10 +26,10 @@ import (
 var staticFS embed.FS
 
 // qeAppVersion is shown in the public UI and /api/public/status (keep in sync with manifest.json).
-const qeAppVersion = "0.1.42"
+const qeAppVersion = "0.1.43"
 
 // qeAppBuildHash is a release fingerprint (SHA-256 hex of "quantum-explorer-<version>"); bump when cutting a release.
-const qeAppBuildHash = "c0633ec363b0ecc686219a6e52973c7683de991363739acf488df89ad19960b0"
+const qeAppBuildHash = "e07f1605cc4e203d73d6a01bba776f5d4a23ffdb1b63d531ec74cf4149fa18dc"
 
 type Checkpoint struct {
 	Height    int    `json:"height"`
@@ -1068,7 +1068,7 @@ func (a *app) publicStatus(w http.ResponseWriter, r *http.Request) {
 			m["pq_confirmed"] = int(pqAgg["quantum"])
 			m["pq_invalid"] = int(pqAgg["invalid_quantum"])
 		}
-		if rb, err := a.cidx.recentBlocks(ctx, 15); err == nil {
+		if rb, err := a.cidx.recentBlocks(ctx, 3); err == nil {
 			ex["recent_blocks"] = rb
 		}
 		// Keep dashboard status payload small: UI only needs tens of rows; full list loads via /api/public/core/recent-txs if needed.

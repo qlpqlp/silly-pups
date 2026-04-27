@@ -81,9 +81,37 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	utxos, err := s.fetchUTXOsFromExplorer(ctx, strings.TrimSpace(pa.P2PKH))
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
+	if err != nil || len(utxos) == 0 {
+		// Fallback: spend from all wallet addresses, not only primary.
+		seen := map[string]struct{}{}
+		all := make([]ExplorerUTXO, 0, 16)
+		for _, a := range wf.AllDistinctP2PKHAddresses() {
+			a = strings.TrimSpace(a)
+			if a == "" {
+				continue
+			}
+			list, ferr := s.fetchUTXOsFromExplorer(ctx, a)
+			if ferr != nil || len(list) == 0 {
+				continue
+			}
+			for _, u := range list {
+				k := strings.ToLower(strings.TrimSpace(u.TxID)) + ":" + fmt.Sprintf("%d", u.Vout)
+				if _, ok := seen[k]; ok {
+					continue
+				}
+				seen[k] = struct{}{}
+				all = append(all, u)
+			}
+		}
+		if len(all) == 0 {
+			msg := "could not load spendable UTXOs from SPV wallet (primary or derived addresses)"
+			if err != nil {
+				msg += ": " + err.Error()
+			}
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+			return
+		}
+		utxos = all
 	}
 
 	var selected []ExplorerUTXO

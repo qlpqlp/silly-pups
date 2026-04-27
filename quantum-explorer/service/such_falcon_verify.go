@@ -208,8 +208,11 @@ func (a *app) maybeEnrichFalconCryptoVerify(ctx context.Context, carrier map[str
 		out["detail"] = err.Error()
 		return
 	}
-	out["status"] = "failed"
-	out["reason"] = "signature invalid for derived sighash context"
+	// A direct TX_R sighash miss can be a context mismatch (prevout/script binding), not
+	// definitive cryptographic invalidity. Keep this non-authoritative unless TX_BASE
+	// reconstruction was available and also failed.
+	out["status"] = "skipped"
+	out["reason"] = "direct TX_R verify did not pass and TX_BASE fallback was unavailable"
 	out["verify_line"] = line
 	out["message_hex"] = msgHex
 	out["hash_type"] = 1

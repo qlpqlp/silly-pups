@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,6 +37,32 @@ func (s *Server) fetchUTXOsFromExplorer(ctx context.Context, address string) ([]
 	}
 	if utxos, err := s.runSuchListUnspent(address, testnet); err == nil && len(utxos) > 0 {
 		return utxos, nil
+	}
+	// Fallback for binary libdogecoin wallets: use spvnode REST getUTXOs and convert rows.
+	if raw, err := s.fetchSPVREST("/getUTXOs"); err == nil {
+		rows := parseSPVRESTRows(raw, "in")
+		restUtxos := make([]ExplorerUTXO, 0, len(rows))
+		for _, r := range rows {
+			id := normalizeTxid(r.Txid)
+			if id == "" {
+				continue
+			}
+			if r.Address != "" && !strings.EqualFold(strings.TrimSpace(r.Address), address) {
+				continue
+			}
+			val := int64(math.Round(r.AmountDOGE * 1e8))
+			if val <= 0 {
+				continue
+			}
+			restUtxos = append(restUtxos, ExplorerUTXO{
+				TxID:  id,
+				Vout:  r.Vout,
+				Value: val,
+			})
+		}
+		if len(restUtxos) > 0 {
+			return restUtxos, nil
+		}
 	}
 	if !isSQLiteDatabaseFile(dbPath) {
 		return nil, fmt.Errorf("spv wallet file is not SQLite and such list_unspent returned no UTXOs for this address")

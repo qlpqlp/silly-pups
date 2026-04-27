@@ -1021,6 +1021,21 @@ body {
   gap: 0.45rem;
 }
 
+.tx-conf-pie {
+  --pct: 0%;
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: conic-gradient(#43d18f 0 var(--pct), rgba(255, 255, 255, 0.18) var(--pct) 100%);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.22);
+  flex: 0 0 auto;
+}
+
+.tx-conf-pie.pending {
+  background: conic-gradient(rgba(255, 255, 255, 0.16) 0 100%);
+}
+
 .tx-dir-pill {
   border-radius: 999px;
   border: 1px solid var(--border);

@@ -45,7 +45,7 @@ func nonSQLiteDebugPayload(path, op string) map[string]any {
 		"format":              "libdogecoin_binary_or_non_sqlite",
 		"sqlite_available":    false,
 		"requested_operation": op,
-		"hint":                "This is expected for libdogecoin spv_wallet.db in this pup. The wallet uses `such list_unspent` + SPV log/raw parsing for transaction details. SQLite table/query tools only work when the file is true SQLite.",
+		"hint":                "This is expected for libdogecoin spv_wallet.db in this pup. The wallet uses `such list_unspent` + SPV REST parsing for transaction details. SQLite table/query tools only work when the file is true SQLite.",
 	}
 }
 

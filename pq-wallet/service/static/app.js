@@ -430,7 +430,7 @@ function fmtTime(iso) {
   if (!iso) return "";
   try {
     const d = new Date(iso);
-    return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    return d.toLocaleString(undefined, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
   } catch {
     return iso;
   }
@@ -462,18 +462,23 @@ function buildTxExpandableCard(tx, includeSource) {
   const card = document.createElement("details");
   card.className = "tx-card tx-card-modern";
   card.setAttribute("role", "listitem");
+  if (txidFull) card.dataset.txid = txidFull;
   const summary = document.createElement("summary");
   const left = document.createElement("div");
   left.className = "tx-main";
   const top = document.createElement("div");
   top.className = "tx-main-top";
-  const status = document.createElement("span");
-  status.className = pending ? "badge badge-tx-pending" : "muted small";
-  status.textContent = pending ? "Pending" : `${conf} conf`;
+  const confPie = document.createElement("span");
+  confPie.className = "tx-conf-pie";
+  const percent = Math.max(0, Math.min(100, Math.floor((conf / 4) * 100))); // 4 conf = 100%
+  confPie.style.setProperty("--pct", `${percent}%`);
+  confPie.classList.toggle("pending", pending);
+  confPie.title = pending ? "Seen in mempool" : `${conf} confirmations`;
+  confPie.setAttribute("aria-label", confPie.title);
   const dirPill = document.createElement("span");
   dirPill.className = `tx-dir-pill ${dir === "in" ? "in" : dir === "out" ? "out" : ""}`;
   dirPill.textContent = dirLabel;
-  top.appendChild(status);
+  top.appendChild(confPie);
   top.appendChild(dirPill);
   left.appendChild(top);
   const meta = document.createElement("div");
@@ -537,6 +542,16 @@ function buildTxExpandableCard(tx, includeSource) {
   }
   card.appendChild(body);
   return card;
+}
+
+function collectOpenTxids(container) {
+  const set = new Set();
+  if (!container) return set;
+  container.querySelectorAll("details.tx-card-modern[open][data-txid]").forEach((el) => {
+    const id = String(el.dataset.txid || "").trim();
+    if (id) set.add(id);
+  });
+  return set;
 }
 
 function initCharts() {
@@ -810,12 +825,24 @@ async function refreshDashboard() {
     }
     chip.title = spv.sync_lag_label || "";
   }
-  const spvMeta = $("mtr-spv-sync-meta");
-  if (spvMeta) {
+  const spvDbg = $("log-spv-headers");
+  if (spvDbg) {
     const h = Number(spv.header_height || 0);
     const hh = Number.isFinite(h) && h > 0 ? String(h) : "—";
+    const ts = Number(spv.header_unix_time || 0);
+    const tsText = Number.isFinite(ts) && ts > 0 ? new Date(ts * 1000).toISOString() : "—";
+    const bh = spv.best_block_hash ? String(spv.best_block_hash) : "—";
     const lag = spv.sync_lag_label || "Unknown";
-    spvMeta.textContent = `SPV headers: ${hh} · ${lag}`;
+    const running = spv.running ? "yes" : "no";
+    spvDbg.textContent = [
+      `running: ${running}`,
+      `header_height: ${hh}`,
+      `sync: ${lag}`,
+      `header_unix_time: ${ts > 0 ? String(ts) : "—"}`,
+      `header_time_iso: ${tsText}`,
+      `best_block_hash: ${bh}`,
+      `spv_http_url: ${spv.spv_http_url || "—"}`
+    ].join("\n");
   }
   const sample = data.dashboard.metrics_sample || [];
   initCharts();
@@ -827,6 +854,7 @@ async function refreshDashboard() {
 function renderDashboardTxPreview() {
   const list = $("dash-tx-list");
   if (!list) return;
+  const openTxids = collectOpenTxids(list);
   list.innerHTML = "";
   const txs = Array.isArray(state.lastTxs) ? state.lastTxs : [];
   if (!txs.length) {
@@ -839,7 +867,10 @@ function renderDashboardTxPreview() {
   const max = Math.min(6, txs.length);
   for (let i = 0; i < max; i++) {
     const tx = txs[i] || {};
-    list.appendChild(buildTxExpandableCard(tx, false));
+    const card = buildTxExpandableCard(tx, false);
+    const txid = String((tx && tx.txid) || "").trim();
+    if (txid && openTxids.has(txid)) card.open = true;
+    list.appendChild(card);
   }
 }
 
@@ -863,6 +894,7 @@ async function refreshTxList(refresh) {
   const list = $("tx-list");
   const emptyEl = $("tx-list-empty");
   if (!list) return;
+  const openTxids = collectOpenTxids(list);
   list.innerHTML = "";
   if (!txs.length) {
     if (emptyEl) emptyEl.classList.remove("hidden");
@@ -874,7 +906,10 @@ async function refreshTxList(refresh) {
     const isMTR = String(tx.source || "").toLowerCase() === "memetracker";
     const showPending = isMTR || tx.pending;
     if (showPending) pendingNav += 1;
-    list.appendChild(buildTxExpandableCard(tx, true));
+    const card = buildTxExpandableCard(tx, true);
+    const txid = String((tx && tx.txid) || "").trim();
+    if (txid && openTxids.has(txid)) card.open = true;
+    list.appendChild(card);
   });
   const navB = $("nav-tx-pending-badge");
   if (navB) {

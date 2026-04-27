@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -239,28 +240,37 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sendOut, err := s.runSendtx(rawHex, testnet, "")
+	sendSummary := summarizeSendtxOutput(sendOut)
 	if err != nil {
-		s.appendBroadcastLogLine("send_pq_safe broadcast FAIL: " + err.Error())
+		s.logBroadcastDetails("send_pq_safe", sendSummary.BroadcastTxID, rawHex, sendOut, err)
+		log.Printf("[pq-wallet] send_pq_safe sendtx failed txid=%q signed_hex_len=%d diagnostics=%v err=%v",
+			sendSummary.BroadcastTxID, len(rawHex), sendSummary.SendtxDiagnosticLines, err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
 	}
-	sendSummary := summarizeSendtxOutput(sendOut)
 	if sendSummary.ConnectedNodes == 0 {
-		s.appendBroadcastLogLine("send_pq_safe broadcast FAIL: no peers connected in sendtx output")
+		s.logBroadcastDetails("send_pq_safe", sendSummary.BroadcastTxID, rawHex, sendOut, nil)
+		log.Printf("[pq-wallet] send_pq_safe no peers txid=%q signed_hex_len=%d diagnostics=%v sendtx_output=%q",
+			sendSummary.BroadcastTxID, len(rawHex), sendSummary.SendtxDiagnosticLines, truncateStr(sendOut, 600))
 		writeJSON(w, http.StatusBadGateway, map[string]any{
-			"error":          "sendtx connected to 0 peers; transaction was not propagated",
-			"sendtx_output":  sendOut,
-			"sendtx_summary": sendSummary,
-			"txid":           sendSummary.BroadcastTxID,
+			"error":            "sendtx connected to 0 peers; transaction was not propagated",
+			"signed_raw_hex":   rawHex,
+			"sendtx_output":    sendOut,
+			"sendtx_summary":   sendSummary,
+			"txid":             sendSummary.BroadcastTxID,
 		})
 		return
 	}
-	s.appendBroadcastLogLine("send_pq_safe broadcast OK: " + truncateStr(sendOut, 400))
+	s.logBroadcastDetails("send_pq_safe", sendSummary.BroadcastTxID, rawHex, sendOut, nil)
+	log.Printf("[pq-wallet] send_pq_safe ok txid=%s signed_hex_len=%d informed=%d requested=%d seen_other=%d diagnostics=%v relay_heuristic=%q",
+		sendSummary.BroadcastTxID, len(rawHex), sendSummary.InformedNodes, sendSummary.RequestedFromNodes, sendSummary.SeenOnOtherNodes,
+		sendSummary.SendtxDiagnosticLines, sendSummary.RelayHeuristicError)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":               true,
 		"code":             "sent",
 		"txid":             sendSummary.BroadcastTxID,
+		"signed_raw_hex":   rawHex,
 		"sendtx_output":    sendOut,
 		"sendtx_summary":   sendSummary,
 		"fee_koinu":        fee,
@@ -271,5 +281,6 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		"pq_mode":          pqMode,
 		"signing_note":     "ECDSA P2PKH via such -c sign. PQ commitment output uses canonical Phase-1 OP_RETURN tag (FLC1) with 32-byte commitment.",
 		"transport":        "libdogecoin_sendtx_p2p",
+		"transport_note":   "Same model as Dogecoin Wallet (Android): broadcast is wallet-to-network P2P (here libdogecoin sendtx), not JSON-RPC sendrawtransaction to a local Core node.",
 	})
 }

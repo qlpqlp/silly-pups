@@ -200,18 +200,10 @@ func (c *coreRPCClient) getRawTransactionHex(ctx context.Context, txid, blockHas
 	return strings.TrimSpace(hexStr), nil
 }
 
-// getVoutScriptPubKeyHex returns the prevout's scriptPubKey hex from a verbose getrawtransaction.
-func (c *coreRPCClient) getVoutScriptPubKeyHex(ctx context.Context, txid string, vout int64) (string, error) {
-	if c == nil || !c.enabled() {
-		return "", errors.New("core rpc is not configured")
-	}
-	txid = strings.ToLower(strings.TrimSpace(txid))
-	if len(txid) != 64 || !isHex64String(txid) || vout < 0 {
-		return "", fmt.Errorf("invalid txid or vout")
-	}
-	var obj map[string]any
-	if err := c.call(ctx, "getrawtransaction", []any{txid, true}, &obj); err != nil {
-		return "", err
+// scriptPubKeyHexFromVerboseGetrawResult extracts vout[n].scriptPubKey.hex from a verbose getrawtransaction JSON object.
+func scriptPubKeyHexFromVerboseGetrawResult(obj map[string]any, vout int64) (string, error) {
+	if obj == nil {
+		return "", fmt.Errorf("empty getrawtransaction result")
 	}
 	vouts, ok := obj["vout"].([]any)
 	if !ok {
@@ -247,6 +239,32 @@ func (c *coreRPCClient) getVoutScriptPubKeyHex(ctx context.Context, txid string,
 		}
 	}
 	return "", fmt.Errorf("vout %d scriptPubKey.hex not found", vout)
+}
+
+// getVoutScriptPubKeyHex returns the prevout's scriptPubKey hex from a verbose getrawtransaction.
+// indexerBlockHash is optional: when Core has no -txindex, passing the block hash from the QE indexer
+// (same chain data as QDVerify would get from an explorer API) allows getrawtransaction(txid, true, blockhash) to succeed.
+func (c *coreRPCClient) getVoutScriptPubKeyHex(ctx context.Context, txid string, vout int64, indexerBlockHash string) (string, error) {
+	if c == nil || !c.enabled() {
+		return "", errors.New("core rpc is not configured")
+	}
+	txid = strings.ToLower(strings.TrimSpace(txid))
+	if len(txid) != 64 || !isHex64String(txid) || vout < 0 {
+		return "", fmt.Errorf("invalid txid or vout")
+	}
+	var obj map[string]any
+	err := c.call(ctx, "getrawtransaction", []any{txid, true}, &obj)
+	if err == nil {
+		return scriptPubKeyHexFromVerboseGetrawResult(obj, vout)
+	}
+	bh := strings.ToLower(strings.TrimSpace(indexerBlockHash))
+	if len(bh) == 64 && isHex64String(bh) {
+		var obj2 map[string]any
+		if err2 := c.call(ctx, "getrawtransaction", []any{txid, true, bh}, &obj2); err2 == nil {
+			return scriptPubKeyHexFromVerboseGetrawResult(obj2, vout)
+		}
+	}
+	return "", err
 }
 
 func (c *coreRPCClient) snapshot() map[string]any {

@@ -484,16 +484,65 @@ func sendtxFallbackPeers(testnet bool) string {
 	}, ",")
 }
 
+// extractSendtxDiagnosticLines returns non-progress lines from sendtx stdout/stderr merge:
+// tool Error:/Warning: lines and any line that looks like a P2P/policy rejection (if printed).
+func extractSendtxDiagnosticLines(txt string) []string {
+	var out []string
+	seen := map[string]struct{}{}
+	for _, ln := range strings.Split(strings.ReplaceAll(txt, "\r\n", "\n"), "\n") {
+		ln = strings.TrimSpace(ln)
+		if ln == "" {
+			continue
+		}
+		low := strings.ToLower(ln)
+		if strings.HasPrefix(low, "error:") || strings.HasPrefix(low, "warning:") {
+			if _, ok := seen[ln]; !ok {
+				seen[ln] = struct{}{}
+				out = append(out, ln)
+			}
+			continue
+		}
+		if strings.Contains(low, "reject") ||
+			strings.Contains(low, "misbehaving") ||
+			strings.Contains(low, "non-standard") ||
+			strings.Contains(low, "nonstandard") ||
+			strings.Contains(low, "insufficient fee") ||
+			strings.Contains(low, "bad-txns") ||
+			strings.Contains(low, "txn-") ||
+			strings.Contains(low, "too many") ||
+			strings.Contains(low, "dust") {
+			if _, ok := seen[ln]; !ok {
+				seen[ln] = struct{}{}
+				out = append(out, ln)
+			}
+		}
+	}
+	return out
+}
+
+func relayHeuristicErrorLine(diagnosticLines []string) string {
+	for _, ln := range diagnosticLines {
+		low := strings.ToLower(strings.TrimSpace(ln))
+		if strings.HasPrefix(low, "error:") && strings.Contains(low, "relay") {
+			return strings.TrimSpace(ln)
+		}
+	}
+	return ""
+}
+
 type sendtxOutputSummary struct {
-	BroadcastTxID      string `json:"broadcast_txid,omitempty"`
-	ConnectedNodes      int    `json:"connected_nodes"`
-	InformedNodes       int    `json:"informed_nodes"`
-	RequestedFromNodes  int    `json:"requested_from_nodes"`
-	SeenOnOtherNodes    int    `json:"seen_on_other_nodes"`
-	RelayBackReceived   bool   `json:"relay_back_received"`
-	LikelyBroadcasted   bool   `json:"likely_broadcasted"`
-	Status              string `json:"status"`  // success | warning | unknown
-	HumanNote           string `json:"human_note"`
+	BroadcastTxID          string   `json:"broadcast_txid,omitempty"`
+	ConnectedNodes         int      `json:"connected_nodes"`
+	InformedNodes          int      `json:"informed_nodes"`
+	RequestedFromNodes     int      `json:"requested_from_nodes"`
+	SeenOnOtherNodes       int      `json:"seen_on_other_nodes"`
+	RelayBackReceived      bool     `json:"relay_back_received"`
+	LikelyBroadcasted      bool     `json:"likely_broadcasted"`
+	Status                 string   `json:"status"` // success | warning | unknown
+	HumanNote              string   `json:"human_note"`
+	SendtxDiagnosticLines  []string `json:"sendtx_diagnostic_lines,omitempty"`
+	RelayHeuristicError    string   `json:"relay_heuristic_error,omitempty"`
+	SendtxDiagnosticsNote string   `json:"sendtx_diagnostics_note,omitempty"`
 }
 
 func summarizeSendtxOutput(raw string) sendtxOutputSummary {
@@ -504,6 +553,11 @@ func summarizeSendtxOutput(raw string) sendtxOutputSummary {
 	}
 	if txt == "" {
 		return s
+	}
+	s.SendtxDiagnosticLines = extractSendtxDiagnosticLines(txt)
+	s.RelayHeuristicError = relayHeuristicErrorLine(s.SendtxDiagnosticLines)
+	if len(s.SendtxDiagnosticLines) > 0 {
+		s.SendtxDiagnosticsNote = "Verbatim lines from sendtx combined stdout/stderr (not JSON-RPC). Use relay_heuristic_error to separate sendtx relay-back guesses from any real reject lines, if present."
 	}
 	lower := strings.ToLower(txt)
 	connected := strings.Count(lower, "successfully connected to peer")
@@ -523,6 +577,9 @@ func summarizeSendtxOutput(raw string) sendtxOutputSummary {
 	case peerAccepted:
 		s.Status = "success"
 		s.HumanNote = "Broadcast accepted by peers (inv/getdata observed). Relay-back was not observed in this short sendtx window."
+		if s.RelayHeuristicError != "" {
+			s.HumanNote += " The sendtx tool also printed a relay-back heuristic (see relay_heuristic_error); that is not a Dogecoin Core reject string — peers already requested the tx (getdata)."
+		}
 	case s.LikelyBroadcasted && notRelayedBack:
 		s.Status = "warning"
 		s.HumanNote = "Broadcast reached peers, but no relay-back was observed in this short window. This often happens with already-seen or delayed-propagation transactions."
@@ -810,6 +867,42 @@ func (s *Server) appendBroadcastLogLine(line string) {
 	}
 	defer f.Close()
 	_, _ = fmt.Fprintf(f, "%s %s\n", time.Now().UTC().Format(time.RFC3339), line)
+}
+
+// logBroadcastDetails appends signed raw hex (optional) and every line of sendtx output to broadcast.log.
+// Set PUP_BROADCAST_LOG_SIGNED_HEX=0 to omit hex (privacy / huge txs). Default logs full hex in chunks.
+func (s *Server) logBroadcastDetails(sourceTag, txid string, signedHex string, sendOut string, execErr error) {
+	if s == nil || s.storageDir == "" {
+		return
+	}
+	tag := strings.TrimSpace(sourceTag)
+	if tag == "" {
+		tag = "broadcast"
+	}
+	hex := strings.TrimSpace(signedHex)
+	txid = normalizeTxid(strings.TrimSpace(txid))
+	if execErr != nil {
+		s.appendBroadcastLogLine(fmt.Sprintf("%s txid=%s signed_hex_len=%d exec_err=%q", tag, txid, len(hex), execErr.Error()))
+	} else {
+		s.appendBroadcastLogLine(fmt.Sprintf("%s txid=%s signed_hex_len=%d", tag, txid, len(hex)))
+	}
+	if strings.TrimSpace(os.Getenv("PUP_BROADCAST_LOG_SIGNED_HEX")) != "0" && hex != "" {
+		const chunk = 12000
+		for off := 0; off < len(hex); off += chunk {
+			end := off + chunk
+			if end > len(hex) {
+				end = len(hex)
+			}
+			s.appendBroadcastLogLine(fmt.Sprintf("%s SIGNED_RAW_HEX off=%d len=%d %s", tag, off, end-off, hex[off:end]))
+		}
+	}
+	for _, ln := range strings.Split(strings.ReplaceAll(sendOut, "\r\n", "\n"), "\n") {
+		ln = strings.TrimRight(ln, "\r")
+		if strings.TrimSpace(ln) == "" {
+			continue
+		}
+		s.appendBroadcastLogLine(tag + " sendtx| " + ln)
+	}
 }
 
 func readFileTail(path string, max int) (string, error) {

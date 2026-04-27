@@ -24,6 +24,19 @@ var (
 	reFalconFailedLine = regexp.MustCompile(`(?i)\b(failed|invalid)\b`)
 )
 
+// indexerStoredBlockHash returns the block hash QE indexed for txid (from Postgres), if known.
+// Used to call Dogecoin Core getrawtransaction(txid, true, blockhash) when the node has no -txindex.
+func (a *app) indexerStoredBlockHash(ctx context.Context, txid string) string {
+	if a == nil || a.cidx == nil {
+		return ""
+	}
+	_, _, _, _, _, _, bh, ok, err := a.cidx.txRowByID(ctx, txid)
+	if err != nil || !ok {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(bh))
+}
+
 func explorerSuchPath() string {
 	p := strings.TrimSpace(os.Getenv("QE_SUCH_PATH"))
 	if p != "" {
@@ -157,7 +170,7 @@ func (a *app) maybeEnrichFalconCryptoVerify(ctx context.Context, carrier map[str
 		out["reason"] = "could not read prevout for carrier input"
 		return
 	}
-	spkHex, err := a.core.getVoutScriptPubKeyHex(ctx, prevTxid, prevVout)
+	spkHex, err := a.core.getVoutScriptPubKeyHex(ctx, prevTxid, prevVout, a.indexerStoredBlockHash(ctx, prevTxid))
 	if err != nil || spkHex == "" {
 		out["reason"] = "prevout scriptPubKey unavailable from Core"
 		out["detail"] = fmt.Sprint(err)
@@ -363,7 +376,7 @@ func (a *app) reconstructBaseTxContext(ctx context.Context, rawHexTXC, rawHexTXR
 	}
 	prevTxid := wirePrevTxidHexLE(base.inputs[0].prevTxidLE)
 	prevVout := int64(base.inputs[0].prevVout)
-	spk, err := a.core.getVoutScriptPubKeyHex(ctx, prevTxid, prevVout)
+	spk, err := a.core.getVoutScriptPubKeyHex(ctx, prevTxid, prevVout, a.indexerStoredBlockHash(ctx, prevTxid))
 	if err != nil || spk == "" {
 		return "", -1, "", fmt.Errorf("TX_BASE prevout scriptPubKey unavailable: %v", err)
 	}

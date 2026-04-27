@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -90,34 +90,38 @@ func (s *Server) handleTxBroadcast(w http.ResponseWriter, r *http.Request) {
 	testnet := wf != nil && strings.EqualFold(wf.Network, "testnet")
 	raw := strings.TrimSpace(body.RawHex)
 	out, err := s.runSendtx(raw, testnet, strings.TrimSpace(body.Peers))
-	if s.storageDir != "" {
-		if err != nil {
-			s.appendBroadcastLogLine(fmt.Sprintf("broadcast FAIL err=%q", err.Error()))
-		} else {
-			s.appendBroadcastLogLine(fmt.Sprintf("broadcast OK sendtx_output=%q", truncateStr(out, 500)))
-		}
-	}
+	sum := summarizeSendtxOutput(out)
 	if err != nil {
+		s.logBroadcastDetails("tx_broadcast", sum.BroadcastTxID, raw, out, err)
+		log.Printf("[pq-wallet] tx/broadcast sendtx failed txid=%q signed_hex_len=%d diagnostics=%v err=%v",
+			sum.BroadcastTxID, len(raw), sum.SendtxDiagnosticLines, err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
 	}
-	sum := summarizeSendtxOutput(out)
 	if sum.ConnectedNodes == 0 {
+		s.logBroadcastDetails("tx_broadcast", sum.BroadcastTxID, raw, out, nil)
+		log.Printf("[pq-wallet] tx/broadcast no peers txid=%q signed_hex_len=%d diagnostics=%v output=%q",
+			sum.BroadcastTxID, len(raw), sum.SendtxDiagnosticLines, truncateStr(out, 600))
 		writeJSON(w, http.StatusBadGateway, map[string]any{
-			"error":          "sendtx connected to 0 peers; transaction was not propagated",
-			"txid":           sum.BroadcastTxID,
-			"sendtx_output":  out,
-			"sendtx_summary": sum,
+			"error":            "sendtx connected to 0 peers; transaction was not propagated",
+			"signed_raw_hex":   raw,
+			"txid":             sum.BroadcastTxID,
+			"sendtx_output":    out,
+			"sendtx_summary":   sum,
 		})
 		return
 	}
+	s.logBroadcastDetails("tx_broadcast", sum.BroadcastTxID, raw, out, nil)
+	log.Printf("[pq-wallet] tx/broadcast ok txid=%s signed_hex_len=%d informed=%d requested=%d diagnostics=%v relay_heuristic=%q",
+		sum.BroadcastTxID, len(raw), sum.InformedNodes, sum.RequestedFromNodes, sum.SendtxDiagnosticLines, sum.RelayHeuristicError)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":             true,
-		"txid":           sum.BroadcastTxID,
-		"sendtx_output":  out,
-		"sendtx_summary": sum,
-		"transport":      "libdogecoin_sendtx_p2p",
-		"transport_note": "Relayed via libdogecoin sendtx to Dogecoin peers (P2P). JSON-RPC sendrawtransaction is not used.",
+		"ok":               true,
+		"txid":             sum.BroadcastTxID,
+		"signed_raw_hex":   raw,
+		"sendtx_output":    out,
+		"sendtx_summary":   sum,
+		"transport":        "libdogecoin_sendtx_p2p",
+		"transport_note":   "Relayed via libdogecoin sendtx to Dogecoin peers (P2P), same idea as Dogecoin Wallet’s bitcoinj TransactionBroadcast — not sendrawtransaction to Core.",
 	})
 }
 

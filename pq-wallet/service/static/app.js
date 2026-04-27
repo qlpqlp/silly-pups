@@ -1600,6 +1600,7 @@ document.getElementById("btn-send-pq-safe").addEventListener("click", async () =
     });
     const sum = res && res.sendtx_summary ? res.sendtx_summary : null;
     if (out && sum) {
+      const diag = Array.isArray(sum.sendtx_diagnostic_lines) ? sum.sendtx_diagnostic_lines : [];
       const lines = [
         `status: ${sum.status || "unknown"}`,
         `note: ${sum.human_note || "—"}`,
@@ -1608,9 +1609,12 @@ document.getElementById("btn-send-pq-safe").addEventListener("click", async () =
         `informed_nodes: ${sum.informed_nodes ?? 0}`,
         `requested_from_nodes: ${sum.requested_from_nodes ?? 0}`,
         `seen_on_other_nodes: ${sum.seen_on_other_nodes ?? 0}`,
+        sum.relay_heuristic_error ? `relay_heuristic_error (from sendtx tool, not Core RPC): ${sum.relay_heuristic_error}` : "",
+        diag.length ? `sendtx_diagnostic_lines:\n${diag.map((d) => "  " + d).join("\n")}` : "",
+        res.signed_raw_hex ? `signed_raw_hex (first 200 chars): ${String(res.signed_raw_hex).slice(0, 200)}${String(res.signed_raw_hex).length > 200 ? "…" : ""}` : "",
         "",
         JSON.stringify(res, null, 2)
-      ];
+      ].filter(Boolean);
       out.textContent = lines.join("\n");
     } else if (out) {
       out.textContent = JSON.stringify(res, null, 2);

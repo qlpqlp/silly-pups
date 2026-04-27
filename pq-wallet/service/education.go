@@ -25,7 +25,7 @@ func educationPayload() map[string]any {
 					"1. You choose inputs (UTXOs) and outputs (recipient + change). That yields an **unsigned** raw transaction hex.",
 					"2. For each input you must sign with the private key that locks that input, here that is **`such -c sign`** with your WIF and the correct scriptPubKey for your address.",
 					"3. The result is a **signed** raw hex, valid under Dogecoin’s consensus rules.",
-					"4. **Broadcast** propagates the signed tx to the peer-to-peer network so miners can include it. This pup uses **`sendtx`** (libdogecoin) to talk to Dogecoin peers, **not** `sendrawtransaction` over JSON-RPC.",
+					"4. **Broadcast** propagates the signed tx to the peer-to-peer network so miners can include it. This pup uses **`sendtx`** (libdogecoin), the same *shape* as **Dogecoin Wallet** on Android: **bitcoinj** relays over **P2P** (`TransactionBroadcast`), not **`sendrawtransaction`** to a local Core RPC.",
 				},
 			},
 			{
@@ -52,7 +52,7 @@ func educationPayload() map[string]any {
 				"title": "What this pup actually runs",
 				"body": []string{
 					"Binaries on PATH: **`such`**, **`sendtx`**, **`spvnode`**, built with **USE_LIBOQS** for Falcon/Dilithium support in libdogecoin.",
-					"**Broadcast** uses **`sendtx`** only (P2P), not JSON-RPC `sendrawtransaction`.",
+					"**Broadcast** uses **`sendtx`** (P2P) only — aligned with Dogecoin Wallet’s P2P broadcast model, not Core JSON-RPC.",
 					"**SPV** (`spvnode`) follows headers and BIP37-watches **all addresses** in your wallet. **Pending** amounts use the embedded **Memepool Tracker** (data under `mempooltracker/`). The dashboard charts mempool relay activity over the last 24 hours.",
 				},
 			},
@@ -81,7 +81,7 @@ func educationPayload() map[string]any {
 			{
 				"step":   "4",
 				"name":   "Broadcast with P2P sendtx",
-				"detail": "Submit the **signed** hex with **`sendtx`** so Dogecoin peers relay it. Miners include it when it pays enough fee.",
+				"detail": "Submit the **signed** hex with **`sendtx`** so Dogecoin peers relay it over P2P (same idea as Dogecoin Wallet’s **TransactionBroadcast**).",
 			},
 		},
 		"libdogecoin_build": "This pup ships such/sendtx/spvnode built with -DUSE_LIBOQS=ON (Falcon-512, Dilithium2).",

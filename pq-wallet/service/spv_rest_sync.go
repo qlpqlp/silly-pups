@@ -100,6 +100,19 @@ func parseSPVRESTRows(raw, direction string) []spvRESTTxRow {
 		}
 		return time.Unix(n, 0).UTC()
 	}
+	parseAnyToTime := func(s string) time.Time {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return time.Time{}
+		}
+		if t := parseUnixToTime(s); !t.IsZero() {
+			return t
+		}
+		if unix := parseSPVDateTime(s); unix >= 1231006505 {
+			return time.Unix(unix, 0).UTC()
+		}
+		return time.Time{}
+	}
 	parsePipeFallback := func(ln string) (spvRESTTxRow, bool) {
 		var row spvRESTTxRow
 		row.Direction = direction
@@ -121,7 +134,7 @@ func parseSPVRESTRows(raw, direction string) []spvRESTTxRow {
 				continue
 			}
 			if row.SeenAt.IsZero() {
-				if ts := parseUnixToTime(tok); !ts.IsZero() && ts.Unix() >= 1231006505 {
+				if ts := parseAnyToTime(tok); !ts.IsZero() && ts.Unix() >= 1231006505 {
 					row.SeenAt = ts
 					continue
 				}
@@ -161,21 +174,27 @@ func parseSPVRESTRows(raw, direction string) []spvRESTTxRow {
 		if vout < 0 {
 			vout = 0
 		}
-		seen := parseUnixToTime(cur["timestamp"])
+		seen := parseAnyToTime(cur["timestamp"])
 		if seen.IsZero() {
-			seen = parseUnixToTime(cur["time"])
+			seen = parseAnyToTime(cur["time"])
 		}
 		if seen.IsZero() {
-			seen = parseUnixToTime(cur["block_time"])
+			seen = parseAnyToTime(cur["block_time"])
 		}
 		if seen.IsZero() {
-			seen = parseUnixToTime(cur["seen_at"])
+			seen = parseAnyToTime(cur["seen_at"])
 		}
 		if seen.IsZero() {
-			seen = parseUnixToTime(cur["date"])
+			seen = parseAnyToTime(cur["date"])
 		}
 		if seen.IsZero() {
-			seen = parseUnixToTime(cur["time_received"])
+			seen = parseAnyToTime(cur["time_received"])
+		}
+		if seen.IsZero() {
+			seen = parseAnyToTime(cur["header_time"])
+		}
+		if seen.IsZero() {
+			seen = parseAnyToTime(cur["block_timestamp"])
 		}
 		rows = append(rows, spvRESTTxRow{
 			Txid:          txid,
@@ -475,7 +494,7 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState) bool {
 		for _, t := range merged {
 			id := normalizeTxid(t.Txid)
 			o, ok := oldByID[id]
-			if !ok || t.AmountDOGE != o.AmountDOGE || t.Direction != o.Direction || t.Address != o.Address || t.Confirmations != o.Confirmations {
+			if !ok || t.AmountDOGE != o.AmountDOGE || t.Direction != o.Direction || t.Address != o.Address || t.Confirmations != o.Confirmations || !t.SeenAt.Equal(o.SeenAt) {
 				changed = true
 				break
 			}

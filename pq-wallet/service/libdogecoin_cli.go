@@ -507,7 +507,11 @@ func summarizeSendtxOutput(raw string) sendtxOutputSummary {
 	notRelayedBack := strings.Contains(lower, "transaction was not relayed back")
 	s.RelayBackReceived = !notRelayedBack && (s.SeenOnOtherNodes > 0)
 	s.LikelyBroadcasted = sent > 0 || s.InformedNodes > 0 || s.RequestedFromNodes > 0
+	peerAccepted := s.InformedNodes > 0 && s.RequestedFromNodes > 0
 	switch {
+	case peerAccepted:
+		s.Status = "success"
+		s.HumanNote = "Broadcast accepted by peers (inv/getdata observed). Relay-back was not observed in this short sendtx window."
 	case s.LikelyBroadcasted && notRelayedBack:
 		s.Status = "warning"
 		s.HumanNote = "Broadcast reached peers, but no relay-back was observed in this short window. This often happens with already-seen or delayed-propagation transactions."

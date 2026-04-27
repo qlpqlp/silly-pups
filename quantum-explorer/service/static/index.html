@@ -1259,14 +1259,17 @@
     function mapQuantumRow(x){
       const when = x.time_unix ? new Date(Number(x.time_unix) * 1000).toISOString() : "";
       const pq = (x && x.pq_verification) || {};
+      const strict = (pq && pq.strict) || {};
       const car = (pq && pq.carrier_phase1) || {};
       const fcv = (car && car.falcon_crypto_verify) || {};
       const falconStatus = String(x.falcon_status || fcv.status || "").toLowerCase();
+      const strictValid = !!strict.valid;
+      const qStateQuantum = String(x.quantum_state || "").toLowerCase() === "quantum";
       return {
         txid: x.txid,
         block_height: x.block_height,
         confirmed: true,
-        pq_valid: String(x.quantum_state || "").toLowerCase() === "quantum",
+        pq_valid: qStateQuantum || strictValid,
         carrier_verified: !!car.verified,
         pq_score: 100,
         pq_reason: x.pq_reason || "PQ marker recognized",
@@ -1280,32 +1283,53 @@
       };
     }
 
+    function falconStatusRank(s){
+      const v = String(s || "").toLowerCase().trim();
+      if (v === "passed") return 4;
+      if (v === "failed" || v === "error") return 3;
+      if (v === "skipped") return 2;
+      if (v) return 1;
+      return 0;
+    }
+
     function mergeQuantumRowsPreserve(existing, incoming){
       const prevRows = Array.isArray(existing) ? existing : [];
       const nextRows = Array.isArray(incoming) ? incoming : [];
-      if (!nextRows.length) {
-        return prevRows;
-      }
+      if (!nextRows.length) return prevRows;
       const prevByTxid = new Map(prevRows.map(r => [String(r.txid || ""), r]));
-      return nextRows.map(r => {
+      const mergedByTxid = new Map();
+      nextRows.forEach(r => {
         const id = String(r.txid || "");
+        if (!id) return;
         const prev = prevByTxid.get(id);
-        if (!prev) return r;
+        if (!prev) {
+          mergedByTxid.set(id, r);
+          return;
+        }
         const merged = { ...prev, ...r };
-        if (!String(r.falcon_status || "").trim() && String(prev.falcon_status || "").trim()) {
-          merged.falcon_status = prev.falcon_status;
-        }
-        if (!String(r.pq_carrier_role || "").trim() && String(prev.pq_carrier_role || "").trim()) {
-          merged.pq_carrier_role = prev.pq_carrier_role;
-        }
-        if (!String(r.matched_txc_txid || "").trim() && String(prev.matched_txc_txid || "").trim()) {
-          merged.matched_txc_txid = prev.matched_txc_txid;
-        }
-        if (!String(r.matched_txr_txid || "").trim() && String(prev.matched_txr_txid || "").trim()) {
-          merged.matched_txr_txid = prev.matched_txr_txid;
-        }
-        return merged;
+        if (!!prev.pq_valid && !r.pq_valid) merged.pq_valid = true;
+        if (!!prev.carrier_verified && !r.carrier_verified) merged.carrier_verified = true;
+        if (falconStatusRank(prev.falcon_status) > falconStatusRank(r.falcon_status)) merged.falcon_status = prev.falcon_status;
+        if (!String(r.pq_carrier_role || "").trim() && String(prev.pq_carrier_role || "").trim()) merged.pq_carrier_role = prev.pq_carrier_role;
+        if (!String(r.matched_txc_txid || "").trim() && String(prev.matched_txc_txid || "").trim()) merged.matched_txc_txid = prev.matched_txc_txid;
+        if (!String(r.matched_txr_txid || "").trim() && String(prev.matched_txr_txid || "").trim()) merged.matched_txr_txid = prev.matched_txr_txid;
+        mergedByTxid.set(id, merged);
       });
+      prevRows.forEach(r => {
+        const id = String(r.txid || "");
+        if (!id || mergedByTxid.has(id)) return;
+        mergedByTxid.set(id, r);
+      });
+      const out = Array.from(mergedByTxid.values());
+      out.sort((a, b) => {
+        const ah = Number(a.block_height || 0);
+        const bh = Number(b.block_height || 0);
+        if (bh !== ah) return bh - ah;
+        const at = Date.parse(String(a.last_seen || a.first_seen || "")) || 0;
+        const bt = Date.parse(String(b.last_seen || b.first_seen || "")) || 0;
+        return bt - at;
+      });
+      return out.slice(0, 240);
     }
 
     function applyQuickSummary(summaryResp){

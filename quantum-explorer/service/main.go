@@ -26,10 +26,10 @@ import (
 var staticFS embed.FS
 
 // qeAppVersion is shown in the public UI and /api/public/status (keep in sync with manifest.json).
-const qeAppVersion = "0.1.46"
+const qeAppVersion = "0.1.47"
 
 // qeAppBuildHash is a release fingerprint (SHA-256 hex of "quantum-explorer-<version>"); bump when cutting a release.
-const qeAppBuildHash = "cde61a3d278a4313ede4f4a4574fc7ee657a38a0c7b4e6c23b1df5c8295a4625"
+const qeAppBuildHash = "054ee21d8fdc3c6454c5ece9d46195b8f32c91dc15f6e2023a8582b80c881173"
 
 type Checkpoint struct {
 	Height    int    `json:"height"`
@@ -1072,7 +1072,8 @@ func (a *app) publicStatus(w http.ResponseWriter, r *http.Request) {
 			ex["recent_blocks"] = rb
 		}
 		// Keep dashboard status payload small: UI only needs tens of rows; full list loads via /api/public/core/recent-txs if needed.
-		if rq, err := a.cidx.recentTransactions(ctx, 80, "quantum"); err == nil {
+		// Use unfiltered recent txs here, then classify with strict + carrier checks so TX_R rows do not disappear.
+		if rq, err := a.cidx.recentTransactions(ctx, 160, ""); err == nil {
 			net := strings.ToLower(strings.TrimSpace(a.cfg.Network))
 			enrichedRQ := make([]map[string]any, 0, len(rq))
 			for _, row := range rq {
@@ -1101,7 +1102,13 @@ func (a *app) publicStatus(w http.ResponseWriter, r *http.Request) {
 					row["matched_txr_txid"] = strings.ToLower(strings.TrimSpace(fmt.Sprint(rev["matched_txr_txid"])))
 				}
 				row["pq_carrier_role"] = pqCarrierTXRole(row)
+				if !rowHasQuantumPQ(row) && !strings.EqualFold(strings.TrimSpace(fmt.Sprint(row["quantum_state"])), "quantum") {
+					continue
+				}
 				enrichedRQ = append(enrichedRQ, row)
+				if len(enrichedRQ) >= 80 {
+					break
+				}
 			}
 			ex["recent_quantum"] = enrichedRQ
 		}

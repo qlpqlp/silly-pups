@@ -138,6 +138,9 @@ func (a *app) publicCoreRecentTxs(w http.ResponseWriter, r *http.Request) {
 		}
 		rawHex, qState, pqReason, blkH, _, _, _, okRow, err := a.cidx.txRowByID(ctx, txid)
 		if err != nil || !okRow {
+			// Preserve fallback rows instead of dropping everything on transient decode/index misses.
+			row["pq_carrier_role"] = pqCarrierTXRole(row)
+			enriched = append(enriched, row)
 			continue
 		}
 		row["quantum_state"] = qState

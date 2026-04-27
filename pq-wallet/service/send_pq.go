@@ -99,7 +99,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 165*time.Second)
 	defer cancel()
 
 	utxos, err := s.fetchUTXOsFromExplorer(ctx, strings.TrimSpace(pa.P2PKH))

@@ -415,9 +415,42 @@ func parseSPVRESTTimestamp(raw string) int64 {
 	return 0
 }
 
+// backfillSeenAtFromTip sets SeenAt from chain tip time + confirmations when SPV rows omit timestamps
+// (Dogecoin Wallet-style: show approximate block time from header tip and depth).
+func backfillSeenAtFromTip(txs []TxRecord, tipHeight, tipUnix int64) ([]TxRecord, bool) {
+	if tipUnix <= 0 || tipHeight <= 0 || len(txs) == 0 {
+		return txs, false
+	}
+	const avgBlockSec int64 = 60
+	changed := false
+	out := make([]TxRecord, len(txs))
+	copy(out, txs)
+	for i := range out {
+		t := &out[i]
+		if !t.SeenAt.IsZero() || t.Confirmations <= 0 {
+			continue
+		}
+		conf := int64(t.Confirmations)
+		if conf > tipHeight+1 {
+			continue
+		}
+		sec := (conf - 1) * avgBlockSec
+		if sec < 0 {
+			sec = 0
+		}
+		approx := tipUnix - sec
+		if approx >= 1231006505 {
+			t.SeenAt = time.Unix(approx, 0).UTC()
+			changed = true
+		}
+	}
+	return out, changed
+}
+
 // mergeTransactionsFromSPVREST uses the spvnode REST API when available.
 // It gives richer details for binary libdogecoin wallet files (non-SQLite).
-func (s *Server) mergeTransactionsFromSPVREST(st *WalletState) bool {
+// tipHeight/tipUnix from readSPVStatus improve SeenAt when REST rows lack times.
+func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUnix int64) bool {
 	if st == nil {
 		return false
 	}
@@ -437,12 +470,13 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState) bool {
 		testnet = strings.EqualFold(wf.Network, "testnet")
 	}
 	tsLookups := 0
+	const maxChainTimestampLookups = 24
 	for _, r := range rows {
 		id := normalizeTxid(r.Txid)
 		if id == "" {
 			continue
 		}
-		if r.SeenAt.IsZero() && r.Confirmations > 0 && tsLookups < 8 {
+		if r.SeenAt.IsZero() && r.Confirmations > 0 && tsLookups < maxChainTimestampLookups {
 			if ts := s.fetchTxTimestampFromSoChain(id, testnet); !ts.IsZero() {
 				r.SeenAt = ts
 			}
@@ -482,6 +516,11 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState) bool {
 	}
 	before := len(st.Transactions)
 	merged := mergeTxRecords(st.Transactions, incoming)
+	if tipHeight > 0 && tipUnix > 0 {
+		if patched, ok := backfillSeenAtFromTip(merged, tipHeight, tipUnix); ok {
+			merged = patched
+		}
+	}
 	changed := len(merged) != before
 	if !changed {
 		oldByID := map[string]TxRecord{}

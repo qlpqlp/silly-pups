@@ -25,32 +25,69 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	wf, err := s.loadWallet()
 	if err != nil {
 		if errors.Is(err, ErrWalletLocked) {
 			s.startSPVNodeFromWatchState()
+			s.mu.Unlock()
 			writeJSON(w, http.StatusOK, map[string]any{"wallet": nil, "dashboard": nil, "locked": true, "sealed": true})
 			return
 		}
+		s.mu.Unlock()
 		writeJSON(w, http.StatusOK, map[string]any{"wallet": nil, "dashboard": nil})
 		return
 	}
 	if wf == nil {
+		s.mu.Unlock()
 		writeJSON(w, http.StatusOK, map[string]any{"wallet": nil, "dashboard": nil})
 		return
 	}
-	st, _ := s.loadState()
 	svcPrefs := s.readServicePrefs()
 	s.startSPVNode(wf)
+	s.mu.Unlock()
+
+	// SPV REST + merges can take many seconds; never hold s.mu across that work or other tabs
+	// (and PQ send) will block on the same mutex and appear frozen.
 	spv := s.readSPVStatus()
 	logTail, _ := spv["log_tail"].(string)
 	hdr := parseSPVLogHeaderInfo(logTail)
 	applySPVStatusHeaderInfo(&hdr, spv)
+	tipHeight := int64(0)
+	switch v := spv["header_height"].(type) {
+	case int64:
+		tipHeight = v
+	case int:
+		tipHeight = int64(v)
+	case float64:
+		tipHeight = int64(v)
+	}
+	tipUnix := int64(0)
+	switch v := spv["header_unix_time"].(type) {
+	case int64:
+		tipUnix = v
+	case int:
+		tipUnix = int64(v)
+	case float64:
+		tipUnix = int64(v)
+	}
+
+	var st *WalletState
+	var pendingMeme float64
+	var memeErr error
+	var mtrCount, mtrConn int
+	var mtrLive, mtrWorkers []map[string]any
+
+	s.stateMergeMu.Lock()
+	st, err = s.loadState()
+	if err != nil {
+		s.stateMergeMu.Unlock()
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
 	seenChanged := s.applySPVSeenTxids(st, logTail)
 	rawChanged := s.applySPVRawHex(st, logTail)
 	enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
-	restChanged := s.mergeTransactionsFromSPVREST(st)
+	restChanged := s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
 	dbChanged := s.mergeTransactionsFromSPVWalletDB(wf, st)
 	suchChanged := s.mergeTransactionsFromSuchListUnspent(wf, st)
 	if suchChanged && s.enrichSPVTxFromRawHex(st, wf) {
@@ -61,22 +98,6 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	} else if seenChanged || rawChanged || enrichedChanged || restChanged || dbChanged || suchChanged {
 		_ = s.saveState(st)
 	}
-	if changed, err := s.maybeRotateHDReceiveAddress(wf, st); err == nil && changed {
-		_ = s.saveWallet(wf)
-		s.startSPVNode(wf)
-	}
-	if hdr.HeaderHeight == 0 && len(st.Metrics) > 0 {
-		for i := len(st.Metrics) - 1; i >= 0; i-- {
-			if st.Metrics[i].HeaderHeight > 0 {
-				hdr.HeaderHeight = st.Metrics[i].HeaderHeight
-				if hdr.BestBlockHash == "" && st.Metrics[i].BestBlockHash != "" {
-					hdr.BestBlockHash = st.Metrics[i].BestBlockHash
-				}
-				break
-			}
-		}
-	}
-	running, _ := spv["running"].(bool)
 
 	var inSum, outSum float64
 	for _, t := range st.Transactions {
@@ -90,37 +111,52 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	spendable := math.Max(0, inSum-outSum)
 
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
-	pendingMeme, memeErr := s.syncMemeTracker(ctx, wf, st)
-	memeErrStr := ""
-	if memeErr != nil {
-		memeErrStr = memeErr.Error()
-	}
+	pendingMeme, memeErr = s.syncMemeTracker(ctx, wf, st)
+	cancel()
 
 	eng, engErr := s.ensureMempoolEngine(wf)
-	mtrCount, mtrConn := 0, 0
-	var mtrLive, mtrWorkers []map[string]any
 	if eng != nil && engErr == nil {
 		mtrCount, mtrLive, mtrWorkers, mtrConn = eng.DashboardSnapshot()
-	}
-	mempoolDisplay := hdr.MempoolTxCount
-	if eng != nil && engErr == nil {
-		mempoolDisplay = mtrCount
-	}
-	// Peer panel: SPV handshake lines from spv.log only (not MemeTracker workers).
-
-	mtrEngErr := ""
-	if engErr != nil {
-		mtrEngErr = engErr.Error()
 	}
 	if eng != nil && engErr == nil {
 		if s.persistMemeTrackerTxs(st, mtrLive) || s.enrichSPVTxFromRawHex(st, wf) {
 			_ = s.saveState(st)
 		}
 	}
+	s.stateMergeMu.Unlock()
+
+	s.mu.Lock()
 	if changed, err := s.maybeRotateHDReceiveAddress(wf, st); err == nil && changed {
 		_ = s.saveWallet(wf)
 		s.startSPVNode(wf)
+	}
+	wf, _ = s.loadWallet()
+	s.mu.Unlock()
+
+	if hdr.HeaderHeight == 0 && len(st.Metrics) > 0 {
+		for i := len(st.Metrics) - 1; i >= 0; i-- {
+			if st.Metrics[i].HeaderHeight > 0 {
+				hdr.HeaderHeight = st.Metrics[i].HeaderHeight
+				if hdr.BestBlockHash == "" && st.Metrics[i].BestBlockHash != "" {
+					hdr.BestBlockHash = st.Metrics[i].BestBlockHash
+				}
+				break
+			}
+		}
+	}
+	running, _ := spv["running"].(bool)
+
+	memeErrStr := ""
+	if memeErr != nil {
+		memeErrStr = memeErr.Error()
+	}
+	mempoolDisplay := hdr.MempoolTxCount
+	if eng != nil && engErr == nil {
+		mempoolDisplay = mtrCount
+	}
+	mtrEngErr := ""
+	if engErr != nil {
+		mtrEngErr = engErr.Error()
 	}
 
 	mtrP2PActive := eng != nil && engErr == nil && (mtrConn > 0 || mtrCount > 0)
@@ -252,38 +288,64 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	wf, err := s.loadWallet()
 	if err != nil {
 		if errors.Is(err, ErrWalletLocked) {
+			s.mu.Unlock()
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "locked", "need_unlock": true, "transactions": []TxRecord{}})
 			return
 		}
+		s.mu.Unlock()
 		writeJSON(w, http.StatusOK, map[string]any{"transactions": []TxRecord{}})
 		return
 	}
 	if wf == nil {
+		s.mu.Unlock()
 		writeJSON(w, http.StatusOK, map[string]any{"transactions": []TxRecord{}})
 		return
 	}
+	s.mu.Unlock()
+
+	engTx, engTxErr := s.ensureMempoolEngine(wf)
+
+	spv := s.readSPVStatus()
+	tipHeight := int64(0)
+	switch v := spv["header_height"].(type) {
+	case int64:
+		tipHeight = v
+	case int:
+		tipHeight = int64(v)
+	case float64:
+		tipHeight = int64(v)
+	}
+	tipUnix := int64(0)
+	switch v := spv["header_unix_time"].(type) {
+	case int64:
+		tipUnix = v
+	case int:
+		tipUnix = int64(v)
+	case float64:
+		tipUnix = int64(v)
+	}
+
+	s.stateMergeMu.Lock()
 	st, err := s.loadState()
 	if err != nil {
+		s.stateMergeMu.Unlock()
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	engTx, engTxErr := s.ensureMempoolEngine(wf)
 	if engTx != nil && engTxErr == nil {
 		_, mtrLive, _, _ := engTx.DashboardSnapshot()
 		if s.persistMemeTrackerTxs(st, mtrLive) {
 			_ = s.saveState(st)
 		}
 	}
-	spv := s.readSPVStatus()
 	if logTail, _ := spv["log_tail"].(string); logTail != "" {
 		changed := s.applySPVSeenTxids(st, logTail)
 		rawChanged := s.applySPVRawHex(st, logTail)
 		enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
-		restChanged := s.mergeTransactionsFromSPVREST(st)
+		restChanged := s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
 		dbChanged := s.mergeTransactionsFromSPVWalletDB(wf, st)
 		suchChanged := s.mergeTransactionsFromSuchListUnspent(wf, st)
 		if suchChanged {
@@ -295,10 +357,16 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 			_ = s.saveState(st)
 		}
 	}
+	s.stateMergeMu.Unlock()
+
+	s.mu.Lock()
 	if changed, err := s.maybeRotateHDReceiveAddress(wf, st); err == nil && changed {
 		_ = s.saveWallet(wf)
 		s.startSPVNode(wf)
 	}
+	wf, _ = s.loadWallet()
+	s.mu.Unlock()
+
 	out := s.mergeTxListWithMemeTracker(wf, st)
 	writeJSON(w, http.StatusOK, map[string]any{"transactions": out})
 }
@@ -619,14 +687,36 @@ func (s *Server) backgroundMetricsLoop() {
 			continue
 		}
 		s.startSPVNode(wf)
+		s.mu.Unlock()
+
 		spv := s.readSPVStatus()
 		logTail, _ := spv["log_tail"].(string)
 		hdr := parseSPVLogHeaderInfo(logTail)
 		applySPVStatusHeaderInfo(&hdr, spv)
 		running, _ := spv["running"].(bool)
+		tipHeight := int64(0)
+		switch v := spv["header_height"].(type) {
+		case int64:
+			tipHeight = v
+		case int:
+			tipHeight = int64(v)
+		case float64:
+			tipHeight = int64(v)
+		}
+		tipUnix := int64(0)
+		switch v := spv["header_unix_time"].(type) {
+		case int64:
+			tipUnix = v
+		case int:
+			tipUnix = int64(v)
+		case float64:
+			tipUnix = int64(v)
+		}
+
+		s.stateMergeMu.Lock()
 		st, err := s.loadState()
 		if err != nil {
-			s.mu.Unlock()
+			s.stateMergeMu.Unlock()
 			continue
 		}
 		spvTxSeen := parseSPVTxSeenCount(logTail)
@@ -634,7 +724,7 @@ func (s *Server) backgroundMetricsLoop() {
 		_ = s.applySPVConfirmations(st, logTail)
 		_ = s.applySPVRawHex(st, logTail)
 		_ = s.enrichSPVTxFromRawHex(st, wf)
-		_ = s.mergeTransactionsFromSPVREST(st)
+		_ = s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
 		_ = s.mergeTransactionsFromSPVWalletDB(wf, st)
 		if s.mergeTransactionsFromSuchListUnspent(wf, st) {
 			_ = s.enrichSPVTxFromRawHex(st, wf)
@@ -654,6 +744,6 @@ func (s *Server) backgroundMetricsLoop() {
 			MempoolRelayCount: mempoolRelay,
 		})
 		_ = s.saveState(st)
-		s.mu.Unlock()
+		s.stateMergeMu.Unlock()
 	}
 }

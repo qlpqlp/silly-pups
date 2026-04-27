@@ -404,12 +404,23 @@ func parseSuchListUnspentJSON(raw string) ([]ExplorerUTXO, error) {
 	return out, nil
 }
 
+func sendtxExecTimeout() time.Duration {
+	if v := strings.TrimSpace(os.Getenv("PUP_SENDTX_TIMEOUT_SEC")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 15 && n <= 300 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	// Shorter default avoids the UI waiting minutes; libdogecoin still connects to many peers in parallel.
+	return 90 * time.Second
+}
+
 // runSendtx broadcasts a signed raw hex transaction via libdogecoin P2P.
 func (s *Server) runSendtx(signedHex string, testnet bool, peers string) (string, error) {
 	signedHex = strings.TrimSpace(signedHex)
 	if signedHex == "" {
 		return "", errors.New("empty transaction hex")
 	}
+	txDeadline := sendtxExecTimeout()
 	args := []string{}
 	if testnet {
 		args = append(args, "-t")
@@ -418,7 +429,7 @@ func (s *Server) runSendtx(signedHex string, testnet bool, peers string) (string
 		args = append(args, "-i", peers)
 	}
 	args = append(args, signedHex)
-	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), txDeadline)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, s.sendtxPath(), args...)
 	var out bytes.Buffer
@@ -437,7 +448,7 @@ func (s *Server) runSendtx(signedHex string, testnet bool, peers string) (string
 				args2 = append(args2, "-t")
 			}
 			args2 = append(args2, "-i", fallbackPeers, signedHex)
-			ctx2, cancel2 := context.WithTimeout(context.Background(), 180*time.Second)
+			ctx2, cancel2 := context.WithTimeout(context.Background(), txDeadline)
 			defer cancel2()
 			cmd2 := exec.CommandContext(ctx2, s.sendtxPath(), args2...)
 			var out2 bytes.Buffer

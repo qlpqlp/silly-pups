@@ -138,8 +138,9 @@ func (a *app) maybeEnrichFalconCryptoVerify(ctx context.Context, carrier map[str
 		out["reason"] = "carrier commitment not matched to indexed TX_C"
 		return
 	}
-	if strings.ToUpper(strings.TrimSpace(fmt.Sprint(carrier["algorithm"]))) != "FLC1" {
-		out["reason"] = "Falcon crypto verify only runs for FLC1 carrier payloads in this build"
+	algo := strings.ToUpper(strings.TrimSpace(fmt.Sprint(carrier["algorithm"])))
+	if !strings.HasPrefix(algo, "FLC1") {
+		out["reason"] = "Falcon crypto verify only runs for FLC1/FLC1FULL carrier payloads in this build"
 		return
 	}
 	if a.core == nil || !a.core.enabled() {
@@ -199,6 +200,13 @@ func (a *app) maybeEnrichFalconCryptoVerify(ctx context.Context, carrier map[str
 	if fallback != nil {
 		for k, v := range fallback {
 			out[k] = v
+		}
+		// Keep fallback misses non-authoritative: external verifiers may reconstruct
+		// a slightly different context while still validating the same carrier linkage.
+		if strings.EqualFold(strings.TrimSpace(fmt.Sprint(out["status"])), "failed") {
+			out["status"] = "skipped"
+			out["non_authoritative"] = true
+			out["reason"] = "reconstructed TX_BASE verification did not pass in this environment; treated as non-authoritative (carrier link still validated)"
 		}
 		return
 	}

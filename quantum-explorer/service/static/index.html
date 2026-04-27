@@ -1265,11 +1265,12 @@
       const falconStatus = String(x.falcon_status || fcv.status || "").toLowerCase();
       const strictValid = !!strict.valid;
       const qStateQuantum = String(x.quantum_state || "").toLowerCase() === "quantum";
+      const fallbackPQValid = !!x.pq_valid;
       return {
         txid: x.txid,
         block_height: x.block_height,
         confirmed: true,
-        pq_valid: qStateQuantum || strictValid,
+        pq_valid: fallbackPQValid || qStateQuantum || strictValid,
         carrier_verified: !!car.verified,
         pq_score: 100,
         pq_reason: x.pq_reason || "PQ marker recognized",

@@ -1083,6 +1083,15 @@ func (a *app) publicStatus(w http.ResponseWriter, r *http.Request) {
 				}
 				rawHex, qState, pqReason, blkH, _, _, _, okRow, err := a.cidx.txRowByID(ctx, txid)
 				if err != nil || !okRow {
+					// Keep fallback row when deep enrichment cannot run in this cycle.
+					// This avoids clearing the homepage list while aggregates still show PQ rows.
+					row["pq_carrier_role"] = pqCarrierTXRole(row)
+					if rowHasQuantumPQ(row) || strings.EqualFold(strings.TrimSpace(fmt.Sprint(row["quantum_state"])), "quantum") {
+						enrichedRQ = append(enrichedRQ, row)
+						if len(enrichedRQ) >= 80 {
+							break
+						}
+					}
 					continue
 				}
 				row["quantum_state"] = qState

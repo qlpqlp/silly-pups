@@ -9,8 +9,10 @@ function setGlobalActionBusy(on) {
 }
 
 async function api(path, opts) {
-  const method = String((opts && opts.method) || "GET").toUpperCase();
+  opts = opts || {};
+  const method = String(opts.method || "GET").toUpperCase();
   const isMutation = method !== "GET";
+  const { signal, ...fetchOpts } = opts;
   if (isMutation) {
     activeMutations += 1;
     setGlobalActionBusy(true);
@@ -18,7 +20,8 @@ async function api(path, opts) {
   try {
     const r = await fetch(path, {
       headers: { "Content-Type": "application/json" },
-      ...opts,
+      ...fetchOpts,
+      signal,
     });
     const text = await r.text();
     try {
@@ -1586,9 +1589,14 @@ document.getElementById("btn-send-pq-safe").addEventListener("click", async () =
     if (out) out.textContent = `Sending transaction over libdogecoin P2P${".".repeat(tick)}\nWaiting for peer feedback...`;
   }, 350);
   try {
+    const sendSignal =
+      typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+        ? AbortSignal.timeout(120000)
+        : undefined;
     const res = await api("/api/send/pq-safe", {
       method: "POST",
       body: JSON.stringify({ to_address, amount_doge }),
+      signal: sendSignal,
     });
     const sum = res && res.sendtx_summary ? res.sendtx_summary : null;
     if (out && sum) {

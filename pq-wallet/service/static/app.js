@@ -1569,13 +1569,49 @@ if (logoHome) {
 }
 
 document.getElementById("btn-send-pq-safe").addEventListener("click", async () => {
+  const btn = document.getElementById("btn-send-pq-safe");
+  const out = $("send-pq-out");
   const to_address = document.getElementById("send-to").value.trim();
   const amount_doge = document.getElementById("send-amt").value.trim();
-  const res = await api("/api/send/pq-safe", {
-    method: "POST",
-    body: JSON.stringify({ to_address, amount_doge }),
-  });
-  $("send-pq-out").textContent = JSON.stringify(res, null, 2);
+  let tick = 0;
+  const prevLabel = btn ? btn.innerHTML : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-symbols-outlined btn-ico">hourglass_top</span> Broadcasting...';
+  }
+  const timer = setInterval(() => {
+    tick = (tick + 1) % 4;
+    if (out) out.textContent = `Sending transaction over libdogecoin P2P${".".repeat(tick)}\nWaiting for peer feedback...`;
+  }, 350);
+  try {
+    const res = await api("/api/send/pq-safe", {
+      method: "POST",
+      body: JSON.stringify({ to_address, amount_doge }),
+    });
+    const sum = res && res.sendtx_summary ? res.sendtx_summary : null;
+    if (out && sum) {
+      const lines = [
+        `status: ${sum.status || "unknown"}`,
+        `note: ${sum.human_note || "—"}`,
+        `txid: ${res.txid || sum.broadcast_txid || "—"}`,
+        `connected_nodes: ${sum.connected_nodes ?? 0}`,
+        `informed_nodes: ${sum.informed_nodes ?? 0}`,
+        `requested_from_nodes: ${sum.requested_from_nodes ?? 0}`,
+        `seen_on_other_nodes: ${sum.seen_on_other_nodes ?? 0}`,
+        "",
+        JSON.stringify(res, null, 2)
+      ];
+      out.textContent = lines.join("\n");
+    } else if (out) {
+      out.textContent = JSON.stringify(res, null, 2);
+    }
+  } finally {
+    clearInterval(timer);
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = prevLabel;
+    }
+  }
 });
 
 document.getElementById("btn-sign").addEventListener("click", async () => {

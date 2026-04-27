@@ -26,7 +26,40 @@ type spvRESTTxRow struct {
 var (
 	reSPVHex64 = regexp.MustCompile(`(?i)\b([0-9a-f]{64})\b`)
 	reSPVInt   = regexp.MustCompile(`\b(\d{1,16})\b`)
+	reSPVDate  = regexp.MustCompile(`\b(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\s*UTC|Z)?)\b`)
 )
+
+func parseSPVDateTime(s string) int64 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	layouts := []string{
+		time.RFC3339,
+		"2006-01-02 15:04:05 MST",
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05",
+	}
+	for _, ly := range layouts {
+		if t, err := time.Parse(ly, s); err == nil {
+			return t.UTC().Unix()
+		}
+	}
+	if m := reSPVDate.FindStringSubmatch(s); len(m) >= 2 {
+		raw := strings.TrimSpace(strings.ReplaceAll(m[1], "T", " "))
+		raw = strings.TrimSuffix(raw, "Z")
+		raw = strings.TrimSpace(raw)
+		if strings.HasSuffix(strings.ToUpper(raw), "UTC") {
+			if t, err := time.Parse("2006-01-02 15:04:05 MST", raw); err == nil {
+				return t.UTC().Unix()
+			}
+		}
+		if t, err := time.Parse("2006-01-02 15:04:05", raw); err == nil {
+			return t.UTC().Unix()
+		}
+	}
+	return 0
+}
 
 func (s *Server) fetchSPVREST(path string) (string, error) {
 	base := s.spvHTTPBaseURL()
@@ -180,6 +213,13 @@ func parseSPVRESTChaintip(raw string) (height int64, bestHash string) {
 	if raw == "" {
 		return 0, ""
 	}
+	if h, bh, ts := parsePipeHeaderTip(raw); h > 0 {
+		height = h
+		if bh != "" {
+			bestHash = bh
+		}
+		_ = ts
+	}
 	if strings.HasPrefix(raw, "{") {
 		var obj map[string]any
 		if err := json.Unmarshal([]byte(raw), &obj); err == nil {
@@ -244,14 +284,35 @@ func parseSPVRESTTimestamp(raw string) int64 {
 	if raw == "" {
 		return 0
 	}
+	if _, _, ts := parsePipeHeaderTip(raw); ts > 0 {
+		return ts
+	}
+	if ts := parseSPVDateTime(raw); ts > 0 {
+		return ts
+	}
 	if reSPVInt.MatchString(raw) && !strings.ContainsAny(raw, " \n\t:={}") {
-		return int64(parseIntDefault(raw, 0))
+		n := int64(parseIntDefault(raw, 0))
+		if n > 1_000_000_000_000 {
+			n = n / 1000
+		}
+		if n >= 1231006505 {
+			return n
+		}
+		return 0
 	}
 	if strings.HasPrefix(raw, "{") {
 		var obj map[string]any
 		if err := json.Unmarshal([]byte(raw), &obj); err == nil {
 			for _, k := range []string{"timestamp", "time", "header_unix_time", "header_time"} {
-				if n := int64(parseIntDefault(fmt.Sprint(obj[k]), 0)); n > 0 {
+				v := strings.TrimSpace(fmt.Sprint(obj[k]))
+				if ts := parseSPVDateTime(v); ts > 0 {
+					return ts
+				}
+				n := int64(parseIntDefault(v, 0))
+				if n > 1_000_000_000_000 {
+					n = n / 1000
+				}
+				if n >= 1231006505 {
 					return n
 				}
 			}
@@ -265,13 +326,27 @@ func parseSPVRESTTimestamp(raw string) int64 {
 		}
 		k := strings.ToLower(strings.TrimSpace(ln[:i]))
 		if strings.Contains(k, "time") || strings.Contains(k, "timestamp") {
-			if n := int64(parseIntDefault(strings.TrimSpace(ln[i+1:]), 0)); n > 0 {
+			v := strings.TrimSpace(ln[i+1:])
+			if ts := parseSPVDateTime(v); ts > 0 {
+				return ts
+			}
+			n := int64(parseIntDefault(v, 0))
+			if n > 1_000_000_000_000 {
+				n = n / 1000
+			}
+			if n >= 1231006505 {
 				return n
 			}
 		}
 	}
 	if m := reSPVInt.FindStringSubmatch(raw); len(m) >= 2 {
-		return int64(parseIntDefault(m[1], 0))
+		n := int64(parseIntDefault(m[1], 0))
+		if n > 1_000_000_000_000 {
+			n = n / 1000
+		}
+		if n >= 1231006505 {
+			return n
+		}
 	}
 	return 0
 }

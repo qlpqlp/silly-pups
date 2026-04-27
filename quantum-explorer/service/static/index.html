@@ -711,38 +711,56 @@
       lastPQRenderSig = renderSig;
       const moreBtn = document.getElementById("btn-pq-more");
       if (moreBtn) moreBtn.style.display = visibleRows.length < filtered.length ? "" : "none";
-      rowsEl.innerHTML = visibleRows.map(t => `
-        <div class="pq-tx-row clickable" data-txid="${esc(t.txid)}" tabindex="0">
-          <div class="mono"><span class="material-symbols-outlined tx-type-ico" title="${esc(txTypeLabel(t))}" aria-hidden="true">${txTypeIcon(t)}</span>${esc(t.txid)}</div>
-          <div class="badges" style="margin:.4rem 0">
-            ${badge(t.confirmed ? "confirmed":"pending", t.confirmed ? "Confirmed":"Pending")}
-            ${badge(t.pq_valid || t.carrier_verified ? "pq-ok":"pq-bad", t.pq_valid ? "PQ valid" : (t.carrier_verified ? "Carrier-linked (TX_R)" : "PQ invalid"))}
-            ${t.pq_carrier_role === "tx_r" ? badge("pq-ok", "TX_R (reveal)") : t.pq_carrier_role === "tx_c" ? badge("", "TX_C (commitment)") : ""}
-            ${badge(t.falcon_status === "passed" ? "pq-ok" : (t.falcon_status === "failed" || t.falcon_status === "error" ? "pq-bad" : ""), `Falcon ${t.falcon_status || "n/a"}`)}
-            ${badge("", (t.pq_score ?? 0) + "% PQ")}
-          </div>
-          <div class="row-meta">Block ${esc(String(t.block_height ?? "—"))} · ${esc(t.last_seen || t.first_seen || "—")} · Verifier: ${esc(t.verifier || "strict-v1")}</div>
-          <div class="row-meta" style="margin-top:.2rem">
-            ${t.matched_txc_txid ? `TX_C <button type="button" class="link-tx" data-open-txid="${esc(t.matched_txc_txid)}">${esc(t.matched_txc_txid.slice(0, 16))}…</button>` : ""}
-            ${t.matched_txr_txid ? `TX_R <button type="button" class="link-tx" data-open-txid="${esc(t.matched_txr_txid)}">${esc(t.matched_txr_txid.slice(0, 16))}…</button>` : ""}
-          </div>
-          <div class="row-meta pq-bad" style="margin-top:.2rem">${t.pq_reason ? esc(t.pq_reason) : ""}</div>
-        </div>`).join("");
-      rowsEl.querySelectorAll(".pq-tx-row").forEach(btn => {
-        btn.onclick = () => openTxDetail(btn.getAttribute("data-txid"), true);
-        btn.onkeydown = (e) => {
+      const rowHTML = (t) => `
+        <div class="mono"><span class="material-symbols-outlined tx-type-ico" title="${esc(txTypeLabel(t))}" aria-hidden="true">${txTypeIcon(t)}</span>${esc(t.txid)}</div>
+        <div class="badges" style="margin:.4rem 0">
+          ${badge(t.confirmed ? "confirmed":"pending", t.confirmed ? "Confirmed":"Pending")}
+          ${badge(t.pq_valid || t.carrier_verified ? "pq-ok":"pq-bad", t.pq_valid ? "PQ valid" : (t.carrier_verified ? "Carrier-linked (TX_R)" : "PQ invalid"))}
+          ${t.pq_carrier_role === "tx_r" ? badge("pq-ok", "TX_R (reveal)") : t.pq_carrier_role === "tx_c" ? badge("", "TX_C (commitment)") : ""}
+          ${badge(t.falcon_status === "passed" ? "pq-ok" : (t.falcon_status === "failed" || t.falcon_status === "error" ? "pq-bad" : ""), `Falcon ${t.falcon_status || "n/a"}`)}
+          ${badge("", (t.pq_score ?? 0) + "% PQ")}
+        </div>
+        <div class="row-meta">Block ${esc(String(t.block_height ?? "—"))} · ${esc(t.last_seen || t.first_seen || "—")} · Verifier: ${esc(t.verifier || "strict-v1")}</div>
+        <div class="row-meta" style="margin-top:.2rem">
+          ${t.matched_txc_txid ? `TX_C <button type="button" class="link-tx" data-open-txid="${esc(t.matched_txc_txid)}">${esc(t.matched_txc_txid.slice(0, 16))}…</button>` : ""}
+          ${t.matched_txr_txid ? `TX_R <button type="button" class="link-tx" data-open-txid="${esc(t.matched_txr_txid)}">${esc(t.matched_txr_txid.slice(0, 16))}…</button>` : ""}
+        </div>
+        <div class="row-meta pq-bad" style="margin-top:.2rem">${t.pq_reason ? esc(t.pq_reason) : ""}</div>`;
+      const existingByTxid = new Map();
+      rowsEl.querySelectorAll(".pq-tx-row[data-txid]").forEach((el) => {
+        existingByTxid.set(el.getAttribute("data-txid"), el);
+      });
+      const nextNodes = [];
+      visibleRows.forEach((t) => {
+        const txid = String(t.txid || "");
+        if (!txid) return;
+        let node = existingByTxid.get(txid);
+        if (!node) {
+          node = document.createElement("div");
+          node.className = "pq-tx-row clickable";
+          node.dataset.txid = txid;
+          node.tabIndex = 0;
+        }
+        const html = rowHTML(t);
+        if (node.innerHTML !== html) {
+          node.innerHTML = html;
+        }
+        node.onclick = () => openTxDetail(txid, true);
+        node.onkeydown = (e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            openTxDetail(btn.getAttribute("data-txid"), true);
+            openTxDetail(txid, true);
           }
         };
+        node.querySelectorAll(".link-tx").forEach(btn => {
+          btn.onclick = (e) => {
+            e.stopPropagation();
+            openTxDetail(btn.getAttribute("data-open-txid"), true);
+          };
+        });
+        nextNodes.push(node);
       });
-      rowsEl.querySelectorAll(".pq-tx-row .link-tx").forEach(btn => {
-        btn.onclick = (e) => {
-          e.stopPropagation();
-          openTxDetail(btn.getAttribute("data-open-txid"), true);
-        };
-      });
+      rowsEl.replaceChildren(...nextNodes);
     }
 
     function qeChartCommonOptions(){

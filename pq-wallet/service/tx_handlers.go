@@ -101,9 +101,12 @@ func (s *Server) handleTxBroadcast(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
 	}
+	sum := summarizeSendtxOutput(out)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":             true,
+		"txid":           sum.BroadcastTxID,
 		"sendtx_output":  out,
+		"sendtx_summary": sum,
 		"transport":      "libdogecoin_sendtx_p2p",
 		"transport_note": "Relayed via libdogecoin sendtx to Dogecoin peers (P2P). JSON-RPC sendrawtransaction is not used.",
 	})

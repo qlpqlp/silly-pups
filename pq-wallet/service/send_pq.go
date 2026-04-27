@@ -222,12 +222,15 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
 	}
+	sendSummary := summarizeSendtxOutput(sendOut)
 	s.appendBroadcastLogLine("send_pq_safe broadcast OK: " + truncateStr(sendOut, 400))
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":               true,
 		"code":             "sent",
+		"txid":             sendSummary.BroadcastTxID,
 		"sendtx_output":    sendOut,
+		"sendtx_summary":   sendSummary,
 		"fee_koinu":        fee,
 		"change_koinu":     change,
 		"inputs_used":      len(selected),

@@ -27,6 +27,7 @@ var (
 	reSuchP2PKHAddr   = regexp.MustCompile(`(?i)p2pkh address:\s*(\S+)`)
 	reSuchAnyHexValue = regexp.MustCompile(`(?i)\b([0-9a-f]{64,})\b`)
 	reSuchUTXOLine    = regexp.MustCompile(`(?i)\btxid[=: ]+([a-f0-9]{64})\b.*?\bvout[=: ]+(\d+)\b.*?\b(?:value|amount|koinu|satoshis)[=: ]+(-?\d+(?:\.\d+)?)`)
+	reSendtxStartTxid = regexp.MustCompile(`(?i)start broadcasting transaction:\s*([a-f0-9]{64})`)
 )
 
 // runSuchP2PKHWallet runs `such -c generate_private_key` then `such -c generate_public_key -p <WIF>` (libdogecoin ECC + base58).
@@ -428,6 +429,76 @@ func (s *Server) runSendtx(signedHex string, testnet bool, peers string) (string
 	}
 	// sendtx prints minimal output on success; return combined for debugging
 	return strings.TrimSpace(out.String()), nil
+}
+
+type sendtxOutputSummary struct {
+	BroadcastTxID      string `json:"broadcast_txid,omitempty"`
+	ConnectedNodes      int    `json:"connected_nodes"`
+	InformedNodes       int    `json:"informed_nodes"`
+	RequestedFromNodes  int    `json:"requested_from_nodes"`
+	SeenOnOtherNodes    int    `json:"seen_on_other_nodes"`
+	RelayBackReceived   bool   `json:"relay_back_received"`
+	LikelyBroadcasted   bool   `json:"likely_broadcasted"`
+	Status              string `json:"status"`  // success | warning | unknown
+	HumanNote           string `json:"human_note"`
+}
+
+func summarizeSendtxOutput(raw string) sendtxOutputSummary {
+	txt := strings.TrimSpace(strings.ReplaceAll(raw, "\r\n", "\n"))
+	s := sendtxOutputSummary{
+		Status:    "unknown",
+		HumanNote: "sendtx output unavailable",
+	}
+	if txt == "" {
+		return s
+	}
+	lower := strings.ToLower(txt)
+	connected := strings.Count(lower, "successfully connected to peer")
+	sent := strings.Count(lower, "tx successfully sent to node")
+	if m := reSendtxStartTxid.FindStringSubmatch(txt); len(m) >= 2 {
+		s.BroadcastTxID = normalizeTxid(m[1])
+	}
+	s.ConnectedNodes = connected
+	s.InformedNodes = parseCountAfterLabel(txt, "Informed nodes")
+	s.RequestedFromNodes = parseCountAfterLabel(txt, "Requested from nodes")
+	s.SeenOnOtherNodes = parseCountAfterLabel(txt, "Seen on other nodes")
+	notRelayedBack := strings.Contains(lower, "transaction was not relayed back")
+	s.RelayBackReceived = !notRelayedBack && (s.SeenOnOtherNodes > 0)
+	s.LikelyBroadcasted = sent > 0 || s.InformedNodes > 0 || s.RequestedFromNodes > 0
+	switch {
+	case s.LikelyBroadcasted && notRelayedBack:
+		s.Status = "warning"
+		s.HumanNote = "Broadcast reached peers, but no relay-back was observed in this short window. This often happens with already-seen or delayed-propagation transactions."
+	case s.LikelyBroadcasted:
+		s.Status = "success"
+		s.HumanNote = "Broadcast reached peers over libdogecoin P2P."
+	default:
+		s.Status = "unknown"
+		s.HumanNote = "sendtx did not confirm peer relay in output."
+	}
+	return s
+}
+
+func parseCountAfterLabel(text, label string) int {
+	for _, ln := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+		ln = strings.TrimSpace(ln)
+		if ln == "" {
+			continue
+		}
+		if !strings.Contains(strings.ToLower(ln), strings.ToLower(label)) {
+			continue
+		}
+		i := strings.Index(ln, ":")
+		if i < 0 {
+			continue
+		}
+		n := parseIntDefault(strings.TrimSpace(ln[i+1:]), 0)
+		if n < 0 {
+			return 0
+		}
+		return n
+	}
+	return 0
 }
 
 func (s *Server) spvLogPath() string {

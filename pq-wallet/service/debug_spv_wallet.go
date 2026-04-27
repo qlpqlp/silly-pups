@@ -38,6 +38,16 @@ func debugSQLiteQueryAllowed(q string) (string, error) {
 	return "", errors.New("only SELECT, WITH … SELECT, or PRAGMA queries are allowed")
 }
 
+func nonSQLiteDebugPayload(path, op string) map[string]any {
+	return map[string]any{
+		"path":                path,
+		"format":              "libdogecoin_binary_or_non_sqlite",
+		"sqlite_available":    false,
+		"requested_operation": op,
+		"hint":                "This is expected for libdogecoin spv_wallet.db in this pup. The wallet uses `such list_unspent` + SPV log/raw parsing for transaction details. SQLite table/query tools only work when the file is true SQLite.",
+	}
+}
+
 func (s *Server) handleDebugSPVWalletDB(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET only"})
@@ -66,11 +76,7 @@ func (s *Server) handleDebugSPVWalletDB(w http.ResponseWriter, r *http.Request) 
 	op := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("op")))
 	if op == "" || op == "meta" {
 		if !isSQLiteDatabaseFile(dbPath) {
-			writeJSON(w, http.StatusOK, map[string]any{
-				"path":   dbPath,
-				"format": "libdogecoin_binary_or_non_sqlite",
-				"hint":   "Default libdogecoin wallet path uses a binary wallet file. Transaction rows are merged via `such list_unspent`; SQLite tools apply only if this file is actual SQLite.",
-			})
+			writeJSON(w, http.StatusOK, nonSQLiteDebugPayload(dbPath, "meta"))
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -80,7 +86,7 @@ func (s *Server) handleDebugSPVWalletDB(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if !isSQLiteDatabaseFile(dbPath) {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "spv_wallet.db is not SQLite — query API disabled"})
+		writeJSON(w, http.StatusOK, nonSQLiteDebugPayload(dbPath, op))
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)

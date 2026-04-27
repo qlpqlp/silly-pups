@@ -442,13 +442,28 @@ func (s *Server) spvWatchAddrPath() string {
 	return filepath.Join(s.storageDir, "spv_watch_addrs.txt")
 }
 
+func (s *Server) spvHTTPBaseURL() string {
+	addr := strings.TrimSpace(os.Getenv("SPV_HTTP_ADDR"))
+	if addr == "" {
+		addr = "127.0.0.1:8080"
+	}
+	if strings.HasPrefix(addr, "http://") || strings.HasPrefix(addr, "https://") {
+		return strings.TrimRight(addr, "/")
+	}
+	return "http://" + strings.TrimRight(addr, "/")
+}
+
 // spvnodeArgs builds argv for libdogecoin spvnode. We intentionally omit -f:
 // with -f 0, spvnode treats headers as in-memory only and ignores -h, so
 // headers.db never appears on disk and SQLite rollback cannot run.
-func spvnodeArgs(testnet bool, addrs []string, storageDir string, useCheckpoint bool) []string {
+func spvnodeArgs(testnet bool, addrs []string, storageDir string, useCheckpoint bool, httpAddr string) []string {
 	args := []string{"-c", "-l"}
 	if useCheckpoint {
 		args = append(args, "-p")
+	}
+	httpAddr = strings.TrimSpace(httpAddr)
+	if httpAddr != "" {
+		args = append(args, "-u", httpAddr)
 	}
 	for _, a := range addrs {
 		a = strings.TrimSpace(a)
@@ -513,10 +528,9 @@ func (s *Server) startSPVNode(w *WalletFile) {
 	}
 	s.stopSPVNode()
 	testnet := strings.EqualFold(w.Network, "testnet")
-	logPath := s.spvLogPath()
-	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	f, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0600)
 	if err != nil {
-		log.Printf("[pq-wallet] spv log: %v", err)
+		log.Printf("[pq-wallet] spv output sink: %v", err)
 		return
 	}
 	var used []string
@@ -527,7 +541,11 @@ func (s *Server) startSPVNode(w *WalletFile) {
 	}
 	sort.Strings(list)
 	prefs := s.readSPVSyncPrefs()
-	args := spvnodeArgs(testnet, list, s.storageDir, prefs.UseCheckpoint)
+	httpAddr := strings.TrimSpace(os.Getenv("SPV_HTTP_ADDR"))
+	if httpAddr == "" {
+		httpAddr = "127.0.0.1:8080"
+	}
+	args := spvnodeArgs(testnet, list, s.storageDir, prefs.UseCheckpoint, httpAddr)
 	cmd := exec.Command(s.spvnodePath(), args...)
 	cmd.Stdout = f
 	cmd.Stderr = f
@@ -591,6 +609,7 @@ func (s *Server) readSPVStatus() map[string]any {
 		"pid_file":            pidPath,
 		"log_file":            logPath,
 		"storage_dir":         s.storageDir,
+		"spv_http_url":        s.spvHTTPBaseURL(),
 	}
 	hdb := filepath.Join(s.storageDir, "headers.db")
 	wdb := filepath.Join(s.storageDir, "spv_wallet.db")
@@ -618,9 +637,19 @@ func (s *Server) readSPVStatus() map[string]any {
 	} else {
 		out["spv_wallet_db_present"] = false
 	}
-	// Expose spv.log tail whenever the file exists so peer / height parsing works even if pid is stale.
-	if lb, err := readFileTail(logPath, 4*1024*1024); err == nil {
-		out["log_tail"] = lb
+	if rawTip, err := s.fetchSPVREST("/getChaintip"); err == nil {
+		h, bh := parseSPVRESTChaintip(rawTip)
+		if h > 0 {
+			out["header_height"] = h
+		}
+		if bh != "" {
+			out["best_block_hash"] = bh
+		}
+	}
+	if rawTS, err := s.fetchSPVREST("/getTimestamp"); err == nil {
+		if ts := parseSPVRESTTimestamp(rawTS); ts > 0 {
+			out["header_unix_time"] = ts
+		}
 	}
 	b, err := os.ReadFile(pidPath)
 	if err != nil {

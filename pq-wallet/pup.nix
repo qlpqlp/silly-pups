@@ -7,7 +7,7 @@ let
 
   pq_bin = pkgs.buildGoModule {
     pname = "pq-wallet";
-    version = "0.0.33";
+    version = "0.0.36";
     src = ./service;
     vendorHash = null;
     go = pkgs.go_1_24;
@@ -36,6 +36,7 @@ let
     export LIBDOGECOIN_SENDTX="''${LIBDOGECOIN_SENDTX:-${libdogecoin}/bin/sendtx}"
     export LIBDOGECOIN_SPVNODE="''${LIBDOGECOIN_SPVNODE:-${libdogecoin}/bin/spvnode}"
     export SPVNODE_ENABLE="''${SPVNODE_ENABLE:-1}"
+    export SPV_HTTP_ADDR="''${SPV_HTTP_ADDR:-127.0.0.1:8080}"
     export MTR_P2P_PORT="''${MTR_P2P_PORT:-}"
     export MTR_P2P_PARALLEL="''${MTR_P2P_PARALLEL:-}"
     export MTR_LIST_LIMIT="''${MTR_LIST_LIMIT:-}"
@@ -63,9 +64,9 @@ let
             SPV_ARGS+=(-a "$a")
           done
           if command -v stdbuf >/dev/null 2>&1; then
-            nohup stdbuf -oL -eL spvnode $TN_FLAG $CP_FLAG -c -l "''${SPV_ARGS[@]}" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >>"$STORAGE/spv.log" 2>&1 &
+            nohup stdbuf -oL -eL spvnode $TN_FLAG $CP_FLAG -u "$SPV_HTTP_ADDR" -c -l "''${SPV_ARGS[@]}" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >/dev/null 2>&1 &
           else
-            nohup spvnode $TN_FLAG $CP_FLAG -c -l "''${SPV_ARGS[@]}" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >>"$STORAGE/spv.log" 2>&1 &
+            nohup spvnode $TN_FLAG $CP_FLAG -u "$SPV_HTTP_ADDR" -c -l "''${SPV_ARGS[@]}" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >/dev/null 2>&1 &
           fi
           echo $! >"$STORAGE/spv.pid"
         fi

@@ -119,7 +119,7 @@ func (s *Server) initHDWallet(testnet bool) (*WalletFile, error) {
 			"public key and signature on-chain. Standard P2PKH keys above fund and control DOGE; PQ " +
 			"material is additional attestation per Dogecoin Foundation experiments.",
 		LibdogecoinSPV: "Bundled spvnode: headers + BIP37 watch for every address in the wallet. Starts after wallet creation when SPVNODE_ENABLE=1. " +
-			"Check GET /api/spv/status and GET /api/logs/spv.",
+			"Check GET /api/spv/status and /api/transactions.",
 		ExperimentalDiscl: "Experimental research software. You may lose funds. Back up your WIF. " +
 			"PQ proofs on mainnet are early-phase; verify any third-party tooling.",
 		HDMode:       hdModeBIP44Doge,

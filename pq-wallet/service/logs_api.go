@@ -28,22 +28,9 @@ func (s *Server) handleLogsSPV(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET only"})
 		return
 	}
-	n := 200
-	if v := r.URL.Query().Get("lines"); v != "" {
-		if x, err := strconv.Atoi(v); err == nil && x > 0 && x <= 2000 {
-			n = x
-		}
-	}
-	text, err := readLastNLinesFromFile(s.spvLogPath(), 2<<20, n)
-	if err != nil {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("(log not available yet)\n"))
-		return
-	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(text))
+	_, _ = w.Write([]byte("SPV log is disabled in this build. Use /api/spv/status and transaction APIs instead.\n"))
 }
 
 // handleLogsMempoolTracker returns a text snapshot of the embedded MemeTracker P2P session (stderr is not captured here).

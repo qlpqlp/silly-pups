@@ -46,9 +46,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	spv := s.readSPVStatus()
 	logTail, _ := spv["log_tail"].(string)
 	hdr := parseSPVLogHeaderInfo(logTail)
+	applySPVStatusHeaderInfo(&hdr, spv)
 	seenChanged := s.applySPVSeenTxids(st, logTail)
 	rawChanged := s.applySPVRawHex(st, logTail)
 	enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
+	restChanged := s.mergeTransactionsFromSPVREST(st)
 	dbChanged := s.mergeTransactionsFromSPVWalletDB(wf, st)
 	suchChanged := s.mergeTransactionsFromSuchListUnspent(wf, st)
 	if suchChanged && s.enrichSPVTxFromRawHex(st, wf) {
@@ -56,7 +58,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.applySPVConfirmations(st, logTail) {
 		_ = s.saveState(st)
-	} else if seenChanged || rawChanged || enrichedChanged || dbChanged || suchChanged {
+	} else if seenChanged || rawChanged || enrichedChanged || restChanged || dbChanged || suchChanged {
 		_ = s.saveState(st)
 	}
 	if changed, err := s.maybeRotateHDReceiveAddress(wf, st); err == nil && changed {
@@ -196,6 +198,37 @@ func round2(f float64) float64 {
 	return math.Round(f*100) / 100
 }
 
+func applySPVStatusHeaderInfo(hdr *SPVHeaderInfo, spv map[string]any) {
+	if hdr == nil || spv == nil {
+		return
+	}
+	if hdr.HeaderHeight == 0 {
+		switch v := spv["header_height"].(type) {
+		case int64:
+			hdr.HeaderHeight = v
+		case int:
+			hdr.HeaderHeight = int64(v)
+		case float64:
+			hdr.HeaderHeight = int64(v)
+		}
+	}
+	if hdr.BestBlockHash == "" {
+		if v, ok := spv["best_block_hash"].(string); ok {
+			hdr.BestBlockHash = strings.TrimSpace(v)
+		}
+	}
+	if hdr.HeaderUnixTime == 0 {
+		switch v := spv["header_unix_time"].(type) {
+		case int64:
+			hdr.HeaderUnixTime = v
+		case int:
+			hdr.HeaderUnixTime = int64(v)
+		case float64:
+			hdr.HeaderUnixTime = int64(v)
+		}
+	}
+}
+
 // handleMetrics returns metric history for charts.
 func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -250,6 +283,7 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 		changed := s.applySPVSeenTxids(st, logTail)
 		rawChanged := s.applySPVRawHex(st, logTail)
 		enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
+		restChanged := s.mergeTransactionsFromSPVREST(st)
 		dbChanged := s.mergeTransactionsFromSPVWalletDB(wf, st)
 		suchChanged := s.mergeTransactionsFromSuchListUnspent(wf, st)
 		if suchChanged {
@@ -257,7 +291,7 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 				enrichedChanged = true
 			}
 		}
-		if s.applySPVConfirmations(st, logTail) || changed || rawChanged || enrichedChanged || dbChanged || suchChanged {
+		if s.applySPVConfirmations(st, logTail) || changed || rawChanged || enrichedChanged || restChanged || dbChanged || suchChanged {
 			_ = s.saveState(st)
 		}
 	}
@@ -585,6 +619,7 @@ func (s *Server) backgroundMetricsLoop() {
 		spv := s.readSPVStatus()
 		logTail, _ := spv["log_tail"].(string)
 		hdr := parseSPVLogHeaderInfo(logTail)
+		applySPVStatusHeaderInfo(&hdr, spv)
 		running, _ := spv["running"].(bool)
 		st, err := s.loadState()
 		if err != nil {
@@ -596,6 +631,7 @@ func (s *Server) backgroundMetricsLoop() {
 		_ = s.applySPVConfirmations(st, logTail)
 		_ = s.applySPVRawHex(st, logTail)
 		_ = s.enrichSPVTxFromRawHex(st, wf)
+		_ = s.mergeTransactionsFromSPVREST(st)
 		_ = s.mergeTransactionsFromSPVWalletDB(wf, st)
 		if s.mergeTransactionsFromSuchListUnspent(wf, st) {
 			_ = s.enrichSPVTxFromRawHex(st, wf)

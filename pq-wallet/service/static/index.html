@@ -155,18 +155,11 @@
               <span class="wallet-hero-balance" id="wallet-balance-big">—</span>
               <span class="wallet-hero-unit" id="wallet-balance-unit">DOGE</span>
             </div>
+            <div class="wallet-sync-chip" id="wallet-sync-chip">Sync ETA: —</div>
             <div class="wallet-pending-row" id="wallet-pending-row" hidden>
               <span class="badge badge-pending-label">Pending</span>
               <span class="badge badge-pending-amt mono" id="wallet-pending-line">—</span>
             </div>
-          </div>
-          <div class="card block-live">
-            <div class="block-live-head">
-              <h2><span class="material-symbols-outlined icon-inline">linked_services</span> Chain tip (SPV)</h2>
-              <span class="pill" id="pill-height">height —</span>
-            </div>
-            <p class="mono hash" id="hdr-hash">—</p>
-            <p class="small muted" id="spv-sync-lag">Sync status: —</p>
           </div>
           <div class="card tx-list-card dash-latest-tx-card">
             <h3><span class="material-symbols-outlined icon-inline">receipt_long</span> Latest transactions</h3>
@@ -311,7 +304,7 @@
           </div>
           <div class="card">
             <h2><span class="material-symbols-outlined icon-inline">terminal</span> Logs</h2>
-            <p class="small muted toolbar">SPV / broadcast: latest ~420 lines. MemeTracker: live P2P snapshot. Refreshes while this view is open.</p>
+            <p class="small muted toolbar">Broadcast: latest ~420 lines. MemeTracker: live P2P snapshot. Refreshes while this view is open.</p>
             <div class="charts charts-fullwidth">
               <div class="card chart-card chart-card-wide">
                 <h3>Mempool <span class="chart-sub">(last 24h, MemeTracker relay)</span></h3>
@@ -327,10 +320,6 @@
               <button type="button" class="btn mtr-expand-btn hidden" id="btn-mtr-mempool-expand" aria-expanded="false">Show all</button>
             </div>
             <div class="dos-grid dos-grid-3">
-              <div class="card dos-panel">
-                <h3>spv.log (full tail)</h3>
-                <pre class="dos-screen" id="log-spv">…</pre>
-              </div>
               <div class="card dos-panel">
                 <h3>MemeTracker (embedded P2P)</h3>
                 <pre class="dos-screen" id="log-mtr">…</pre>
@@ -415,7 +404,7 @@
       <label class="field"><span class="field-label">Custom — block header hash (64 hex, optional if height set)</span>
         <input type="text" class="input-modern mono" id="spv-rescan-hash" placeholder="0000…" autocomplete="off" spellcheck="false" />
       </label>
-      <label class="field"><span class="field-label">Custom — rollback height (optional if hash is in spv.log)</span>
+      <label class="field"><span class="field-label">Custom — rollback height (optional if known from explorer/core)</span>
         <input type="text" class="input-modern" id="spv-rescan-height" inputmode="numeric" placeholder="e.g. 4500000" autocomplete="off" />
       </label>
       <div class="toolbar toolbar-actions spv-rescan-actions">

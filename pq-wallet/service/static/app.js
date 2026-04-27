@@ -146,7 +146,7 @@ function showView(name) {
     b.classList.toggle("active", b.dataset.view === name);
   });
   const titles = {
-    dashboard: ["Dashboard", "SPV headers, balances, and post-quantum hints"],
+    dashboard: ["Dashboard", "Balances, sync ETA, and post-quantum transaction hints"],
     receive: ["Receive Dogecoin", "QR and address for your primary receiving address"],
     addresses: ["Addresses", "Generate keys and choose which address SPV watches"],
     transactions: ["Transactions", "Local SPV/P2P transaction history"],
@@ -205,15 +205,12 @@ function showView(name) {
 
 async function refreshLogs() {
   try {
-    const [spv, mtr, bc] = await Promise.all([
-      fetch("/api/logs/spv?lines=200").then((r) => r.text()),
+    const [mtr, bc] = await Promise.all([
       fetch("/api/logs/mempooltracker").then((r) => r.text()),
       fetch("/api/logs/broadcast?lines=200").then((r) => r.text()),
     ]);
-    const elS = $("log-spv");
     const elM = $("log-mtr");
     const elB = $("log-bc");
-    if (elS) elS.textContent = spv;
     if (elM) elM.textContent = mtr;
     if (elB) elB.textContent = bc;
   } catch {
@@ -437,6 +434,108 @@ function fmtTime(iso) {
   } catch {
     return iso;
   }
+}
+
+function humanizeSyncEta(sec) {
+  const n = Number(sec);
+  if (!Number.isFinite(n) || n <= 0) return "Synced";
+  if (n < 60) return "Tip ETA < 1 minute";
+  if (n < 3600) return `Tip ETA ${Math.ceil(n / 60)} minutes`;
+  if (n < 86400) return `Tip ETA ${Math.ceil(n / 3600)} hours`;
+  if (n < 86400 * 30) return `Tip ETA ${Math.ceil(n / 86400)} days`;
+  return `Tip ETA ${Math.ceil(n / (86400 * 30))} months`;
+}
+
+function buildTxExpandableCard(tx, includeSource) {
+  const txidFull = String(tx.txid || "").trim();
+  const conf = Number(tx.confirmations || 0);
+  const pending = !!tx.pending || conf <= 0 || String(tx.source || "").toLowerCase() === "memetracker";
+  const dir = String(tx.direction || "unknown").toLowerCase();
+  const dirLabel = dir === "in" ? "In" : dir === "out" ? "Out" : "Unknown";
+  const sign = dir === "out" ? "-" : dir === "in" ? "+" : "";
+  const amount = tx.amount_doge != null && !Number.isNaN(Number(tx.amount_doge))
+    ? `${sign}${Number(tx.amount_doge).toFixed(2)} DOGE`
+    : "—";
+  const seen = tx.seen_at ? fmtTime(tx.seen_at) : "—";
+  const short = txidFull ? txidFull.slice(0, 18) + (txidFull.length > 18 ? "…" : "") : "—";
+  const card = document.createElement("details");
+  card.className = "tx-card tx-card-modern";
+  card.setAttribute("role", "listitem");
+  const summary = document.createElement("summary");
+  const left = document.createElement("div");
+  left.className = "tx-main";
+  const top = document.createElement("div");
+  top.className = "tx-main-top";
+  const status = document.createElement("span");
+  status.className = pending ? "badge badge-tx-pending" : "muted small";
+  status.textContent = pending ? "Pending" : `${conf} conf`;
+  const dirPill = document.createElement("span");
+  dirPill.className = `tx-dir-pill ${dir === "in" ? "in" : dir === "out" ? "out" : ""}`;
+  dirPill.textContent = dirLabel;
+  top.appendChild(status);
+  top.appendChild(dirPill);
+  left.appendChild(top);
+  const meta = document.createElement("div");
+  meta.className = "tx-meta-line mono";
+  meta.textContent = `${short} · ${seen}`;
+  left.appendChild(meta);
+  const right = document.createElement("div");
+  right.style.display = "flex";
+  right.style.alignItems = "center";
+  right.style.gap = "0.5rem";
+  const amt = document.createElement("span");
+  amt.className = "tx-card-amt mono";
+  amt.textContent = amount;
+  const caret = document.createElement("span");
+  caret.className = "material-symbols-outlined tx-expand-caret";
+  caret.textContent = "expand_more";
+  right.appendChild(amt);
+  right.appendChild(caret);
+  summary.appendChild(left);
+  summary.appendChild(right);
+  card.appendChild(summary);
+  const body = document.createElement("div");
+  body.className = "tx-expand-body tx-card-body";
+  function addRow(label, value, mono) {
+    const row = document.createElement("div");
+    row.className = "tx-card-row";
+    const k = document.createElement("span");
+    k.className = "tx-card-k";
+    k.textContent = label;
+    const v = document.createElement("span");
+    if (mono) v.className = "mono";
+    v.textContent = value;
+    row.appendChild(k);
+    row.appendChild(v);
+    body.appendChild(row);
+  }
+  addRow("Txid", txidFull || "—", true);
+  addRow("Direction", dirLabel, false);
+  addRow("Seen", seen, false);
+  addRow("Address", tx.address || "—", true);
+  addRow("PQ", tx.pq_hint ? "Yes" : "No", false);
+  if (includeSource) addRow("Source", tx.source || "—", false);
+  if (txidFull) {
+    const row = document.createElement("div");
+    row.className = "tx-card-row";
+    const k = document.createElement("span");
+    k.className = "tx-card-k";
+    k.textContent = "Actions";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn-sm";
+    btn.textContent = "Open details";
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openTxDetailModal(tx);
+    });
+    row.appendChild(k);
+    row.appendChild(btn);
+    body.appendChild(row);
+  }
+  card.appendChild(body);
+  return card;
 }
 
 function initCharts() {
@@ -701,12 +800,10 @@ async function refreshDashboard() {
       }
     }
   }
-  const h = spv.header_height;
-  $("pill-height").textContent = h != null && Number(h) > 0 ? `height ${h}` : "height —";
-  $("hdr-hash").textContent = spv.best_block_hash || "—";
-  const lagEl = $("spv-sync-lag");
-  if (lagEl) {
-    lagEl.textContent = "Sync status: " + (spv.sync_lag_label || "—");
+  const chip = $("wallet-sync-chip");
+  if (chip) {
+    chip.textContent = humanizeSyncEta(spv.sync_lag_seconds);
+    chip.title = spv.sync_lag_label || "";
   }
   const sample = data.dashboard.metrics_sample || [];
   initCharts();
@@ -730,59 +827,7 @@ function renderDashboardTxPreview() {
   const max = Math.min(6, txs.length);
   for (let i = 0; i < max; i++) {
     const tx = txs[i] || {};
-    const card = document.createElement("article");
-    card.className = "tx-card";
-    card.setAttribute("role", "listitem");
-    const txid = String(tx.txid || "").trim();
-    if (txid) {
-      card.style.cursor = "pointer";
-      card.title = "Open transaction details";
-      card.addEventListener("click", () => openTxDetailModal(tx));
-    }
-    const conf = Number(tx.confirmations || 0);
-    const pending = !!tx.pending || conf <= 0 || String(tx.source || "").toLowerCase() === "memetracker";
-    const dir = String(tx.direction || "unknown").toLowerCase();
-    const dirLabel = dir === "in" ? "Received" : dir === "out" ? "Sent" : "Unknown";
-    const sign = dir === "out" ? "-" : dir === "in" ? "+" : "";
-    const when = tx.seen_at ? fmtTime(tx.seen_at) : "—";
-    const short = txid ? txid.slice(0, 20) + (txid.length > 20 ? "…" : "") : "—";
-    const amount = tx.amount_doge != null && !Number.isNaN(Number(tx.amount_doge))
-      ? `${sign}${Number(tx.amount_doge).toFixed(2)} DOGE`
-      : "—";
-
-    const head = document.createElement("div");
-    head.className = "tx-card-head";
-    const status = document.createElement("span");
-    status.className = pending ? "badge badge-tx-pending" : "muted small";
-    status.textContent = pending ? "Pending" : `${conf} conf`;
-    const amt = document.createElement("span");
-    amt.className = "tx-card-amt mono";
-    amt.textContent = amount;
-    head.appendChild(status);
-    head.appendChild(amt);
-
-    const body = document.createElement("div");
-    body.className = "tx-card-body";
-    function addRow(label, value, mono) {
-      const row = document.createElement("div");
-      row.className = "tx-card-row";
-      const k = document.createElement("span");
-      k.className = "tx-card-k";
-      k.textContent = label;
-      const v = document.createElement("span");
-      if (mono) v.className = "mono";
-      v.textContent = value;
-      row.appendChild(k);
-      row.appendChild(v);
-      body.appendChild(row);
-    }
-    addRow("Txid", short, true);
-    addRow("Type", dirLabel, false);
-    addRow("Time", when, false);
-    if (tx.address) addRow("Address", String(tx.address), true);
-    card.appendChild(head);
-    card.appendChild(body);
-    list.appendChild(card);
+    list.appendChild(buildTxExpandableCard(tx, false));
   }
 }
 
@@ -817,84 +862,7 @@ async function refreshTxList(refresh) {
     const isMTR = String(tx.source || "").toLowerCase() === "memetracker";
     const showPending = isMTR || tx.pending;
     if (showPending) pendingNav += 1;
-    const card = document.createElement("article");
-    card.className = "tx-card";
-    card.setAttribute("role", "listitem");
-    const txidFull = String(tx.txid || "").trim();
-    if (txidFull) {
-      card.style.cursor = "pointer";
-      card.title = "Details (local SPV/P2P + raw hex if available)";
-      card.addEventListener("click", (e) => {
-        if (e.target.closest("a, button")) return;
-        openTxDetailModal(tx);
-      });
-    }
-    const short = (tx.txid || "").slice(0, 22) + (tx.txid && tx.txid.length > 22 ? "…" : "");
-    const conf = Number(tx.confirmations || 0);
-    const dir = String(tx.direction || "unknown").toLowerCase();
-    const sign = dir === "out" ? "-" : dir === "in" ? "+" : "";
-    const relTime = tx.seen_at ? fmtTime(tx.seen_at) : "—";
-    const head = document.createElement("div");
-    head.className = "tx-card-head";
-    const status = document.createElement("span");
-    if (showPending || conf <= 0) {
-      status.className = "badge badge-tx-pending";
-      status.textContent = "Pending";
-    } else {
-      status.className = "muted small";
-      status.textContent = `${conf} conf`;
-    }
-    const amt = document.createElement("span");
-    amt.className = "tx-card-amt mono";
-    amt.textContent =
-      tx.amount_doge != null && !Number.isNaN(Number(tx.amount_doge))
-        ? `${sign}${Number(tx.amount_doge).toFixed(2)} DOGE`
-        : "—";
-    head.appendChild(status);
-    head.appendChild(amt);
-    const body = document.createElement("div");
-    body.className = "tx-card-body";
-    function addRow(label, valueEl) {
-      const row = document.createElement("div");
-      row.className = "tx-card-row";
-      const k = document.createElement("span");
-      k.className = "tx-card-k";
-      k.textContent = label;
-      row.appendChild(k);
-      row.appendChild(valueEl);
-      body.appendChild(row);
-    }
-    const txidEl = document.createElement("span");
-    txidEl.className = "mono tx-card-txid";
-    txidEl.title = tx.txid || "";
-    txidEl.textContent = short;
-    addRow("Txid", txidEl);
-    const dirEl = document.createElement("span");
-    dirEl.textContent = tx.direction || "";
-    addRow("Dir", dirEl);
-    const seenEl = document.createElement("span");
-    seenEl.textContent = relTime;
-    addRow("Seen", seenEl);
-    const addrEl = document.createElement("span");
-    addrEl.className = "mono";
-    addrEl.textContent = tx.address || "—";
-    addRow("Address", addrEl);
-    const pqWrap = document.createElement("span");
-    if (tx.pq_hint) {
-      pqWrap.className = "badge-pq";
-      pqWrap.innerHTML =
-        '<span class="material-symbols-outlined" style="font-size:15px" aria-hidden="true">verified</span> PQ';
-    } else {
-      pqWrap.className = "badge-pq off";
-      pqWrap.textContent = "—";
-    }
-    addRow("PQ", pqWrap);
-    const srcEl = document.createElement("span");
-    srcEl.textContent = tx.source || "";
-    addRow("Source", srcEl);
-    card.appendChild(head);
-    card.appendChild(body);
-    list.appendChild(card);
+    list.appendChild(buildTxExpandableCard(tx, true));
   });
   const navB = $("nav-tx-pending-badge");
   if (navB) {

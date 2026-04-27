@@ -988,6 +988,81 @@ body {
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
+.tx-card-modern {
+  padding: 0;
+  overflow: hidden;
+}
+
+.tx-card-modern summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+}
+
+.tx-card-modern summary::-webkit-details-marker {
+  display: none;
+}
+
+.tx-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.tx-main-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.tx-dir-pill {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 0.12rem 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tx-dir-pill.in {
+  color: #7adf95;
+  border-color: rgba(122, 223, 149, 0.45);
+  background: rgba(122, 223, 149, 0.12);
+}
+
+.tx-dir-pill.out {
+  color: #ff9f9f;
+  border-color: rgba(255, 159, 159, 0.45);
+  background: rgba(255, 159, 159, 0.1);
+}
+
+.tx-meta-line {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.tx-expand-caret {
+  color: var(--muted);
+  transition: transform 0.15s ease;
+}
+
+.tx-card-modern[open] .tx-expand-caret {
+  transform: rotate(180deg);
+}
+
+.tx-expand-body {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 0.75rem 1rem 0.9rem;
+}
+
 .tx-card:hover {
   border-color: rgba(242, 203, 44, 0.25);
   background: rgba(0, 0, 0, 0.12);
@@ -1533,6 +1608,20 @@ a {
   margin-bottom: 1rem;
   background: transparent;
   border: none;
+}
+
+.wallet-sync-chip {
+  margin-top: 0.65rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid rgba(242, 203, 44, 0.35);
+  background: rgba(242, 203, 44, 0.1);
+  color: var(--accent);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 0.3rem 0.75rem;
 }
 
 .wallet-hero-label {

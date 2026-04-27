@@ -265,12 +265,12 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 		} else if len(hash) == 64 && isHex64(hash) {
 			logRaw, err := readFileTail(s.spvLogPath(), 16<<20)
 			if err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "spv.log not readable; cannot map block hash"})
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "SPV header hash lookup unavailable; provide rollback_height or run full rescan"})
 				return
 			}
 			h, ok := heightForHeaderHashInSPVLog(logRaw, hash)
 			if !ok {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "rollback_block_hash not found in recent spv.log (hash|height rows). Paste rollback_height from an explorer, or use confirm RESCAN for a full header rebuild."})
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "rollback_block_hash not found in available SPV header history; paste rollback_height from an explorer, or use confirm RESCAN for a full header rebuild."})
 				return
 			}
 			keepHeight = h
@@ -285,7 +285,7 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 				"error":        "headers.db missing — rollback needs the SQLite header store on disk",
 				"headers_path": headersPath,
 				"storage_dir":  s.storageDir,
-				"hint":         "Dashboard chain tip can come from spv.log (and metrics) before spvnode creates headers.db, or if SPV never wrote this file. Use Full SPV rescan (RESCAN), or wait until GET /api/spv/status shows headers_db_present true. Headers resume in the same directory: headers.db next to spv_wallet.db and spv.log (PQ_STORAGE_DIR, default /storage/pq-wallet in the pup).",
+				"hint":         "Dashboard chain tip now comes from SPV REST status and metrics. Use Full SPV rescan (RESCAN), or wait until GET /api/spv/status shows headers_db_present true. Headers resume in the same directory as headers.db and spv_wallet.db (PQ_STORAGE_DIR, default /storage/pq-wallet in the pup).",
 			})
 			return
 		}

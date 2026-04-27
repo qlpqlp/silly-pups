@@ -3,3 +3,4 @@ __pycache__/
 
 # Go build artifacts
 *.exe
+ai-guidelines.json

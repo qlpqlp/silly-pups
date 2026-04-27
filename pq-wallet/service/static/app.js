@@ -458,6 +458,7 @@ function buildTxExpandableCard(tx, includeSource) {
     ? `${sign}${Number(tx.amount_doge).toFixed(2)} DOGE`
     : "—";
   const seen = tx.seen_at ? fmtTime(tx.seen_at) : "—";
+  const isConfirmed = conf > 0;
   const short = txidFull ? txidFull.slice(0, 18) + (txidFull.length > 18 ? "…" : "") : "—";
   const card = document.createElement("details");
   card.className = "tx-card tx-card-modern";
@@ -517,7 +518,7 @@ function buildTxExpandableCard(tx, includeSource) {
   }
   addRow("Txid", txidFull || "—", true);
   addRow("Direction", dirLabel, false);
-  addRow("Seen", seen, false);
+  addRow(isConfirmed ? "Block time" : "Seen", seen, false);
   addRow("Address", tx.address || "—", true);
   addRow("PQ", tx.pq_hint ? "Yes" : "No", false);
   if (includeSource) addRow("Source", tx.source || "—", false);

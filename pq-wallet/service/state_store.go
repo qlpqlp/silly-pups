@@ -135,7 +135,9 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 			if t.Source != "" {
 				prev.Source = t.Source
 			}
-			if prev.SeenAt.IsZero() && !t.SeenAt.IsZero() {
+			// Prefer confirmed-chain timestamp once available, instead of keeping a mempool seen time forever.
+			if (prev.SeenAt.IsZero() && !t.SeenAt.IsZero()) ||
+				(t.Confirmations > prev.Confirmations && !t.SeenAt.IsZero()) {
 				prev.SeenAt = t.SeenAt
 			}
 			byID[id] = prev

@@ -15,6 +15,28 @@ import (
 
 var reAmountDoge = regexp.MustCompile(`^\d+(\.\d+)?$`)
 
+const dogeEconomicFeePerKBKoinu = int64(1_000_000) // 0.01 DOGE/KB (Dogecoin recommendation)
+
+func estimateFeeKoinu(inputCount int, includeChange bool, includeCommitment bool) int64 {
+	if inputCount < 1 {
+		inputCount = 1
+	}
+	outs := 1 // destination
+	if includeChange {
+		outs++
+	}
+	if includeCommitment {
+		outs++
+	}
+	// Legacy P2PKH rough size model.
+	vbytes := (180 * inputCount) + (34 * outs) + 10
+	kb := (vbytes + 999) / 1000 // ceil
+	if kb < 1 {
+		kb = 1
+	}
+	return int64(kb) * dogeEconomicFeePerKBKoinu
+}
+
 type sendPQSafeBody struct {
 	ToAddress  string `json:"to_address"`
 	AmountDOGE string `json:"amount_doge"`
@@ -121,14 +143,14 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		if n == 0 {
 			n = 1
 		}
-		fee := int64(200000) + int64(max(0, n-1))*50000
+		fee := estimateFeeKoinu(n, true, true)
 		need := sendKoinu + fee
 		selected, sumIn, err = selectUTXOs(utxos, need)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		fee = int64(200000) + int64(max(0, len(selected)-1))*50000
+		fee = estimateFeeKoinu(len(selected), true, true)
 		if sumIn >= sendKoinu+fee {
 			break
 		}
@@ -137,7 +159,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	fee := int64(200000) + int64(max(0, len(selected)-1))*50000
+	fee := estimateFeeKoinu(len(selected), true, true)
 	change := sumIn - sendKoinu - fee
 	if change < 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "insufficient balance after fee"})

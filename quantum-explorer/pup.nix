@@ -6,7 +6,7 @@ let
 
   qe_bin = pkgs.buildGoModule {
     pname = "quantum-explorer";
-    version = "0.1.44";
+    version = "0.1.45";
     src = ./service;
     vendorHash = null;
     go = pkgs.go_1_24;
@@ -142,6 +142,7 @@ in
 {
   quantum-explorer = quantum-explorer;
 }
+
 
 
 

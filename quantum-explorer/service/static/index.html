@@ -760,7 +760,16 @@
         });
         nextNodes.push(node);
       });
-      rowsEl.replaceChildren(...nextNodes);
+      for (let i = 0; i < nextNodes.length; i++) {
+        const wanted = nextNodes[i];
+        const current = rowsEl.children[i];
+        if (current !== wanted) {
+          rowsEl.insertBefore(wanted, current || null);
+        }
+      }
+      while (rowsEl.children.length > nextNodes.length) {
+        rowsEl.removeChild(rowsEl.lastElementChild);
+      }
     }
 
     function qeChartCommonOptions(){
@@ -1260,8 +1269,13 @@
     }
 
     function mergeQuantumRowsPreserve(existing, incoming){
-      const prevByTxid = new Map((Array.isArray(existing) ? existing : []).map(r => [String(r.txid || ""), r]));
-      return (Array.isArray(incoming) ? incoming : []).map(r => {
+      const prevRows = Array.isArray(existing) ? existing : [];
+      const nextRows = Array.isArray(incoming) ? incoming : [];
+      if (!nextRows.length) {
+        return prevRows;
+      }
+      const prevByTxid = new Map(prevRows.map(r => [String(r.txid || ""), r]));
+      return nextRows.map(r => {
         const id = String(r.txid || "");
         const prev = prevByTxid.get(id);
         if (!prev) return r;

@@ -521,6 +521,7 @@
     let searchBackState = null;
     const qeCharts = {};
     let lastPQRenderSig = "";
+    let pqStableOrder = [];
 
     function openDetailFromState(st, pushCurrent){
       if (!st || !st.kind) return;
@@ -687,12 +688,23 @@
         badge("muted", "quantum only")
       ].join("");
       if (!filtered.length) {
+        pqStableOrder = [];
         rowsEl.innerHTML = '<p class="muted" style="padding:.75rem 1rem;margin:0">No flagged quantum transactions yet.</p>';
         const moreBtn = document.getElementById("btn-pq-more");
         if (moreBtn) moreBtn.style.display = "none";
         return;
       }
-      const visibleRows = filtered.slice(0, pqVisibleCount);
+      const byTxid = new Map(filtered.map(t => [String(t.txid || ""), t]));
+      pqStableOrder = pqStableOrder.filter(id => byTxid.has(id));
+      for (let i = filtered.length - 1; i >= 0; i--) {
+        const id = String(filtered[i].txid || "");
+        if (!id) continue;
+        if (!pqStableOrder.includes(id)) pqStableOrder.unshift(id);
+      }
+      const visibleRows = pqStableOrder
+        .slice(0, pqVisibleCount)
+        .map(id => byTxid.get(id))
+        .filter(Boolean);
       const renderSig = JSON.stringify(visibleRows.map(t => ({
         txid: t.txid,
         pq_valid: !!t.pq_valid,

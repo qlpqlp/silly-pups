@@ -102,6 +102,15 @@ func (s *Server) handleTxBroadcast(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sum := summarizeSendtxOutput(out)
+	if sum.ConnectedNodes == 0 {
+		writeJSON(w, http.StatusBadGateway, map[string]any{
+			"error":          "sendtx connected to 0 peers; transaction was not propagated",
+			"txid":           sum.BroadcastTxID,
+			"sendtx_output":  out,
+			"sendtx_summary": sum,
+		})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":             true,
 		"txid":           sum.BroadcastTxID,

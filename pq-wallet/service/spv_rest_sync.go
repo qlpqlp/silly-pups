@@ -95,7 +95,7 @@ func parseSPVRESTRows(raw, direction string) []spvRESTTxRow {
 		if n > 1_000_000_000_000 {
 			n = n / 1000
 		}
-		if n <= 0 {
+		if n < 1231006505 {
 			return time.Time{}
 		}
 		return time.Unix(n, 0).UTC()
@@ -171,6 +171,12 @@ func parseSPVRESTRows(raw, direction string) []spvRESTTxRow {
 		if seen.IsZero() {
 			seen = parseUnixToTime(cur["seen_at"])
 		}
+		if seen.IsZero() {
+			seen = parseUnixToTime(cur["date"])
+		}
+		if seen.IsZero() {
+			seen = parseUnixToTime(cur["time_received"])
+		}
 		rows = append(rows, spvRESTTxRow{
 			Txid:          txid,
 			Vout:          uint32(vout),
@@ -206,6 +212,45 @@ func parseSPVRESTRows(raw, direction string) []spvRESTTxRow {
 	}
 	flush()
 	return rows
+}
+
+func (s *Server) fetchTxTimestampFromSoChain(txid string, testnet bool) time.Time {
+	txid = normalizeTxid(txid)
+	if txid == "" {
+		return time.Time{}
+	}
+	coin := "DOGE"
+	if testnet {
+		coin = "DOGETEST"
+	}
+	u := fmt.Sprintf("https://sochain.com/api/v2/tx/%s/%s", coin, txid)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return time.Time{}
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return time.Time{}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return time.Time{}
+	}
+	var body map[string]any
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&body); err != nil {
+		return time.Time{}
+	}
+	data, _ := body["data"].(map[string]any)
+	if data == nil {
+		return time.Time{}
+	}
+	n := int64(parseIntDefault(fmt.Sprint(data["time"]), 0))
+	if n >= 1231006505 {
+		return time.Unix(n, 0).UTC()
+	}
+	return time.Time{}
 }
 
 func parseSPVRESTChaintip(raw string) (height int64, bestHash string) {
@@ -368,10 +413,21 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState) bool {
 		return false
 	}
 	byTxid := map[string]TxRecord{}
+	testnet := false
+	if wf, err := s.loadWallet(); err == nil && wf != nil {
+		testnet = strings.EqualFold(wf.Network, "testnet")
+	}
+	tsLookups := 0
 	for _, r := range rows {
 		id := normalizeTxid(r.Txid)
 		if id == "" {
 			continue
+		}
+		if r.SeenAt.IsZero() && r.Confirmations > 0 && tsLookups < 8 {
+			if ts := s.fetchTxTimestampFromSoChain(id, testnet); !ts.IsZero() {
+				r.SeenAt = ts
+			}
+			tsLookups++
 		}
 		prev, ok := byTxid[id]
 		if !ok {

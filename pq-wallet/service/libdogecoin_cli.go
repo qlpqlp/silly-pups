@@ -427,8 +427,50 @@ func (s *Server) runSendtx(signedHex string, testnet bool, peers string) (string
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("sendtx: %w — %s", err, truncateStr(out.String(), 800))
 	}
+	firstOut := strings.TrimSpace(out.String())
+	sum := summarizeSendtxOutput(firstOut)
+	if strings.TrimSpace(peers) == "" && sum.ConnectedNodes == 0 {
+		fallbackPeers := sendtxFallbackPeers(testnet)
+		if fallbackPeers != "" {
+			args2 := []string{}
+			if testnet {
+				args2 = append(args2, "-t")
+			}
+			args2 = append(args2, "-i", fallbackPeers, signedHex)
+			ctx2, cancel2 := context.WithTimeout(context.Background(), 180*time.Second)
+			defer cancel2()
+			cmd2 := exec.CommandContext(ctx2, s.sendtxPath(), args2...)
+			var out2 bytes.Buffer
+			cmd2.Stdout = &out2
+			cmd2.Stderr = &out2
+			if err2 := cmd2.Run(); err2 == nil {
+				second := strings.TrimSpace(out2.String())
+				if summarizeSendtxOutput(second).ConnectedNodes > 0 {
+					return second, nil
+				}
+				return strings.TrimSpace(firstOut + "\n\n[retry-with-fallback-peers]\n" + second), nil
+			}
+		}
+	}
 	// sendtx prints minimal output on success; return combined for debugging
-	return strings.TrimSpace(out.String()), nil
+	return firstOut, nil
+}
+
+func sendtxFallbackPeers(testnet bool) string {
+	if p := strings.TrimSpace(os.Getenv("PUP_SENDTX_PEERS")); p != "" {
+		return p
+	}
+	if testnet {
+		return ""
+	}
+	return strings.Join([]string{
+		"54.224.206.12",
+		"159.203.65.214",
+		"138.201.221.250",
+		"178.63.139.172",
+		"93.243.63.136",
+		"95.217.56.57",
+	}, ",")
 }
 
 type sendtxOutputSummary struct {

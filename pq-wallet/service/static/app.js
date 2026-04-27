@@ -430,9 +430,10 @@ function fmtTime(iso) {
   if (!iso) return "";
   try {
     const d = new Date(iso);
+    if (Number.isNaN(d.getTime()) || d.getUTCFullYear() < 2009) return "—";
     return d.toLocaleString(undefined, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
   } catch {
-    return iso;
+    return "—";
   }
 }
 

@@ -245,6 +245,16 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sendSummary := summarizeSendtxOutput(sendOut)
+	if sendSummary.ConnectedNodes == 0 {
+		s.appendBroadcastLogLine("send_pq_safe broadcast FAIL: no peers connected in sendtx output")
+		writeJSON(w, http.StatusBadGateway, map[string]any{
+			"error":          "sendtx connected to 0 peers; transaction was not propagated",
+			"sendtx_output":  sendOut,
+			"sendtx_summary": sendSummary,
+			"txid":           sendSummary.BroadcastTxID,
+		})
+		return
+	}
 	s.appendBroadcastLogLine("send_pq_safe broadcast OK: " + truncateStr(sendOut, 400))
 
 	writeJSON(w, http.StatusOK, map[string]any{

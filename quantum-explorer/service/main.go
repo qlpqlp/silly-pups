@@ -26,10 +26,10 @@ import (
 var staticFS embed.FS
 
 // qeAppVersion is shown in the public UI and /api/public/status (keep in sync with manifest.json).
-const qeAppVersion = "0.1.45"
+const qeAppVersion = "0.1.46"
 
 // qeAppBuildHash is a release fingerprint (SHA-256 hex of "quantum-explorer-<version>"); bump when cutting a release.
-const qeAppBuildHash = "d955f29d01f97dfe5d29e63c70a7fcc3ac8f9837123b7f95fff3b541bd0a3346"
+const qeAppBuildHash = "cde61a3d278a4313ede4f4a4574fc7ee657a38a0c7b4e6c23b1df5c8295a4625"
 
 type Checkpoint struct {
 	Height    int    `json:"height"`

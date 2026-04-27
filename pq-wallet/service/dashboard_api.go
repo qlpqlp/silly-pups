@@ -305,7 +305,7 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 
 func syncLagSeconds(headerUnix int64) int64 {
 	if headerUnix <= 0 {
-		return 0
+		return -1
 	}
 	lag := time.Now().UTC().Unix() - headerUnix
 	if lag < 0 {
@@ -316,7 +316,10 @@ func syncLagSeconds(headerUnix int64) int64 {
 
 func syncLagLabel(headerUnix int64) string {
 	lag := syncLagSeconds(headerUnix)
-	if lag <= 0 {
+	if lag < 0 {
+		return "Unknown"
+	}
+	if lag == 0 {
 		return "Synced"
 	}
 	const (

@@ -26,10 +26,10 @@ import (
 var staticFS embed.FS
 
 // qeAppVersion is shown in the public UI and /api/public/status (keep in sync with manifest.json).
-const qeAppVersion = "0.1.41"
+const qeAppVersion = "0.1.42"
 
 // qeAppBuildHash is a release fingerprint (SHA-256 hex of "quantum-explorer-<version>"); bump when cutting a release.
-const qeAppBuildHash = "6d257d7ece6fad2cbac8a8d4f32795b6d38609526b7950b239d291e5a4196fe5"
+const qeAppBuildHash = "c0633ec363b0ecc686219a6e52973c7683de991363739acf488df89ad19960b0"
 
 type Checkpoint struct {
 	Height    int    `json:"height"`
@@ -532,7 +532,6 @@ func verifyCarrierPhase1(rawHex string, commitments map[string]map[string]any) m
 				slots[p.partIndex] = p.payload
 			}
 		}
-		carrierVin := group[0].vin
 		okAll := true
 		for i := 0; i < partTotal; i++ {
 			if slots[i] == nil {
@@ -540,15 +539,10 @@ func verifyCarrierPhase1(rawHex string, commitments map[string]map[string]any) m
 				break
 			}
 		}
-		for _, p := range group {
-			if p.vin != carrierVin {
-				okAll = false
-				break
-			}
-		}
 		if !okAll {
 			continue
 		}
+		carrierVin := group[0].vin
 		full := make([]byte, 0, group[0].fullLen+64)
 		for _, chunk := range slots {
 			full = append(full, chunk...)
@@ -1079,7 +1073,37 @@ func (a *app) publicStatus(w http.ResponseWriter, r *http.Request) {
 		}
 		// Keep dashboard status payload small: UI only needs tens of rows; full list loads via /api/public/core/recent-txs if needed.
 		if rq, err := a.cidx.recentTransactions(ctx, 80, "quantum"); err == nil {
-			ex["recent_quantum"] = rq
+			net := strings.ToLower(strings.TrimSpace(a.cfg.Network))
+			enrichedRQ := make([]map[string]any, 0, len(rq))
+			for _, row := range rq {
+				txid := strings.ToLower(strings.TrimSpace(fmt.Sprint(row["txid"])))
+				if len(txid) != 64 || !isHex64String(txid) {
+					continue
+				}
+				rawHex, qState, pqReason, blkH, _, _, _, okRow, err := a.cidx.txRowByID(ctx, txid)
+				if err != nil || !okRow {
+					continue
+				}
+				row["quantum_state"] = qState
+				row["pq_reason"] = pqReason
+				pq := buildPQVerificationDetail(rawHex, net)
+				pq = a.enrichDecodeWithPrevouts(ctx, pq)
+				pq = a.enrichCarrierVerification(ctx, pq, txid, blkH, rawHex)
+				pq = a.enrichReverseCarrierVerification(ctx, pq, txid, blkH)
+				row["pq_verification"] = pq
+				if car, ok := pq["carrier_phase1"].(map[string]any); ok {
+					if fcv, ok := car["falcon_crypto_verify"].(map[string]any); ok {
+						row["falcon_status"] = strings.ToLower(strings.TrimSpace(fmt.Sprint(fcv["status"])))
+					}
+					row["matched_txc_txid"] = strings.ToLower(strings.TrimSpace(fmt.Sprint(car["matched_txc_txid"])))
+				}
+				if rev, ok := pq["carrier_reverse_phase1"].(map[string]any); ok {
+					row["matched_txr_txid"] = strings.ToLower(strings.TrimSpace(fmt.Sprint(rev["matched_txr_txid"])))
+				}
+				row["pq_carrier_role"] = pqCarrierTXRole(row)
+				enrichedRQ = append(enrichedRQ, row)
+			}
+			ex["recent_quantum"] = enrichedRQ
 		}
 		status["explorer"] = ex
 	} else {

@@ -1320,7 +1320,7 @@
           latestBlockRows = rb.d.rows;
           renderExplorerBlocks(ex);
         }
-        if (rr.ok && Array.isArray(rr.d.rows) && rr.d.rows.length) {
+        if (rr.ok && Array.isArray(rr.d.rows)) {
           latestPQRows = rr.d.rows.map(mapQuantumRow);
           renderPQBlock(latestPQRows);
         }

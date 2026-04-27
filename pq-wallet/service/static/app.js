@@ -438,7 +438,8 @@ function fmtTime(iso) {
 
 function humanizeSyncEta(sec) {
   const n = Number(sec);
-  if (!Number.isFinite(n) || n <= 0) return "Synced";
+  if (!Number.isFinite(n) || n < 0) return "Sync ETA unknown";
+  if (n === 0) return "Synced";
   if (n < 60) return "Tip ETA < 1 minute";
   if (n < 3600) return `Tip ETA ${Math.ceil(n / 60)} minutes`;
   if (n < 86400) return `Tip ETA ${Math.ceil(n / 3600)} hours`;
@@ -802,8 +803,19 @@ async function refreshDashboard() {
   }
   const chip = $("wallet-sync-chip");
   if (chip) {
-    chip.textContent = humanizeSyncEta(spv.sync_lag_seconds);
+    if (!Number.isFinite(Number(spv.header_height)) || Number(spv.header_height) <= 0) {
+      chip.textContent = "Sync ETA unknown";
+    } else {
+      chip.textContent = humanizeSyncEta(spv.sync_lag_seconds);
+    }
     chip.title = spv.sync_lag_label || "";
+  }
+  const spvMeta = $("mtr-spv-sync-meta");
+  if (spvMeta) {
+    const h = Number(spv.header_height || 0);
+    const hh = Number.isFinite(h) && h > 0 ? String(h) : "—";
+    const lag = spv.sync_lag_label || "Unknown";
+    spvMeta.textContent = `SPV headers: ${hh} · ${lag}`;
   }
   const sample = data.dashboard.metrics_sample || [];
   initCharts();

@@ -1321,6 +1321,40 @@ body {
   margin-bottom: 0.75rem;
 }
 
+.pq-plan-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: fit-content;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid rgba(250, 204, 21, 0.28);
+  background: rgba(250, 204, 21, 0.12);
+  color: #fde68a;
+}
+
+.pq-plan-badge.txc-only {
+  border-color: rgba(96, 165, 250, 0.34);
+  background: rgba(96, 165, 250, 0.12);
+  color: #bfdbfe;
+}
+
+.pq-plan-badge.txc-txr {
+  border-color: rgba(74, 222, 128, 0.34);
+  background: rgba(74, 222, 128, 0.12);
+  color: #bbf7d0;
+}
+
+.pq-mode-segment {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
 .toolbar {
   display: flex;
   align-items: center;

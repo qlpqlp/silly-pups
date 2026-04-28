@@ -225,12 +225,11 @@
               <label class="field"><span>Amount in Doge</span>
                 <input type="text" class="input-modern" id="send-amt" placeholder="0.001" inputmode="decimal" autocomplete="off" spellcheck="false" />
               </label>
-              <label class="field switch-row"><span>Add PQ commitment (TX_C) + carrier reveal (TX_R) when libdogecoin supports it</span>
-                <label class="switch">
-                  <input type="checkbox" id="send-include-pq" checked />
-                  <span class="slider" aria-hidden="true"></span>
-                </label>
-              </label>
+              <div class="field">
+                <span id="send-pq-commitment-label">Post-quantum payload mode</span>
+                <div id="send-pq-mode-badge" class="pq-plan-badge">TX_C + TX_R</div>
+                <p class="small muted" id="send-fee-hint"></p>
+              </div>
               <button type="button" class="btn primary" id="btn-send-pq-safe"><span class="material-symbols-outlined btn-ico">lock</span> Send post-quantum safe transaction</button>
               <pre id="send-pq-out" class="mono small out"></pre>
             </div>
@@ -280,6 +279,24 @@
             </div>
             <p class="small muted" id="seal-msg"></p>
             <button type="button" class="btn" id="btn-lock-session"><span class="material-symbols-outlined btn-ico">logout</span> Lock session</button>
+          </div>
+          <div class="card">
+            <h2><span class="material-symbols-outlined icon-inline">shield_lock</span> Post-quantum send mode</h2>
+            <p class="small muted">Pick one mode for normal sends. Default is TX_C + TX_R.</p>
+            <div class="pq-mode-segment" role="tablist" aria-label="PQ send mode">
+              <button type="button" class="btn btn-sm" id="btn-pq-mode-txc-only">Send TX_C only (commitment)</button>
+              <button type="button" class="btn btn-sm primary" id="btn-pq-mode-txc-txr">Send TX_C + TX_R (commitment + reveal)</button>
+            </div>
+            <p class="small muted" id="pq-mode-settings-note">Current mode: TX_C + TX_R</p>
+          </div>
+          <div class="card">
+            <h2><span class="material-symbols-outlined icon-inline">paid</span> Transaction fee</h2>
+            <p class="small muted">Economic fee rate in <strong>DOGE per kilobyte</strong> for TX_C (and TX_R sizing). Default <strong>0.01</strong> matches the <a href="https://github.com/dogecoin/dogecoin/blob/master/doc/fee-recommendation.md" target="_blank" rel="noopener noreferrer">Dogecoin Core wallet recommendation</a>. The server clamps between <strong>0.001</strong> and <strong>1.0</strong> DOGE/kB.</p>
+            <label class="field"><span>Economic fee (DOGE per kB)</span>
+              <input type="text" class="input-modern" id="settings-fee-doge-per-kb" value="0.01" inputmode="decimal" autocomplete="off" spellcheck="false" />
+            </label>
+            <button type="button" class="btn primary" id="btn-save-fee-per-kb"><span class="material-symbols-outlined btn-ico">save</span> Save fee setting</button>
+            <p class="small muted" id="settings-fee-msg"></p>
           </div>
           <div class="card">
             <h2>Backup</h2>

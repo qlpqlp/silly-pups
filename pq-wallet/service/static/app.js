@@ -77,6 +77,7 @@ const state = {
   inFlightLogs: false,
   lastDashboard: null,
   spvHeaderFeed: [],
+  pqSendMode: "txc_txr",
 };
 
 const CACHE_DB_NAME = "pq-wallet-ui-cache";
@@ -84,6 +85,10 @@ const CACHE_DB_VERSION = 1;
 const CACHE_STORE = "snapshots";
 const CACHE_KEY_DASHBOARD = "dashboard_v1";
 const CACHE_KEY_TXS = "txs_v1";
+const LOCAL_KEY_PQ_SEND_MODE = "pq_send_mode_v1";
+const LOCAL_KEY_SEND_FEE_DOGE_PER_KB = "pq_send_fee_doge_per_kb_v1";
+const DEFAULT_FEE_PER_KB_DOGE = "0.01";
+const reFeePerKbDoge = /^\d+(\.\d+)?$/;
 
 function cacheOpenDB() {
   return new Promise((resolve, reject) => {
@@ -911,6 +916,87 @@ function updateServicesControlUI(svc) {
   bSpvStart.forEach((el) => { el.disabled = spvOn && spvRun; });
   bMtrStop.forEach((el) => { el.disabled = !mtrOn; });
   bMtrStart.forEach((el) => { el.disabled = mtrOn && mtrEng; });
+  updatePqCommitmentSwitchLabel();
+}
+
+const PQ_COMMIT_LABEL_DEFAULT =
+  "Post-quantum payload mode";
+
+function safeLocalStorageGet(key) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeLocalStorageSet(key, val) {
+  try {
+    window.localStorage.setItem(key, val);
+  } catch {
+    /* ignore storage failures */
+  }
+}
+
+function getPqSendMode() {
+  const raw = (safeLocalStorageGet(LOCAL_KEY_PQ_SEND_MODE) || "").trim();
+  if (raw === "txc_only" || raw === "txc_txr") return raw;
+  return "txc_txr";
+}
+
+function setPqSendMode(mode) {
+  const m = mode === "txc_only" ? "txc_only" : "txc_txr";
+  state.pqSendMode = m;
+  safeLocalStorageSet(LOCAL_KEY_PQ_SEND_MODE, m);
+  updatePqCommitmentSwitchLabel();
+}
+
+function getSendFeeDogePerKb() {
+  const raw = (safeLocalStorageGet(LOCAL_KEY_SEND_FEE_DOGE_PER_KB) || "").trim();
+  if (!raw) return DEFAULT_FEE_PER_KB_DOGE;
+  if (!reFeePerKbDoge.test(raw)) return DEFAULT_FEE_PER_KB_DOGE;
+  return raw;
+}
+
+function updateSendFeeHint() {
+  const hint = $("send-fee-hint");
+  const inp = $("settings-fee-doge-per-kb");
+  const v = getSendFeeDogePerKb();
+  if (inp && document.activeElement !== inp) {
+    inp.value = v;
+  }
+  if (hint) {
+    hint.textContent = `Economic fee: ${v} DOGE/kB (Dogecoin Core recommends 0.01 DOGE/kB)`;
+  }
+}
+
+function updatePqCommitmentSwitchLabel() {
+  const el = $("send-pq-commitment-label");
+  const badge = $("send-pq-mode-badge");
+  const note = $("pq-mode-settings-note");
+  const bOnly = $("btn-pq-mode-txc-only");
+  const bBoth = $("btn-pq-mode-txc-txr");
+  const mode = state.pqSendMode || getPqSendMode();
+  if (el) el.textContent = PQ_COMMIT_LABEL_DEFAULT;
+  if (badge) {
+    if (mode === "txc_only") {
+      badge.textContent = "Will send: TX_C only (commitment)";
+      badge.className = "pq-plan-badge txc-only";
+    } else {
+      badge.textContent = "Will send: TX_C + TX_R (commitment + reveal)";
+      badge.className = "pq-plan-badge txc-txr";
+    }
+  }
+  if (note) {
+    note.textContent = mode === "txc_only" ? "Current mode: TX_C only" : "Current mode: TX_C + TX_R";
+  }
+  if (bOnly) {
+    bOnly.classList.toggle("primary", mode === "txc_only");
+  }
+  if (bBoth) {
+    bBoth.classList.toggle("primary", mode === "txc_txr");
+  }
+  updateSendFeeHint();
 }
 
 const SERVICE_CTRL_BTN_IDS = [
@@ -1766,12 +1852,40 @@ if (logoHome) {
   logoHome.addEventListener("click", () => showView("dashboard"));
 }
 
+state.pqSendMode = getPqSendMode();
+updatePqCommitmentSwitchLabel();
+const btnSaveFeePerKb = $("btn-save-fee-per-kb");
+if (btnSaveFeePerKb) {
+  btnSaveFeePerKb.addEventListener("click", () => {
+    const inp = $("settings-fee-doge-per-kb");
+    const msg = $("settings-fee-msg");
+    const v = (inp && inp.value ? inp.value : "").trim();
+    if (!reFeePerKbDoge.test(v)) {
+      if (msg) msg.textContent = "Enter a numeric DOGE rate only, e.g. 0.01";
+      return;
+    }
+    safeLocalStorageSet(LOCAL_KEY_SEND_FEE_DOGE_PER_KB, v);
+    if (msg) msg.textContent = "Saved. Used on the next send (server clamps 0.001–1.0 DOGE/kB).";
+    updateSendFeeHint();
+  });
+}
+const btnPqModeOnly = $("btn-pq-mode-txc-only");
+if (btnPqModeOnly) {
+  btnPqModeOnly.addEventListener("click", () => setPqSendMode("txc_only"));
+}
+const btnPqModeBoth = $("btn-pq-mode-txc-txr");
+if (btnPqModeBoth) {
+  btnPqModeBoth.addEventListener("click", () => setPqSendMode("txc_txr"));
+}
+
 document.getElementById("btn-send-pq-safe").addEventListener("click", async () => {
   const btn = document.getElementById("btn-send-pq-safe");
   const out = $("send-pq-out");
   const to_address = document.getElementById("send-to").value.trim();
   const amount_doge = document.getElementById("send-amt").value.trim();
-  const include_pq_commitment = !!($("send-include-pq") && $("send-include-pq").checked);
+  const mode = state.pqSendMode || getPqSendMode();
+  const include_pq_commitment = true;
+  const include_pq_reveal = mode !== "txc_only";
   let tick = 0;
   const prevLabel = btn ? btn.innerHTML : "";
   if (btn) {
@@ -1787,9 +1901,10 @@ document.getElementById("btn-send-pq-safe").addEventListener("click", async () =
       typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
         ? AbortSignal.timeout(120000)
         : undefined;
+    const fee_doge_per_kb = getSendFeeDogePerKb();
     const res = await api("/api/send/pq-safe", {
       method: "POST",
-      body: JSON.stringify({ to_address, amount_doge, include_pq_commitment }),
+      body: JSON.stringify({ to_address, amount_doge, include_pq_commitment, include_pq_reveal, fee_doge_per_kb }),
       signal: sendSignal,
     });
     const sum = res && res.sendtx_summary ? res.sendtx_summary : null;

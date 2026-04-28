@@ -18,10 +18,45 @@ import (
 
 var reAmountDoge = regexp.MustCompile(`^\d+(\.\d+)?$`)
 
-const dogeEconomicFeePerKBKoinu = int64(1_000_000) // 0.01 DOGE/KB (Dogecoin recommendation)
+// Dogecoin Core wallet recommendation: 0.01 DOGE per kilobyte; fee = rate × (tx_vbytes / 1000) rounded up.
+// Relay default floor is 0.001 DOGE/kB. See: https://github.com/dogecoin/dogecoin/blob/master/doc/fee-recommendation.md
+const (
+	dogeDefaultFeePerKbKoinu = int64(1_000_000) // 0.01 DOGE/kB
+	dogeMinFeePerKbKoinu     = int64(100_000)  // 0.001 DOGE/kB
+	dogeMaxFeePerKbKoinu     = int64(100_000_000)
+)
+
+func clampFeePerKbKoinu(k int64) int64 {
+	if k < dogeMinFeePerKbKoinu {
+		return dogeMinFeePerKbKoinu
+	}
+	if k > dogeMaxFeePerKbKoinu {
+		return dogeMaxFeePerKbKoinu
+	}
+	return k
+}
+
+// legacyP2PKHTxVbytesEstimate is a conservative legacy P2PKH tx size model (unsigned inputs, typical outputs).
+func legacyP2PKHTxVbytesEstimate(inputCount, outputCount int) int {
+	if inputCount < 1 {
+		inputCount = 1
+	}
+	if outputCount < 1 {
+		outputCount = 1
+	}
+	return (180 * inputCount) + (34 * outputCount) + 10
+}
+
+// economicFeeKoinuFromVbytes: fee = fee_per_kb × (vbytes / 1000), rounded up to whole koinu.
+func economicFeeKoinuFromVbytes(vbytes int, feePerKbKoinu int64) int64 {
+	if vbytes < 1 {
+		vbytes = 1
+	}
+	return (int64(vbytes)*feePerKbKoinu + 999) / 1000
+}
 
 // extraOutputs counts additional vouts beyond recipient (+ optional change), e.g. OP_RETURN (1) or OP_RETURN+P2SH carrier (2).
-func estimateFeeKoinu(inputCount int, includeChange bool, extraOutputs int) int64 {
+func estimateSendTxFeeKoinu(feePerKbKoinu int64, inputCount int, includeChange bool, extraOutputs int) int64 {
 	if inputCount < 1 {
 		inputCount = 1
 	}
@@ -33,19 +68,17 @@ func estimateFeeKoinu(inputCount int, includeChange bool, extraOutputs int) int6
 		extraOutputs = 0
 	}
 	outs += extraOutputs
-	// Legacy P2PKH rough size model.
-	vbytes := (180 * inputCount) + (34 * outs) + 10
-	kb := (vbytes + 999) / 1000 // ceil
-	if kb < 1 {
-		kb = 1
-	}
-	return int64(kb) * dogeEconomicFeePerKBKoinu
+	vb := legacyP2PKHTxVbytesEstimate(inputCount, outs)
+	return economicFeeKoinuFromVbytes(vb, feePerKbKoinu)
 }
 
 type sendPQSafeBody struct {
 	ToAddress           string `json:"to_address"`
 	AmountDOGE          string `json:"amount_doge"`
 	IncludePQCommitment *bool  `json:"include_pq_commitment"`
+	IncludePQReveal     *bool  `json:"include_pq_reveal"`
+	// FeeDogePerKB is economic fee rate in DOGE per kilobyte (default 0.01). Clamped to [0.001, 1.0] DOGE/kB.
+	FeeDogePerKB string `json:"fee_doge_per_kb"`
 }
 
 func (s *Server) scriptPubHexForUTXO(wf *WalletFile, u *ExplorerUTXO) (string, error) {
@@ -67,6 +100,19 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	includePQCommitment := true
 	if body.IncludePQCommitment != nil {
 		includePQCommitment = *body.IncludePQCommitment
+	}
+	includePQReveal := true
+	if body.IncludePQReveal != nil {
+		includePQReveal = *body.IncludePQReveal
+	}
+	feePerKbKoinu := dogeDefaultFeePerKbKoinu
+	if strings.TrimSpace(body.FeeDogePerKB) != "" {
+		k, err := dogeAmountStringToKoinu(body.FeeDogePerKB)
+		if err != nil || k <= 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "fee_doge_per_kb must be a positive DOGE amount (e.g. 0.01)"})
+			return
+		}
+		feePerKbKoinu = clampFeePerKbKoinu(k)
 	}
 	if to == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "to_address required"})
@@ -109,10 +155,11 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 			carrierKoinu = n
 		}
 	}
-	txRFeeKoinu := int64(2_000_000) // 0.02 DOGE for TX_R relay
+	// Optional absolute floor for TX_R total fee (koinu). Otherwise use economic fee from size + min relay.
+	txRFeeFloorKoinu := minRelayFeeKoinu
 	if v := strings.TrimSpace(os.Getenv("PUP_PQ_TXR_FEE_KOINU")); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= minRelayFeeKoinu {
-			txRFeeKoinu = n
+			txRFeeFloorKoinu = n
 		}
 	}
 
@@ -160,7 +207,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	carrierEnvDisabled := strings.TrimSpace(os.Getenv("PUP_PQ_DISABLE_CARRIER")) != ""
-	useCarrierBudget := includePQCommitment && !carrierEnvDisabled &&
+	useCarrierBudget := includePQCommitment && includePQReveal && !carrierEnvDisabled &&
 		strings.TrimSpace(wf.PQPublicHex) != "" && strings.TrimSpace(wf.PQPrivateHex) != ""
 
 	var selected []ExplorerUTXO
@@ -195,7 +242,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 			if n == 0 {
 				n = 1
 			}
-			fee = estimateFeeKoinu(n, true, extraFeeOutputs)
+			fee = estimateSendTxFeeKoinu(feePerKbKoinu, n, true, extraFeeOutputs)
 			need := sendKoinu + fee
 			if extraFeeOutputs >= 2 {
 				need += carrierKoinu
@@ -206,7 +253,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": errPick.Error()})
 				return
 			}
-			fee = estimateFeeKoinu(len(selected), true, extraFeeOutputs)
+			fee = estimateSendTxFeeKoinu(feePerKbKoinu, len(selected), true, extraFeeOutputs)
 			if sumIn >= need {
 				break
 			}
@@ -215,7 +262,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		fee = estimateFeeKoinu(len(selected), true, extraFeeOutputs)
+		fee = estimateSendTxFeeKoinu(feePerKbKoinu, len(selected), true, extraFeeOutputs)
 		change = sumIn - sendKoinu - fee
 		if extraFeeOutputs >= 2 {
 			change -= carrierKoinu
@@ -286,7 +333,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		carrierFlow = false
-		carrierWish := !carrierEnvDisabled &&
+		carrierWish := includePQReveal && !carrierEnvDisabled &&
 			includePQCommitment && pqCommitment32Hex != "" && falconSigHex != "" &&
 			pqMode != "legacy_pubkey_hash_fallback"
 		if carrierWish {
@@ -357,6 +404,9 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 			txCTxid = dogeLegacyTxidHex(b)
 		}
 	}
+	if txCTxid != "" {
+		s.recordOutgoingLocalTx(txCTxid, to, sendKoinu, rawHex, pqCommitment32Hex != "")
+	}
 
 	txRID := ""
 	var txRErr string
@@ -396,13 +446,13 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 									vouts[i] = uint32(vi)
 									totalIn += outs[vi].Value
 								}
-								txRFeeEff := estimateFeeKoinu(len(scriptSigs), false, 0)
-								if txRFeeEff < txRFeeKoinu {
-									txRFeeEff = txRFeeKoinu
+								txRFeeEff := estimateSendTxFeeKoinu(feePerKbKoinu, len(scriptSigs), false, 0)
+								if txRFeeEff < txRFeeFloorKoinu {
+									txRFeeEff = txRFeeFloorKoinu
 								}
 								revealVal := totalIn - txRFeeEff
 								if revealVal <= dustLimitKoinu {
-									txRErr = "TX_R would leave dust after fee; increase balance or lower PUP_PQ_TXR_FEE_KOINU"
+									txRErr = "TX_R would leave dust after fee; increase balance, raise fee rate slightly, or lower PUP_PQ_TXR_FEE_KOINU floor"
 								} else {
 									unsignedR, errB := buildUnsignedCarrierRevealTxMulti(txCTxid, vouts, revealVal, changeScript)
 									if errB != nil {
@@ -449,6 +499,8 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		"sendtx_output":    sendOut,
 		"sendtx_summary":   sendSummary,
 		"fee_koinu":        fee,
+		"fee_per_kb_koinu": feePerKbKoinu,
+		"fee_doge_per_kb":  float64(feePerKbKoinu) / 1e8,
 		"change_koinu":     change,
 		"inputs_used":      len(selected),
 		"pq_commitment":    pqCommitment32Hex != "",
@@ -456,6 +508,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		"pq_mode":          pqMode,
 		"pq_carrier_flow":                 carrierFlow,
 		"carrier_koinu":                   carrierKoinu,
+		"pq_reveal_requested":             includePQCommitment && includePQReveal,
 		"pq_carrier_economics_downgraded": econDowngraded,
 		"signing_note":                    "ECDSA P2PKH via such -c sign. With libdogecoin liboqs: TX_C adds FLC1 OP_RETURN + canonical P2SH carrier; TX_R reveals Falcon payload via pqc_carrier_mkpart (+ multi-part set_scriptsig when the payload spans several carrier outputs).",
 		"transport":        "libdogecoin_sendtx_p2p",
@@ -471,4 +524,30 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		resp["tx_r_error"] = txRErr
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) recordOutgoingLocalTx(txid, to string, sendKoinu int64, rawHex string, pqHint bool) {
+	txid = normalizeTxid(txid)
+	if txid == "" {
+		return
+	}
+	out := TxRecord{
+		Txid:          txid,
+		Direction:     "out",
+		AmountDOGE:    round2(float64(sendKoinu) / 1e8),
+		Address:       strings.TrimSpace(to),
+		RawHex:        strings.TrimSpace(rawHex),
+		Confirmations: 0,
+		PQHint:        pqHint,
+		Source:        "manual",
+		SeenAt:        time.Now().UTC(),
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st, err := s.loadState()
+	if err != nil || st == nil {
+		return
+	}
+	st.Transactions = mergeTxRecords(st.Transactions, []TxRecord{out})
+	_ = s.saveState(st)
 }

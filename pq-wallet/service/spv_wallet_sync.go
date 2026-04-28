@@ -234,7 +234,7 @@ func (s *Server) readSPVWalletDBTable(ctx context.Context, dbPath, table string,
 			}
 		}
 		amountDOGE := parseDBMoneyToDOGE(parts[2])
-		dir := normalizeDirection(parts[3], amountDOGE)
+		dir := normalizeDirection(parts[3], amountDOGE, addr, addrSet)
 		conf := parseIntDefault(parts[4], 0)
 		height := int64(parseIntDefault(parts[5], 0))
 		seen := parseDBTime(parts[6])
@@ -282,7 +282,7 @@ func parseDBMoneyToDOGE(raw string) float64 {
 	return float64(i)
 }
 
-func normalizeDirection(raw string, amountDOGE float64) string {
+func normalizeDirection(raw string, amountDOGE float64, addr string, addrSet map[string]struct{}) string {
 	s := strings.ToLower(strings.TrimSpace(raw))
 	if s == "in" || strings.Contains(s, "recv") || strings.Contains(s, "credit") {
 		return "in"
@@ -291,6 +291,13 @@ func normalizeDirection(raw string, amountDOGE float64) string {
 		return "out"
 	}
 	if amountDOGE < 0 {
+		return "out"
+	}
+	addr = strings.ToLower(strings.TrimSpace(addr))
+	if addr != "" && len(addrSet) > 0 {
+		if _, ok := addrSet[addr]; ok {
+			return "in"
+		}
 		return "out"
 	}
 	return "unknown"

@@ -723,21 +723,23 @@
       lastPQRenderSig = renderSig;
       const moreBtn = document.getElementById("btn-pq-more");
       if (moreBtn) moreBtn.style.display = visibleRows.length < filtered.length ? "" : "none";
-      const rowHTML = (t) => `
-        <div class="mono"><span class="material-symbols-outlined tx-type-ico" title="${esc(txTypeLabel(t))}" aria-hidden="true">${txTypeIcon(t)}</span>${esc(t.txid)}</div>
-        <div class="badges" style="margin:.4rem 0">
-          ${badge(t.confirmed ? "confirmed":"pending", t.confirmed ? "Confirmed":"Pending")}
+      const rowHTML = (t) => {
+        const flow = txFlowSummary(t);
+        return `
+        <div class="mono"><strong>Transaction ID</strong> ${esc(t.txid)}</div>
+        <div class="row-meta" style="margin-top:.25rem"><strong>Block</strong> ${esc(String(t.block_height ?? "—"))} · <strong>Timestamp</strong> ${esc(flow.time || t.last_seen || t.first_seen || "—")}</div>
+        <div class="row-meta" style="margin-top:.2rem"><strong>From</strong> ${flow.fromAddr ? `<button type="button" class="link-tx" data-open-address="${esc(flow.fromAddr)}">${esc(flow.fromAddr)}</button>` : "—"}</div>
+        <div class="row-meta" style="margin-top:.2rem"><strong>To</strong> ${flow.toAddr ? `<button type="button" class="link-tx" data-open-address="${esc(flow.toAddr)}">${esc(flow.toAddr)}</button>` : "—"}</div>
+        <div class="row-meta" style="margin-top:.2rem"><strong>Amount</strong> ${esc(flow.amountDoge || "—")} DOGE · <strong>Fee</strong> ${esc(flow.feeDoge || "—")} DOGE</div>
+        <div class="badges" style="margin:.45rem 0 .2rem">
           ${badge(t.pq_valid || t.carrier_verified ? "pq-ok":"pq-bad", t.pq_valid ? "PQ valid" : (t.carrier_verified ? "Carrier-linked (TX_R)" : "PQ invalid"))}
-          ${t.pq_carrier_role === "tx_r" ? badge("pq-ok", "TX_R (reveal)") : t.pq_carrier_role === "tx_c" ? badge("", "TX_C (commitment)") : ""}
+          ${t.pq_carrier_role === "tx_r" ? badge("pq-ok", "TX_R") : t.pq_carrier_role === "tx_c" ? badge("", "TX_C") : ""}
           ${badge(t.falcon_status === "passed" ? "pq-ok" : (t.falcon_status === "failed" || t.falcon_status === "error" ? "pq-bad" : ""), `Falcon ${t.falcon_status || "n/a"}`)}
-          ${badge("", (t.pq_score ?? 0) + "% PQ")}
         </div>
-        <div class="row-meta">Block ${esc(String(t.block_height ?? "—"))} · ${esc(t.last_seen || t.first_seen || "—")} · Verifier: ${esc(t.verifier || "strict-v1")}</div>
-        <div class="row-meta" style="margin-top:.2rem">
-          ${t.matched_txc_txid ? `TX_C <button type="button" class="link-tx" data-open-txid="${esc(t.matched_txc_txid)}">${esc(t.matched_txc_txid.slice(0, 16))}…</button>` : ""}
-          ${t.matched_txr_txid ? `TX_R <button type="button" class="link-tx" data-open-txid="${esc(t.matched_txr_txid)}">${esc(t.matched_txr_txid.slice(0, 16))}…</button>` : ""}
-        </div>
-        <div class="row-meta pq-bad" style="margin-top:.2rem">${t.pq_reason ? esc(t.pq_reason) : ""}</div>`;
+        <div class="row-meta" style="margin-top:.2rem;display:flex;justify-content:flex-end">
+          <button type="button" class="btn btn-inline link-detail" data-open-txid="${esc(t.txid)}">See details</button>
+        </div>`;
+      };
       const existingByTxid = new Map();
       rowsEl.querySelectorAll(".pq-tx-row[data-txid]").forEach((el) => {
         existingByTxid.set(el.getAttribute("data-txid"), el);
@@ -765,6 +767,20 @@
           }
         };
         node.querySelectorAll(".link-tx").forEach(btn => {
+          btn.onclick = (e) => {
+            e.stopPropagation();
+            const txOpen = btn.getAttribute("data-open-txid");
+            const addrOpen = btn.getAttribute("data-open-address");
+            if (txOpen) openTxDetail(txOpen, true);
+            if (addrOpen) {
+              searchBackState = currentDetail ? { ...currentDetail } : null;
+              const qEl = document.getElementById("q");
+              if (qEl) qEl.value = addrOpen;
+              document.getElementById("btn-search").click();
+            }
+          };
+        });
+        node.querySelectorAll(".link-detail").forEach(btn => {
           btn.onclick = (e) => {
             e.stopPropagation();
             openTxDetail(btn.getAttribute("data-open-txid"), true);
@@ -1107,6 +1123,7 @@
         ? { cls: "quantum", title: "Post-quantum (local classifier)", sub: "PQ valid flag from local index.", icon: "verified" }
         : { cls: "standard", title: "Transaction", sub: "From local PQ store.", icon: "receipt_long" });
       const reverseCarrier = pq.carrier_reverse_phase1 || {};
+      const flow = txFlowSummary({ value_out_sats: core.value_out_sats, decode: dec, last_seen: core.timestamp, first_seen: core.timestamp });
       title.textContent = "Transaction";
       body.innerHTML = `
         <div class="detail-section" style="border-top:none;padding-top:0">
@@ -1122,12 +1139,16 @@
             ${core.block_height != null ? `<div><strong>Block height</strong>${esc(String(core.block_height))}</div>` : ""}
             ${core.block_hash ? `<div style="grid-column:span 2"><strong>Block hash</strong><span class="mono" style="font-size:.76rem">${esc(String(core.block_hash))}</span></div>` : ""}
             ${core.timestamp ? `<div><strong>Timestamp</strong>${esc(String(core.timestamp))}</div>` : ""}
-            ${core.value_out_sats != null && core.value_out_sats !== undefined ? `<div><strong>Total outputs</strong>${esc(satsToDoge(core.value_out_sats))}</div>` : ""}
+            <div><strong>Amount</strong>${esc(flow.amountDoge)} DOGE</div>
+            <div><strong>Fee</strong>${esc(flow.feeDoge)} DOGE</div>
+            ${flow.fromAddr ? `<div style="grid-column:span 2"><strong>From</strong> <button type="button" class="link-tx" data-open-address="${esc(flow.fromAddr)}">${esc(flow.fromAddr)}</button></div>` : ""}
+            ${flow.toAddr ? `<div style="grid-column:span 2"><strong>To</strong> <button type="button" class="link-tx" data-open-address="${esc(flow.toAddr)}">${esc(flow.toAddr)}</button></div>` : ""}
             ${fromCore && core.quantum_state ? `<div><strong>Quantum state</strong>${esc(String(core.quantum_state))}</div>` : ""}
             <div><strong>Confirmations</strong>${tx.confirmed ? "Included in block" : "Not confirmed (local)"}</div>
             ${!fromCore ? `<div><strong>PQ score</strong>${esc(String(tx.pq_score ?? "—"))}</div>` : ""}
           </div>
           ${!fromCore ? `<div class="detail-kv" style="margin-top:.35rem"><strong>First / last seen</strong> ${esc(tx.first_seen||"—")} · ${esc(tx.last_seen||"—")}</div>` : ""}
+          ${tx.raw_hex ? `<div class="detail-kv mono" style="margin-top:.45rem;max-height:6rem;overflow:auto"><strong>Raw hex transaction</strong> ${esc(String(tx.raw_hex))}</div>` : ""}
         </div>
         <div class="detail-section">
           <h3><span class="material-symbols-outlined title-icon" aria-hidden="true">hub</span>Inputs &amp; outputs</h3>
@@ -1138,6 +1159,11 @@
           <h3><span class="material-symbols-outlined title-icon" aria-hidden="true">shield_lock</span>Post-quantum marker check</h3>
           <p class="muted" style="font-size:.8rem;margin:.2rem 0 .45rem">Strict scan of decoded bytes for OP_RETURN commitment markers (educational verifier).</p>
           <div class="badges" style="margin:.35rem 0">${badge(strict.valid ? "pq-ok" : "pq-bad", strict.valid ? "Markers OK" : "Markers missing or invalid")}</div>
+          <div class="badges" style="margin:.35rem 0">
+            ${badge((strict.valid || carrier.verified) ? "pq-ok" : "pq-bad", (strict.valid || carrier.verified) ? "Post-quantum valid" : "Post-quantum invalid")}
+            ${carrier.matched_txc_txid ? badge("pq-ok", "TX_C linked") : badge("pq-bad", "TX_C not linked")}
+            ${reverseCarrier.matched_txr_txid ? badge("pq-ok", "TX_R linked") : badge("", "TX_R none")}
+          </div>
           <div class="tx-io-card" style="margin-top:.35rem">
             <strong>Reason</strong>
             <div class="detail-kv" style="margin-top:.35rem">${esc(strictReason)}</div>
@@ -1199,6 +1225,7 @@
           const rowCls = st === "quantum" ? "row-pq" : "";
           const dec = x.decode || {};
           const hasDec = dec && !dec.error && (dec.inputs || dec.outputs);
+          const flow = txFlowSummary({ value_out_sats: x.value_out_sats, decode: dec, last_seen: b.timestamp, first_seen: b.timestamp });
           const shortReason = (x.pq_reason && String(x.pq_reason).length > 48) ? String(x.pq_reason).slice(0,46) + "…" : (x.pq_reason || "—");
           return `<div class="block-tx-card ${rowCls} blk-tx-open" data-txid="${esc(x.txid)}" style="cursor:pointer">
             <div class="block-tx-head">
@@ -1207,10 +1234,14 @@
             </div>
             <div class="block-tx-meta">
               <div><strong>Position</strong>#${i}</div>
-              <div><strong>Output sum</strong>${esc(satsToDoge(x.value_out_sats))}</div>
+              <div><strong>Amount</strong>${esc(flow.amountDoge)} DOGE</div>
+              <div><strong>Fee</strong>${esc(flow.feeDoge)} DOGE</div>
+              <div><strong>From</strong>${flow.fromAddr ? esc(flow.fromAddr.slice(0, 22)) + "…" : "—"}</div>
+              <div><strong>To</strong>${flow.toAddr ? esc(flow.toAddr.slice(0, 22)) + "…" : "—"}</div>
               <div><strong>Decode</strong>${hasDec ? "Available" : "Not available"}</div>
-              <div><strong>Details</strong>${esc(shortReason)}</div>
+              <div><strong>PQ</strong>${esc(shortReason)}</div>
             </div>
+            <div class="block-tx-actions"><button type="button" class="btn btn-inline" data-txid="${esc(x.txid)}">See details</button></div>
           </div>`;
         }).join("");
         txSection = `
@@ -1358,7 +1389,45 @@
         falcon_status: falconStatus || "",
         matched_txc_txid: String(x.matched_txc_txid || ""),
         matched_txr_txid: String(x.matched_txr_txid || ""),
-        pq_carrier_role: String(x.pq_carrier_role || "")
+        pq_carrier_role: String(x.pq_carrier_role || ""),
+        decode: (x && x.pq_verification && x.pq_verification.decode) || {}
+      };
+    }
+
+    function txFlowSummary(row){
+      const dec = (row && row.decode) || {};
+      const ins = Array.isArray(dec.inputs) ? dec.inputs : [];
+      const outs = Array.isArray(dec.outputs) ? dec.outputs : [];
+      let inSum = 0;
+      let outSum = 0;
+      let fromAddr = "";
+      let toAddr = "";
+      for (const i of ins) {
+        const p = i && i.prev_output ? i.prev_output : {};
+        if (!fromAddr && p.address) fromAddr = String(p.address);
+        const v = Number(p.value_sats);
+        if (Number.isFinite(v)) inSum += v;
+      }
+      for (const o of outs) {
+        if (!toAddr && o && o.address) toAddr = String(o.address);
+        const v = Number(o && o.value_sats);
+        if (Number.isFinite(v)) outSum += v;
+      }
+      let feeSats = null;
+      if (Number.isFinite(inSum) && inSum > 0 && Number.isFinite(outSum) && outSum >= 0 && inSum >= outSum) {
+        feeSats = inSum - outSum;
+      } else if (dec && dec.fee_sats != null) {
+        const v = Number(dec.fee_sats);
+        if (Number.isFinite(v) && v >= 0) feeSats = v;
+      }
+      const amount = Number.isFinite(outSum) && outSum > 0 ? outSum : Number(row && row.value_out_sats);
+      const time = row && (row.last_seen || row.first_seen) ? String(row.last_seen || row.first_seen) : "";
+      return {
+        fromAddr,
+        toAddr,
+        amountDoge: Number.isFinite(amount) ? satsToDoge(amount) : "—",
+        feeDoge: Number.isFinite(feeSats) ? satsToDoge(feeSats) : "—",
+        time
       };
     }
 

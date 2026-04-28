@@ -15,7 +15,7 @@ async function api(path, opts) {
   const { signal, ...fetchOpts } = opts;
   const reqTimeoutMs = Number(fetchOpts.timeout_ms) > 0
     ? Number(fetchOpts.timeout_ms)
-    : (isMutation ? 30000 : 12000);
+    : (isMutation ? 30000 : 35000);
   delete fetchOpts.timeout_ms;
   let timeoutHandle = null;
   let effectiveSignal = signal;
@@ -72,6 +72,9 @@ const state = {
   receiveQrBucket: "",
   txDetailTxid: "",
   txDetailHex: "",
+  inFlightDashboard: false,
+  inFlightTx: false,
+  inFlightLogs: false,
 };
 
 function flashButtonFeedback(el) {
@@ -115,10 +118,6 @@ function fillSpvRollbackCheckpointSelect(st) {
   const rows =
     st && st.spv_checkpoints && Array.isArray(st.spv_checkpoints[net]) ? st.spv_checkpoints[net] : [];
   sel.innerHTML = "";
-  const custom = document.createElement("option");
-  custom.value = "custom";
-  custom.textContent = "Custom — use hash / height fields below";
-  sel.appendChild(custom);
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i] || {};
     const h = row.height != null ? Number(row.height) : NaN;
@@ -227,6 +226,8 @@ function showView(name) {
 }
 
 async function refreshLogs() {
+  if (state.inFlightLogs) return;
+  state.inFlightLogs = true;
   try {
     const mkSignal = (ms) => {
       if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
@@ -240,8 +241,8 @@ async function refreshLogs() {
       return c.signal;
     };
     const [mtr, bc] = await Promise.all([
-      fetch("/api/logs/mempooltracker", { signal: mkSignal(7000) }).then((r) => r.text()),
-      fetch("/api/logs/broadcast?lines=200", { signal: mkSignal(7000) }).then((r) => r.text()),
+      fetch("/api/logs/mempooltracker", { signal: mkSignal(15000) }).then((r) => r.text()),
+      fetch("/api/logs/broadcast?lines=200", { signal: mkSignal(15000) }).then((r) => r.text()),
     ]);
     const elM = $("log-mtr");
     const elB = $("log-bc");
@@ -249,6 +250,8 @@ async function refreshLogs() {
     if (elB) elB.textContent = bc;
   } catch {
     /* ignore */
+  } finally {
+    state.inFlightLogs = false;
   }
 }
 
@@ -473,13 +476,13 @@ function fmtTime(iso) {
 
 function humanizeSyncEta(sec) {
   const n = Number(sec);
-  if (!Number.isFinite(n) || n < 0) return "Sync ETA unknown";
+  if (!Number.isFinite(n) || n < 0) return "";
   if (n === 0) return "Synced";
-  if (n < 60) return "Tip ETA < 1 minute";
-  if (n < 3600) return `Tip ETA ${Math.ceil(n / 60)} minutes`;
-  if (n < 86400) return `Tip ETA ${Math.ceil(n / 3600)} hours`;
-  if (n < 86400 * 30) return `Tip ETA ${Math.ceil(n / 86400)} days`;
-  return `Tip ETA ${Math.ceil(n / (86400 * 30))} months`;
+  if (n < 60) return "";
+  if (n < 3600) return `Sync ${Math.ceil(n / 60)} minutes`;
+  if (n < 86400) return `Sync ${Math.ceil(n / 3600)} hours`;
+  if (n < 86400 * 30) return `Sync ${Math.ceil(n / 86400)} days`;
+  return `Sync ${Math.ceil(n / (86400 * 30))} months`;
 }
 
 function buildTxExpandableCard(tx, includeSource) {
@@ -514,6 +517,7 @@ function buildTxExpandableCard(tx, includeSource) {
   const dirPill = document.createElement("span");
   dirPill.className = `tx-dir-pill ${dir === "in" ? "in" : dir === "out" ? "out" : ""}`;
   dirPill.textContent = dirLabel;
+  dirPill.title = dirLabel;
   top.appendChild(confPie);
   top.appendChild(dirPill);
   left.appendChild(top);
@@ -578,6 +582,35 @@ function buildTxExpandableCard(tx, includeSource) {
   }
   card.appendChild(body);
   return card;
+}
+
+function upsertTxList(container, txs, includeSource, emptyEl) {
+  if (!container) return;
+  const arr = Array.isArray(txs) ? txs : [];
+  const old = new Map();
+  container.querySelectorAll("details.tx-card-modern[data-txid]").forEach((el) => {
+    const id = String(el.dataset.txid || "").trim();
+    if (id) old.set(id, el);
+  });
+  const keep = new Set();
+  arr.forEach((tx) => {
+    const txid = String((tx && tx.txid) || "").trim();
+    if (!txid) return;
+    keep.add(txid);
+    const next = buildTxExpandableCard(tx, includeSource);
+    const prev = old.get(txid);
+    if (prev) {
+      if (prev.open) next.open = true;
+      prev.replaceWith(next);
+      old.delete(txid);
+    } else {
+      container.appendChild(next);
+    }
+  });
+  old.forEach((el, txid) => {
+    if (!keep.has(txid)) el.remove();
+  });
+  if (emptyEl) emptyEl.classList.toggle("hidden", arr.length > 0);
 }
 
 function collectOpenTxids(container) {
@@ -771,7 +804,10 @@ async function postServiceControl(patch) {
 }
 
 async function refreshDashboard() {
-  const data = await api("/api/dashboard");
+  if (state.inFlightDashboard) return;
+  state.inFlightDashboard = true;
+  try {
+  const data = await api("/api/dashboard", { timeout_ms: 45000 });
   const svcCard = $("svc-control-card");
   if (!data.dashboard) {
     if (svcCard) svcCard.classList.add("hidden");
@@ -785,10 +821,10 @@ async function refreshDashboard() {
       : "—";
   const balBig = $("wallet-balance-big");
   const balUnit = $("wallet-balance-unit");
-  if (balBig) balBig.textContent = spendStr;
+  if (balBig) balBig.textContent = `Ð ${spendStr}`;
   if (balUnit) {
     const net = (state.wallet && state.wallet.network && String(state.wallet.network).toLowerCase()) || "mainnet";
-    balUnit.textContent = net === "testnet" ? "DOGE (testnet)" : "DOGE";
+    balUnit.textContent = net === "testnet" ? "Doge (testnet)" : "Doge";
   }
   const pendRaw = t.pending_mempool_doge;
   const pendNum = Number(pendRaw);
@@ -854,11 +890,8 @@ async function refreshDashboard() {
   }
   const chip = $("wallet-sync-chip");
   if (chip) {
-    if (!Number.isFinite(Number(spv.header_height)) || Number(spv.header_height) <= 0) {
-      chip.textContent = "Sync ETA unknown";
-    } else {
-      chip.textContent = humanizeSyncEta(spv.sync_lag_seconds);
-    }
+    const syncLabel = humanizeSyncEta(spv.sync_lag_seconds);
+    chip.textContent = syncLabel || "Sync";
     chip.title = spv.sync_lag_label || "";
   }
   const spvDbg = $("log-spv-headers");
@@ -885,29 +918,29 @@ async function refreshDashboard() {
   updateCharts(sample);
   if (data.dashboard.services) updateServicesControlUI(data.dashboard.services);
   renderDashboardTxPreview();
+  } finally {
+    state.inFlightDashboard = false;
+  }
 }
 
 function renderDashboardTxPreview() {
   const list = $("dash-tx-list");
   if (!list) return;
-  const openTxids = collectOpenTxids(list);
-  list.innerHTML = "";
   const txs = Array.isArray(state.lastTxs) ? state.lastTxs : [];
   if (!txs.length) {
-    const p = document.createElement("p");
-    p.className = "small muted";
-    p.textContent = "No transactions yet.";
-    list.appendChild(p);
+    if (!list.querySelector(".dash-empty")) {
+      list.innerHTML = "";
+      const p = document.createElement("p");
+      p.className = "small muted dash-empty";
+      p.textContent = "No transactions yet.";
+      list.appendChild(p);
+    }
     return;
   }
+  const oldEmpty = list.querySelector(".dash-empty");
+  if (oldEmpty) oldEmpty.remove();
   const max = Math.min(6, txs.length);
-  for (let i = 0; i < max; i++) {
-    const tx = txs[i] || {};
-    const card = buildTxExpandableCard(tx, false);
-    const txid = String((tx && tx.txid) || "").trim();
-    if (txid && openTxids.has(txid)) card.open = true;
-    list.appendChild(card);
-  }
+  upsertTxList(list, txs.slice(0, max), false, null);
 }
 
 $("btn-svc-spv-stop")?.addEventListener("click", () => postServiceControl({ spv_enabled: false }));
@@ -916,8 +949,11 @@ $("btn-svc-mtr-stop")?.addEventListener("click", () => postServiceControl({ meme
 $("btn-svc-mtr-start")?.addEventListener("click", () => postServiceControl({ memetracker_enabled: true }));
 
 async function refreshTxList(refresh) {
+  if (state.inFlightTx) return;
+  state.inFlightTx = true;
+  try {
   const q = "";
-  const data = await api("/api/transactions" + q);
+  const data = await api("/api/transactions" + q, { timeout_ms: 45000 });
   const txs = (data.transactions || []).slice().sort((a, b) => {
     const ta = new Date(a && a.seen_at ? a.seen_at : 0).getTime() || 0;
     const tb = new Date(b && b.seen_at ? b.seen_at : 0).getTime() || 0;
@@ -930,22 +966,12 @@ async function refreshTxList(refresh) {
   const list = $("tx-list");
   const emptyEl = $("tx-list-empty");
   if (!list) return;
-  const openTxids = collectOpenTxids(list);
-  list.innerHTML = "";
-  if (!txs.length) {
-    if (emptyEl) emptyEl.classList.remove("hidden");
-  } else if (emptyEl) {
-    emptyEl.classList.add("hidden");
-  }
+  upsertTxList(list, txs, true, emptyEl);
   let pendingNav = 0;
   txs.forEach((tx) => {
     const isMTR = String(tx.source || "").toLowerCase() === "memetracker";
     const showPending = isMTR || tx.pending;
     if (showPending) pendingNav += 1;
-    const card = buildTxExpandableCard(tx, true);
-    const txid = String((tx && tx.txid) || "").trim();
-    if (txid && openTxids.has(txid)) card.open = true;
-    list.appendChild(card);
   });
   const navB = $("nav-tx-pending-badge");
   if (navB) {
@@ -957,6 +983,9 @@ async function refreshTxList(refresh) {
     }
   }
   renderDashboardTxPreview();
+  } finally {
+    state.inFlightTx = false;
+  }
 }
 
 function renderAddresses(w) {
@@ -1425,42 +1454,11 @@ document.getElementById("btn-sync-tx").addEventListener("click", async () => {
   await refreshTxList(true);
 });
 
-const btnSpvFull = $("btn-spv-full-rescan");
 const btnSpvRb = $("btn-spv-rollback");
-if (btnSpvFull) {
-  btnSpvFull.addEventListener("click", async () => {
-    const syncSel = $("spv-rescan-sync-mode");
-    const useCp = !syncSel || syncSel.value !== "genesis";
-    const modeLabel = useCp ? "assisted header sync (spvnode -p)" : "from genesis (no -p)";
-    if (!confirm(`Delete SPV headers.db and spv_wallet.db on this pup and restart spvnode with ${modeLabel}?`)) return;
-    const prev = btnSpvFull.textContent;
-    btnSpvFull.disabled = true;
-    btnSpvFull.setAttribute("aria-busy", "true");
-    btnSpvFull.textContent = "Working…";
-    try {
-      const out = $("spv-rescan-out");
-      const res = await api("/api/spv/rescan", {
-        method: "POST",
-        body: JSON.stringify({ confirm: "RESCAN", mode: "full", use_checkpoint: useCp }),
-      });
-      if (out) out.textContent = JSON.stringify(res, null, 2);
-      if (res.error) {
-        let msg = res.error;
-        if (res.hint) msg += "\n\n" + res.hint;
-        alert(msg);
-      }
-      await refreshDashboard();
-    } finally {
-      btnSpvFull.disabled = false;
-      btnSpvFull.removeAttribute("aria-busy");
-      btnSpvFull.textContent = prev;
-    }
-  });
-}
 if (btnSpvRb) {
   btnSpvRb.addEventListener("click", async () => {
     const ckSel = $("spv-rollback-checkpoint-select");
-    const mode = ckSel && ckSel.value ? ckSel.value : "custom";
+    const mode = ckSel && ckSel.value ? ckSel.value : "";
     let body = { confirm: "ROLLBACK" };
     if (mode.startsWith("h-")) {
       const h = parseInt(mode.slice(2), 10);
@@ -1471,17 +1469,8 @@ if (btnSpvRb) {
       if (!confirm(`Stop SPV, remove header rows above height ${h}, delete spv_wallet.db, and restart? (checkpoint rollback)`)) return;
       body.rollback_height = h;
     } else {
-      const hash = ($("spv-rescan-hash") && $("spv-rescan-hash").value.trim()) || "";
-      const hRaw = ($("spv-rescan-height") && $("spv-rescan-height").value.trim()) || "";
-      const rollback_height = hRaw ? parseInt(hRaw, 10) : NaN;
-      const hasHeight = Number.isFinite(rollback_height) && rollback_height >= 0;
-      if (!hash && !hasHeight) {
-        alert("Choose a checkpoint above, or pick Custom and enter a 64-character header hash or a rollback height (0+).");
-        return;
-      }
-      if (!confirm("Stop SPV, truncate headers newer than the chosen block/height, delete spv_wallet.db, and restart?")) return;
-      if (hash) body.rollback_block_hash = hash;
-      if (hasHeight) body.rollback_height = rollback_height;
+      alert("Choose a bundled checkpoint from the list.");
+      return;
     }
     const prev = btnSpvRb.textContent;
     btnSpvRb.disabled = true;
@@ -1512,49 +1501,6 @@ if (spvRepairBackdrop) spvRepairBackdrop.addEventListener("click", closeSpvRepai
 const btnSpvRepairClose = $("btn-spv-repair-close");
 if (btnSpvRepairClose) btnSpvRepairClose.addEventListener("click", closeSpvRepairModal);
 
-function spvDbDebugShow(obj) {
-  const out = $("spv-db-debug-out");
-  const meta = $("spv-db-debug-meta");
-  if (out) out.textContent = JSON.stringify(obj, null, 2);
-  if (meta && obj) {
-    const parts = [];
-    if (obj.path) parts.push(String(obj.path));
-    if (obj.format) parts.push(String(obj.format));
-    if (obj.tables && Array.isArray(obj.tables)) parts.push(obj.tables.length + " tables");
-    if (obj.row_count != null) parts.push(String(obj.row_count) + " rows" + (obj.truncated ? " (truncated)" : ""));
-    meta.textContent = parts.length ? parts.join(" · ") : "—";
-  }
-}
-
-const btnSpvDbProbe = $("btn-spv-db-probe");
-if (btnSpvDbProbe) {
-  btnSpvDbProbe.addEventListener("click", async () => {
-    const res = await api("/api/debug/spv-wallet-db?op=meta");
-    if (res.error) alert(res.error);
-    spvDbDebugShow(res);
-  });
-}
-const btnSpvDbTables = $("btn-spv-db-tables");
-if (btnSpvDbTables) {
-  btnSpvDbTables.addEventListener("click", async () => {
-    const res = await api("/api/debug/spv-wallet-db?op=tables");
-    if (res.error) alert(res.error);
-    spvDbDebugShow(res);
-  });
-}
-const btnSpvDbRun = $("btn-spv-db-run");
-if (btnSpvDbRun) {
-  btnSpvDbRun.addEventListener("click", async () => {
-    const q = ($("spv-db-debug-query") && $("spv-db-debug-query").value.trim()) || "";
-    if (!q) {
-      alert("Enter a query");
-      return;
-    }
-    const res = await api("/api/debug/spv-wallet-db?op=query&q=" + encodeURIComponent(q));
-    if (res.error) alert(res.error);
-    spvDbDebugShow(res);
-  });
-}
 
 document.getElementById("btn-backup").addEventListener("click", async () => {
   const data = await api("/api/wallet");
@@ -1609,6 +1555,7 @@ document.getElementById("btn-send-pq-safe").addEventListener("click", async () =
   const out = $("send-pq-out");
   const to_address = document.getElementById("send-to").value.trim();
   const amount_doge = document.getElementById("send-amt").value.trim();
+  const include_pq_commitment = !!($("send-include-pq") && $("send-include-pq").checked);
   let tick = 0;
   const prevLabel = btn ? btn.innerHTML : "";
   if (btn) {
@@ -1626,7 +1573,7 @@ document.getElementById("btn-send-pq-safe").addEventListener("click", async () =
         : undefined;
     const res = await api("/api/send/pq-safe", {
       method: "POST",
-      body: JSON.stringify({ to_address, amount_doge }),
+      body: JSON.stringify({ to_address, amount_doge, include_pq_commitment }),
       signal: sendSignal,
     });
     const sum = res && res.sendtx_summary ? res.sendtx_summary : null;

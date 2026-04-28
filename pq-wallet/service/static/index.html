@@ -155,7 +155,7 @@
               <span class="wallet-hero-balance" id="wallet-balance-big">—</span>
               <span class="wallet-hero-unit" id="wallet-balance-unit">DOGE</span>
             </div>
-            <div class="wallet-sync-chip" id="wallet-sync-chip">Sync ETA: —</div>
+            <div class="wallet-sync-chip" id="wallet-sync-chip">Sync</div>
             <div class="wallet-pending-row" id="wallet-pending-row" hidden>
               <span class="badge badge-pending-label">Pending</span>
               <span class="badge badge-pending-amt mono" id="wallet-pending-line">—</span>
@@ -224,6 +224,12 @@
               <label class="field"><span>Amount in Doge</span>
                 <input type="text" class="input-modern" id="send-amt" placeholder="0.001" inputmode="decimal" autocomplete="off" spellcheck="false" />
               </label>
+              <label class="field switch-row"><span>Add post-quantum commitment (TX_C)</span>
+                <label class="switch">
+                  <input type="checkbox" id="send-include-pq" checked />
+                  <span class="slider" aria-hidden="true"></span>
+                </label>
+              </label>
               <button type="button" class="btn primary" id="btn-send-pq-safe"><span class="material-symbols-outlined btn-ico">lock</span> Send post-quantum safe transaction</button>
               <pre id="send-pq-out" class="mono small out"></pre>
             </div>
@@ -276,7 +282,7 @@
           </div>
           <div class="card">
             <h2><span class="material-symbols-outlined icon-inline">settings_backup_restore</span> SPV repair &amp; rescan</h2>
-            <button type="button" class="btn" id="btn-open-spv-repair"><span class="material-symbols-outlined btn-ico">settings_backup_restore</span> Open SPV repair tools</button>
+            <button type="button" class="btn" id="btn-open-spv-repair"><span class="material-symbols-outlined btn-ico">settings_backup_restore</span> Rollback to checkpoint (libdogecoin bundled)</button>
           </div>
           <div class="card svc-control-card hidden" id="svc-control-card" aria-labelledby="svc-control-title">
             <h2 id="svc-control-title"><span class="material-symbols-outlined icon-inline">tune</span> Background services</h2>
@@ -335,20 +341,6 @@
             </div>
           </div>
           <div class="card">
-            <h2><span class="material-symbols-outlined icon-inline">database</span> SPV wallet file (debug)</h2>
-            <p class="small muted">Libdogecoin usually stores <code class="mono">spv_wallet.db</code> as a <strong>binary wallet</strong>, not SQLite. The wallet merges receive transactions from <code class="mono">such list_unspent</code>. Use this panel to see which format you have and to run <strong>read-only</strong> SQL when the file is SQLite.</p>
-            <p class="small muted mono" id="spv-db-debug-meta">—</p>
-            <div class="toolbar toolbar-actions" style="margin:.35rem 0">
-              <button type="button" class="btn btn-sm" id="btn-spv-db-probe">Probe format</button>
-              <button type="button" class="btn btn-sm" id="btn-spv-db-tables">List tables</button>
-            </div>
-            <label class="field"><span class="field-label">PRAGMA / SELECT (max 200 rows)</span>
-              <input type="text" class="input-modern mono" id="spv-db-debug-query" placeholder="PRAGMA table_info(&quot;mytable&quot;)" autocomplete="off" spellcheck="false" />
-            </label>
-            <button type="button" class="btn btn-sm primary" id="btn-spv-db-run" style="margin-top:.35rem">Run query</button>
-            <pre class="dos-screen" id="spv-db-debug-out" style="margin-top:.5rem;max-height:14rem;overflow:auto">—</pre>
-          </div>
-          <div class="card">
             <h2>Backup</h2>
             <p class="small muted">Downloads wallet JSON (only while not sealed, or export after unlock).</p>
             <button type="button" class="btn primary" id="btn-backup"><span class="material-symbols-outlined btn-ico">payments</span> Download backup</button>
@@ -393,27 +385,13 @@
         </button>
       </div>
       <p class="small muted" id="spv-repair-storage-line" style="margin:.35rem 0 .5rem">Loading storage path…</p>
-      <p class="small muted"><strong>Full rescan</strong> deletes local <code class="mono">headers.db</code> and <code class="mono">spv_wallet.db</code>, saves the sync mode below, and restarts <code class="mono">spvnode</code>. <strong>Rollback</strong> needs an on-disk SQLite <code class="mono">headers.db</code>: pick a bundled checkpoint (height, hash, UTC time from libdogecoin) or choose Custom and paste hash/height. Headers above the chosen height are removed and <code class="mono">spv_wallet.db</code> is cleared so SPV rescans from that chain tip. If <code class="mono">headers.db</code> is missing, use full rescan first.</p>
+      <p class="small muted"><strong>Rollback</strong> uses a bundled libdogecoin checkpoint (height/hash/time), truncates headers above it, clears <code class="mono">spv_wallet.db</code>, then restarts SPV.</p>
       <label class="field"><span class="field-label">Rollback to checkpoint (libdogecoin bundled)</span>
         <select id="spv-rollback-checkpoint-select" class="input-modern" aria-describedby="spv-rollback-checkpoint-hint"></select>
       </label>
       <p class="small muted" id="spv-rollback-checkpoint-hint" style="margin:.25rem 0 .5rem">Block 0 is the Dogecoin genesis checkpoint (early Dec 2013, UTC time from libdogecoin). Other rows match the bundled SPV checkpoint table in your libdogecoin build.</p>
-      <label class="field"><span class="field-label">After full rescan, start header sync</span>
-        <select id="spv-rescan-sync-mode" class="input-modern" aria-describedby="spv-rescan-sync-hint">
-          <option value="checkpoints">Assisted (spvnode -p, bundled checkpoints)</option>
-          <option value="genesis">From genesis (no -p)</option>
-        </select>
-      </label>
-      <p class="small muted" id="spv-rescan-sync-hint" style="margin:.25rem 0 .5rem">Preference is written to <code class="mono">spv_sync_prefs.json</code> when you run full rescan and is also used whenever the wallet service starts <code class="mono">spvnode</code>.</p>
-      <label class="field"><span class="field-label">Custom — block header hash (64 hex, optional if height set)</span>
-        <input type="text" class="input-modern mono" id="spv-rescan-hash" placeholder="0000…" autocomplete="off" spellcheck="false" />
-      </label>
-      <label class="field"><span class="field-label">Custom — rollback height (optional if known from explorer/core)</span>
-        <input type="text" class="input-modern" id="spv-rescan-height" inputmode="numeric" placeholder="e.g. 4500000" autocomplete="off" />
-      </label>
       <div class="toolbar toolbar-actions spv-rescan-actions">
-        <button type="button" class="btn" id="btn-spv-rollback"><span class="material-symbols-outlined btn-ico">vertical_align_top</span> Rollback headers &amp; rescan wallet DB</button>
-        <button type="button" class="btn primary" id="btn-spv-full-rescan"><span class="material-symbols-outlined btn-ico">delete_sweep</span> Full SPV rescan</button>
+        <button type="button" class="btn primary" id="btn-spv-rollback"><span class="material-symbols-outlined btn-ico">vertical_align_top</span> Rollback</button>
       </div>
       <pre id="spv-rescan-out" class="mono small out" aria-live="polite"></pre>
     </div>

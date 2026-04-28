@@ -39,8 +39,9 @@ func estimateFeeKoinu(inputCount int, includeChange bool, includeCommitment bool
 }
 
 type sendPQSafeBody struct {
-	ToAddress  string `json:"to_address"`
-	AmountDOGE string `json:"amount_doge"`
+	ToAddress           string `json:"to_address"`
+	AmountDOGE          string `json:"amount_doge"`
+	IncludePQCommitment *bool  `json:"include_pq_commitment"`
 }
 
 func (s *Server) scriptPubHexForUTXO(wf *WalletFile, u *ExplorerUTXO) (string, error) {
@@ -59,6 +60,10 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	to := strings.TrimSpace(body.ToAddress)
 	amt := strings.TrimSpace(body.AmountDOGE)
+	includePQCommitment := true
+	if body.IncludePQCommitment != nil {
+		includePQCommitment = *body.IncludePQCommitment
+	}
 	if to == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "to_address required"})
 		return
@@ -144,14 +149,14 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		if n == 0 {
 			n = 1
 		}
-		fee := estimateFeeKoinu(n, true, true)
+		fee := estimateFeeKoinu(n, true, includePQCommitment)
 		need := sendKoinu + fee
 		selected, sumIn, err = selectUTXOs(utxos, need)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		fee = estimateFeeKoinu(len(selected), true, true)
+		fee = estimateFeeKoinu(len(selected), true, includePQCommitment)
 		if sumIn >= sendKoinu+fee {
 			break
 		}
@@ -160,7 +165,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	fee := estimateFeeKoinu(len(selected), true, true)
+	fee := estimateFeeKoinu(len(selected), true, includePQCommitment)
 	change := sumIn - sendKoinu - fee
 	if change < 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "insufficient balance after fee"})
@@ -186,7 +191,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	pqMode := "none"
 	// Build canonical Phase-1 commitment when Falcon material is available.
 	// Preferred: SHA256(pubkey || signature(sighash32)).
-	if strings.TrimSpace(wf.PQPublicHex) != "" && strings.TrimSpace(wf.PQPrivateHex) != "" && len(selected) > 0 {
+	if includePQCommitment && strings.TrimSpace(wf.PQPublicHex) != "" && strings.TrimSpace(wf.PQPrivateHex) != "" && len(selected) > 0 {
 		if scr, err := s.scriptPubHexForUTXO(wf, &selected[0]); err == nil {
 			// Build first without commitment to derive base tx sighash32.
 			unsignedBase, err := buildUnsignedDogeP2PKH(selected, toScript, sendKoinu, changeScript, changeOut, "")
@@ -210,7 +215,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// Safe fallback for compatibility: SHA256(pubkey) if signing material is unavailable.
-	if pqCommitment32Hex == "" {
+	if includePQCommitment && pqCommitment32Hex == "" {
 		if pubB, err := hex.DecodeString(strings.TrimSpace(wf.PQPublicHex)); err == nil && len(pubB) > 0 {
 			h := sha256.Sum256(pubB)
 			pqCommitment32Hex = hex.EncodeToString(h[:])

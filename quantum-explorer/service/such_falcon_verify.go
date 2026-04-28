@@ -265,67 +265,86 @@ func (a *app) tryFalconVerifyWithBaseTx(ctx context.Context, carrier map[string]
 	if rawHexTXC == "" {
 		return nil
 	}
-	baseRawHex, baseInIdx, scriptPubHex, berr := a.reconstructBaseTxContext(ctx, rawHexTXC, rawTxRHex, commit)
-	if berr != nil || baseRawHex == "" || scriptPubHex == "" || baseInIdx < 0 {
+	baseRawHex, berr := a.reconstructBaseTxContext(rawHexTXC, rawTxRHex, commit)
+	if berr != nil || baseRawHex == "" {
 		return nil
 	}
-	// Try common sighash variants for robustness.
+	// Try all TX_BASE inputs with common sighash variants for robustness.
+	rawBase, err := hex.DecodeString(strings.TrimSpace(baseRawHex))
+	if err != nil {
+		return nil
+	}
+	baseIns, err := parseTxInputs(rawBase)
+	if err != nil || len(baseIns) == 0 {
+		return nil
+	}
 	hashTypes := []int{1, 129, 131, 3, 2}
-	attempts := make([]map[string]any, 0, len(hashTypes))
-	for _, ht := range hashTypes {
-		msgHex, err := runSuchTxSighash32(ctx, baseRawHex, scriptPubHex, baseInIdx, ht, testnet)
-		if err != nil {
-			attempts = append(attempts, map[string]any{"hash_type": ht, "status": "error", "detail": err.Error()})
+	attempts := make([]map[string]any, 0, len(hashTypes)*len(baseIns))
+	for inIdx, in := range baseIns {
+		prevTxid := wirePrevTxidHexLE(in.prevTxidLE)
+		prevVout := int64(in.prevVout)
+		scriptPubHex, spkErr := a.core.getVoutScriptPubKeyHex(ctx, prevTxid, prevVout, a.indexerStoredBlockHash(ctx, prevTxid))
+		if spkErr != nil || scriptPubHex == "" {
+			attempts = append(attempts, map[string]any{
+				"input_index": inIdx,
+				"status":      "error",
+				"detail":      fmt.Sprintf("prevout scriptPubKey unavailable: %v", spkErr),
+			})
 			continue
 		}
-		passed, line, err := runSuchFalconVerify(ctx, pubHex, msgHex, sigHex, testnet)
-		if err != nil {
-			attempts = append(attempts, map[string]any{"hash_type": ht, "status": "error", "detail": err.Error(), "message_hex": msgHex})
-			continue
-		}
-		if passed {
-			return map[string]any{
-				"status":                    "passed",
-				"context":                   "tx_base_reconstructed",
-				"reason":                    "validated with reconstructed TX_BASE (spec-aligned fallback)",
-				"hash_type":                 ht,
-				"message_hex":               msgHex,
-				"verify_line":               line,
-				"input_index":               baseInIdx,
-				"prevout_scriptpubkey_hex":  scriptPubHex,
-				"such_path":                 explorerSuchPath(),
-				"fallback_attempts_checked": len(attempts) + 1,
+		for _, ht := range hashTypes {
+			msgHex, err := runSuchTxSighash32(ctx, baseRawHex, scriptPubHex, inIdx, ht, testnet)
+			if err != nil {
+				attempts = append(attempts, map[string]any{"input_index": inIdx, "hash_type": ht, "status": "error", "detail": err.Error()})
+				continue
 			}
+			passed, line, err := runSuchFalconVerify(ctx, pubHex, msgHex, sigHex, testnet)
+			if err != nil {
+				attempts = append(attempts, map[string]any{"input_index": inIdx, "hash_type": ht, "status": "error", "detail": err.Error(), "message_hex": msgHex})
+				continue
+			}
+			if passed {
+				return map[string]any{
+					"status":                    "passed",
+					"context":                   "tx_base_reconstructed",
+					"reason":                    "validated with reconstructed TX_BASE (spec-aligned fallback)",
+					"hash_type":                 ht,
+					"message_hex":               msgHex,
+					"verify_line":               line,
+					"input_index":               inIdx,
+					"prevout_scriptpubkey_hex":  scriptPubHex,
+					"such_path":                 explorerSuchPath(),
+					"fallback_attempts_checked": len(attempts) + 1,
+				}
+			}
+			attempts = append(attempts, map[string]any{"input_index": inIdx, "hash_type": ht, "status": "failed", "verify_line": line, "message_hex": msgHex})
 		}
-		attempts = append(attempts, map[string]any{"hash_type": ht, "status": "failed", "verify_line": line, "message_hex": msgHex})
 	}
 	return map[string]any{
 		"status":                   "failed",
 		"context":                  "tx_base_reconstructed",
 		"reason":                   "signature invalid across reconstructed TX_BASE sighash attempts",
-		"input_index":              baseInIdx,
-		"prevout_scriptpubkey_hex": scriptPubHex,
 		"such_path":                explorerSuchPath(),
 		"attempts":                 attempts,
 	}
 }
 
-func (a *app) reconstructBaseTxContext(ctx context.Context, rawHexTXC, rawHexTXR, commitment32 string) (baseRawHex string, inputIndex int, prevScriptPubHex string, err error) {
+func (a *app) reconstructBaseTxContext(rawHexTXC, rawHexTXR, commitment32 string) (baseRawHex string, err error) {
 	rawC, err := hex.DecodeString(strings.TrimSpace(rawHexTXC))
 	if err != nil {
-		return "", -1, "", err
+		return "", err
 	}
 	rawR, err := hex.DecodeString(strings.TrimSpace(rawHexTXR))
 	if err != nil {
-		return "", -1, "", err
+		return "", err
 	}
 	txc, err := parseRawTxForBase(rawC)
 	if err != nil {
-		return "", -1, "", err
+		return "", err
 	}
 	txrIns, err := parseTxInputs(rawR)
 	if err != nil {
-		return "", -1, "", err
+		return "", err
 	}
 	// Carrier outputs are the TX_C outputs spent by TX_R inputs.
 	spentCarrierVouts := map[uint32]struct{}{}
@@ -341,7 +360,7 @@ func (a *app) reconstructBaseTxContext(ctx context.Context, rawHexTXC, rawHexTXR
 		}
 	}
 	if len(spentCarrierVouts) == 0 {
-		return "", -1, "", fmt.Errorf("no TX_C carrier outputs referenced by TX_R")
+		return "", fmt.Errorf("no TX_C carrier outputs referenced by TX_R")
 	}
 	// Remove OP_RETURN commitment output and carrier outputs.
 	outsBase := make([]txOutput, 0, len(txc.outputs))
@@ -357,7 +376,7 @@ func (a *app) reconstructBaseTxContext(ctx context.Context, rawHexTXC, rawHexTXR
 		outsBase = append(outsBase, o)
 	}
 	if len(outsBase) == 0 {
-		return "", -1, "", fmt.Errorf("could not build TX_BASE outputs")
+		return "", fmt.Errorf("could not build TX_BASE outputs")
 	}
 	outsBase[0].valueSats += carrierRestore
 	base := parsedTxBase{
@@ -368,19 +387,9 @@ func (a *app) reconstructBaseTxContext(ctx context.Context, rawHexTXC, rawHexTXR
 	}
 	baseRaw := serializeParsedTxBase(base)
 	if len(baseRaw) == 0 {
-		return "", -1, "", fmt.Errorf("failed to serialize TX_BASE")
+		return "", fmt.Errorf("failed to serialize TX_BASE")
 	}
-	// Per spec and current libdogecoin workflows, bind signature to the first base input.
-	if len(base.inputs) < 1 {
-		return "", -1, "", fmt.Errorf("TX_BASE has no inputs")
-	}
-	prevTxid := wirePrevTxidHexLE(base.inputs[0].prevTxidLE)
-	prevVout := int64(base.inputs[0].prevVout)
-	spk, err := a.core.getVoutScriptPubKeyHex(ctx, prevTxid, prevVout, a.indexerStoredBlockHash(ctx, prevTxid))
-	if err != nil || spk == "" {
-		return "", -1, "", fmt.Errorf("TX_BASE prevout scriptPubKey unavailable: %v", err)
-	}
-	return strings.ToLower(hex.EncodeToString(baseRaw)), 0, strings.ToLower(strings.TrimSpace(spk)), nil
+	return strings.ToLower(hex.EncodeToString(baseRaw)), nil
 }
 
 type parsedTxBase struct {

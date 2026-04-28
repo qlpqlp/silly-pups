@@ -128,10 +128,6 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	spendable := math.Max(0, inSum-outSum)
 
-	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
-	pendingMeme, memeErr = s.syncMemeTracker(ctx, wf, st)
-	cancel()
-
 	eng, engErr := s.ensureMempoolEngine(wf)
 	if eng != nil && engErr == nil {
 		mtrCount, mtrLive, mtrWorkers, mtrConn = eng.DashboardSnapshot()
@@ -142,6 +138,12 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.stateMergeMu.Unlock()
+
+	// Run mempool pending estimate outside stateMerge lock so dashboard and tx list calls
+	// do not block each other for long periods during refresh/poll bursts.
+	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
+	pendingMeme, memeErr = s.syncMemeTracker(ctx, wf, st)
+	cancel()
 
 	s.mu.Lock()
 	if changed, err := s.maybeRotateHDReceiveAddress(wf, st); err == nil && changed {

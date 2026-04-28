@@ -17,6 +17,7 @@ type TxRecord struct {
 	AmountDOGE    float64   `json:"amount_doge"`
 	RawHex        string    `json:"raw_hex,omitempty"`
 	Address       string    `json:"address,omitempty"`
+	FeeDOGE       float64   `json:"fee_doge,omitempty"`
 	Confirmations int       `json:"confirmations"`
 	BlockHeight   int64     `json:"block_height,omitempty"`
 	PQHint        bool      `json:"pq_hint"`

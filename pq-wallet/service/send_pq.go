@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -18,7 +20,8 @@ var reAmountDoge = regexp.MustCompile(`^\d+(\.\d+)?$`)
 
 const dogeEconomicFeePerKBKoinu = int64(1_000_000) // 0.01 DOGE/KB (Dogecoin recommendation)
 
-func estimateFeeKoinu(inputCount int, includeChange bool, includeCommitment bool) int64 {
+// extraOutputs counts additional vouts beyond recipient (+ optional change), e.g. OP_RETURN (1) or OP_RETURN+P2SH carrier (2).
+func estimateFeeKoinu(inputCount int, includeChange bool, extraOutputs int) int64 {
 	if inputCount < 1 {
 		inputCount = 1
 	}
@@ -26,9 +29,10 @@ func estimateFeeKoinu(inputCount int, includeChange bool, includeCommitment bool
 	if includeChange {
 		outs++
 	}
-	if includeCommitment {
-		outs++
+	if extraOutputs < 0 {
+		extraOutputs = 0
 	}
+	outs += extraOutputs
 	// Legacy P2PKH rough size model.
 	vbytes := (180 * inputCount) + (34 * outs) + 10
 	kb := (vbytes + 999) / 1000 // ceil
@@ -99,6 +103,19 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	}
 	testnet := strings.EqualFold(wf.Network, "testnet")
 
+	carrierKoinu := int64(100_000_000) // 1 DOGE — canonical carrier output (libdogecoin default)
+	if v := strings.TrimSpace(os.Getenv("PUP_PQ_CARRIER_KOINU")); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= dustLimitKoinu {
+			carrierKoinu = n
+		}
+	}
+	txRFeeKoinu := int64(2_000_000) // 0.02 DOGE for TX_R relay
+	if v := strings.TrimSpace(os.Getenv("PUP_PQ_TXR_FEE_KOINU")); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= minRelayFeeKoinu {
+			txRFeeKoinu = n
+		}
+	}
+
 	sendKoinu, err := dogeAmountStringToKoinu(amt)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -142,65 +159,107 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		utxos = all
 	}
 
+	carrierEnvDisabled := strings.TrimSpace(os.Getenv("PUP_PQ_DISABLE_CARRIER")) != ""
+	useCarrierBudget := includePQCommitment && !carrierEnvDisabled &&
+		strings.TrimSpace(wf.PQPublicHex) != "" && strings.TrimSpace(wf.PQPrivateHex) != ""
+
 	var selected []ExplorerUTXO
 	var sumIn int64
-	for attempt := 0; attempt < 12; attempt++ {
-		n := len(selected)
-		if n == 0 {
-			n = 1
+	var fee int64
+	var change int64
+	var changeOut int64
+	var toScript, changeScript []byte
+	var unsignedForSign []byte
+	var baseHex string
+	var pqCommitment32Hex string
+	var pqMode string
+	var falconSigHex string
+	var carrierFlow bool
+	econDowngraded := false
+	var errUtx error
+	var unsignedBase []byte
+
+	for econPass := 0; econPass < 3; econPass++ {
+		extraFeeOutputs := 0
+		if includePQCommitment {
+			extraFeeOutputs = 1
+			if useCarrierBudget {
+				extraFeeOutputs = 2
+			}
 		}
-		fee := estimateFeeKoinu(n, true, includePQCommitment)
-		need := sendKoinu + fee
-		selected, sumIn, err = selectUTXOs(utxos, need)
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+
+		selected = nil
+		sumIn = 0
+		for attempt := 0; attempt < 12; attempt++ {
+			n := len(selected)
+			if n == 0 {
+				n = 1
+			}
+			fee = estimateFeeKoinu(n, true, extraFeeOutputs)
+			need := sendKoinu + fee
+			if extraFeeOutputs >= 2 {
+				need += carrierKoinu
+			}
+			var errPick error
+			selected, sumIn, errPick = selectUTXOs(utxos, need)
+			if errPick != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": errPick.Error()})
+				return
+			}
+			fee = estimateFeeKoinu(len(selected), true, extraFeeOutputs)
+			if sumIn >= need {
+				break
+			}
+			if attempt == 11 {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "could not cover amount plus fee"})
+				return
+			}
+		}
+		fee = estimateFeeKoinu(len(selected), true, extraFeeOutputs)
+		change = sumIn - sendKoinu - fee
+		if extraFeeOutputs >= 2 {
+			change -= carrierKoinu
+		}
+		if change < 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "insufficient balance after fee and PQ carrier reserve"})
 			return
 		}
-		fee = estimateFeeKoinu(len(selected), true, includePQCommitment)
-		if sumIn >= sendKoinu+fee {
-			break
+
+		var errScr error
+		if econPass == 0 {
+			toScript, errScr = dogeP2PKHScriptFromAddress(to, testnet)
+			if errScr != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("destination: %v", errScr)})
+				return
+			}
+			changeScript, errScr = dogeP2PKHScriptFromAddress(strings.TrimSpace(pa.P2PKH), testnet)
+			if errScr != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("change script: %v", errScr)})
+				return
+			}
 		}
-		if attempt == 11 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "could not cover amount plus fee"})
+
+		changeOut = change
+		if change <= dustLimitKoinu {
+			changeOut = 0
+		}
+		unsignedBase, errUtx = buildUnsignedDogeP2PKH(selected, toScript, sendKoinu, changeScript, changeOut, "")
+		if errUtx != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errUtx.Error()})
 			return
 		}
-	}
-	fee := estimateFeeKoinu(len(selected), true, includePQCommitment)
-	change := sumIn - sendKoinu - fee
-	if change < 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "insufficient balance after fee"})
-		return
-	}
+		baseHex = hexMsgTx(unsignedBase)
 
-	toScript, err := dogeP2PKHScriptFromAddress(to, testnet)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("destination: %v", err)})
-		return
-	}
-	changeScript, err := dogeP2PKHScriptFromAddress(strings.TrimSpace(pa.P2PKH), testnet)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("change script: %v", err)})
-		return
-	}
-
-	changeOut := change
-	if change <= dustLimitKoinu {
-		changeOut = 0
-	}
-	pqCommitment32Hex := ""
-	pqMode := "none"
-	// Build canonical Phase-1 commitment when Falcon material is available.
-	// Preferred: SHA256(pubkey || signature(sighash32)).
-	if includePQCommitment && strings.TrimSpace(wf.PQPublicHex) != "" && strings.TrimSpace(wf.PQPrivateHex) != "" && len(selected) > 0 {
-		if scr, err := s.scriptPubHexForUTXO(wf, &selected[0]); err == nil {
-			// Build first without commitment to derive base tx sighash32.
-			unsignedBase, err := buildUnsignedDogeP2PKH(selected, toScript, sendKoinu, changeScript, changeOut, "")
-			if err == nil {
-				baseHex := hexMsgTx(unsignedBase)
-				if sighashHex, err := s.runSuchTxSighash32(baseHex, scr, 0, 1, testnet); err == nil {
-					if sigHex, err := s.runSuchFalconSign(sighashHex, wf.PQPrivateHex, testnet); err == nil {
+		pqCommitment32Hex = ""
+		pqMode = "none"
+		falconSigHex = ""
+		if includePQCommitment && strings.TrimSpace(wf.PQPublicHex) != "" && strings.TrimSpace(wf.PQPrivateHex) != "" && len(selected) > 0 {
+			if scr, err := s.scriptPubHexForUTXO(wf, &selected[0]); err == nil {
+				if sighashHex, err2 := s.runSuchTxSighash32(baseHex, scr, 0, 1, testnet); err2 == nil {
+					if sigHex, err3 := s.runSuchFalconSign(sighashHex, wf.PQPrivateHex, testnet); err3 == nil {
+						falconSigHex = strings.TrimSpace(sigHex)
 						pubB, pubErr := hex.DecodeString(strings.TrimSpace(wf.PQPublicHex))
-						sigB, sigErr := hex.DecodeString(strings.TrimSpace(sigHex))
+						sigB, sigErr := hex.DecodeString(falconSigHex)
 						if pubErr == nil && sigErr == nil && len(pubB) > 0 && len(sigB) > 0 {
 							buf := make([]byte, 0, len(pubB)+len(sigB))
 							buf = append(buf, pubB...)
@@ -213,22 +272,43 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-	}
-	// Safe fallback for compatibility: SHA256(pubkey) if signing material is unavailable.
-	if includePQCommitment && pqCommitment32Hex == "" {
-		if pubB, err := hex.DecodeString(strings.TrimSpace(wf.PQPublicHex)); err == nil && len(pubB) > 0 {
-			h := sha256.Sum256(pubB)
-			pqCommitment32Hex = hex.EncodeToString(h[:])
-			pqMode = "legacy_pubkey_hash_fallback"
+		if includePQCommitment && pqCommitment32Hex == "" {
+			if pubB, err := hex.DecodeString(strings.TrimSpace(wf.PQPublicHex)); err == nil && len(pubB) > 0 {
+				h := sha256.Sum256(pubB)
+				pqCommitment32Hex = hex.EncodeToString(h[:])
+				pqMode = "legacy_pubkey_hash_fallback"
+			}
 		}
-	}
-	unsigned, err := buildUnsignedDogeP2PKH(selected, toScript, sendKoinu, changeScript, changeOut, pqCommitment32Hex)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
+
+		unsignedForSign, errUtx = buildUnsignedDogeP2PKH(selected, toScript, sendKoinu, changeScript, changeOut, pqCommitment32Hex)
+		if errUtx != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errUtx.Error()})
+			return
+		}
+		carrierFlow = false
+		carrierWish := !carrierEnvDisabled &&
+			includePQCommitment && pqCommitment32Hex != "" && falconSigHex != "" &&
+			pqMode != "legacy_pubkey_hash_fallback"
+		if carrierWish {
+			extHex, errC := s.runSuchFalconAddCommitAndCarrierTx(baseHex, pqCommitment32Hex, strings.TrimSpace(wf.PQPublicHex), falconSigHex, carrierKoinu, testnet)
+			if errC == nil {
+				if b, errH := hex.DecodeString(extHex); errH == nil && len(b) > 80 {
+					unsignedForSign = b
+					carrierFlow = true
+					pqMode = pqMode + "_carrier_txc"
+				}
+			}
+		}
+
+		if useCarrierBudget && !carrierFlow {
+			econDowngraded = true
+			useCarrierBudget = false
+			continue
+		}
+		break
 	}
 
-	rawHex := hexMsgTx(unsigned)
+	rawHex := hexMsgTx(unsignedForSign)
 	for i := range selected {
 		scr, err := s.scriptPubHexForUTXO(wf, &selected[i])
 		if err != nil {
@@ -271,7 +351,97 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		sendSummary.BroadcastTxID, len(rawHex), sendSummary.InformedNodes, sendSummary.RequestedFromNodes, sendSummary.SeenOnOtherNodes,
 		sendSummary.SendtxDiagnosticLines, sendSummary.RelayHeuristicError)
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	txCTxid := normalizeTxid(sendSummary.BroadcastTxID)
+	if txCTxid == "" {
+		if b, errH := hex.DecodeString(strings.TrimSpace(rawHex)); errH == nil {
+			txCTxid = dogeLegacyTxidHex(b)
+		}
+	}
+
+	txRID := ""
+	var txRErr string
+	pqMkParts := 0
+	if carrierFlow && txCTxid != "" && falconSigHex != "" {
+		txcBytes, errD := hex.DecodeString(strings.TrimSpace(rawHex))
+		if errD != nil || len(txcBytes) < 50 {
+			txRErr = "decode TX_C hex failed"
+		} else {
+			carrierSPKHex, errSpk := s.runSuchPqcCarrierScriptPubkey(testnet)
+			if errSpk != nil {
+				txRErr = errSpk.Error()
+			} else {
+				spkBytes, errH := hex.DecodeString(carrierSPKHex)
+				if errH != nil || len(spkBytes) == 0 {
+					txRErr = "carrier scriptPubKey decode failed"
+				} else {
+					outs, errP := parseLegacyTxOutputs(txcBytes)
+					if errP != nil {
+						txRErr = errP.Error()
+					} else {
+						carrierIdx := findAllPkScriptMatches(outs, spkBytes)
+						if len(carrierIdx) == 0 {
+							txRErr = "carrier P2SH output not found on TX_C"
+						} else {
+							scriptSigs, errM := s.collectCarrierScriptSigs("464c4331", strings.TrimSpace(wf.PQPublicHex), falconSigHex, testnet)
+							if errM != nil {
+								txRErr = errM.Error()
+							} else if len(carrierIdx) < len(scriptSigs) {
+								txRErr = fmt.Sprintf("TX_C has %d carrier output(s) but PQ payload needs %d mkpart(s); fund a larger carrier layout or split manually", len(carrierIdx), len(scriptSigs))
+							} else {
+								pqMkParts = len(scriptSigs)
+								useIdx := carrierIdx[:len(scriptSigs)]
+								var totalIn int64
+								vouts := make([]uint32, len(useIdx))
+								for i, vi := range useIdx {
+									vouts[i] = uint32(vi)
+									totalIn += outs[vi].Value
+								}
+								txRFeeEff := estimateFeeKoinu(len(scriptSigs), false, 0)
+								if txRFeeEff < txRFeeKoinu {
+									txRFeeEff = txRFeeKoinu
+								}
+								revealVal := totalIn - txRFeeEff
+								if revealVal <= dustLimitKoinu {
+									txRErr = "TX_R would leave dust after fee; increase balance or lower PUP_PQ_TXR_FEE_KOINU"
+								} else {
+									unsignedR, errB := buildUnsignedCarrierRevealTxMulti(txCTxid, vouts, revealVal, changeScript)
+									if errB != nil {
+										txRErr = errB.Error()
+									} else {
+										rHex, errSS := s.runSuchSetScriptSigMulti(hexMsgTx(unsignedR), scriptSigs, testnet)
+										if errSS != nil {
+											txRErr = errSS.Error()
+										} else {
+											sendOutR, errST := s.runSendtx(rHex, testnet, "")
+											sumR := summarizeSendtxOutput(sendOutR)
+											if errST != nil {
+												s.logBroadcastDetails("send_pq_safe_txr", sumR.BroadcastTxID, rHex, sendOutR, errST)
+												txRErr = errST.Error()
+											} else if sumR.ConnectedNodes == 0 {
+												s.logBroadcastDetails("send_pq_safe_txr", sumR.BroadcastTxID, rHex, sendOutR, nil)
+												txRErr = "sendtx TX_R connected to 0 peers"
+											} else {
+												txRID = normalizeTxid(sumR.BroadcastTxID)
+												if txRID == "" {
+													if rb, errR := hex.DecodeString(strings.TrimSpace(rHex)); errR == nil {
+														txRID = dogeLegacyTxidHex(rb)
+													}
+												}
+												s.logBroadcastDetails("send_pq_safe_txr", txRID, rHex, sendOutR, nil)
+												log.Printf("[pq-wallet] send_pq_safe TX_R ok txid=%s parts=%d", txRID, len(scriptSigs))
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	resp := map[string]any{
 		"ok":               true,
 		"code":             "sent",
 		"txid":             sendSummary.BroadcastTxID,
@@ -284,8 +454,21 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		"pq_commitment":    pqCommitment32Hex != "",
 		"pq_commitment_32": pqCommitment32Hex,
 		"pq_mode":          pqMode,
-		"signing_note":     "ECDSA P2PKH via such -c sign. PQ commitment output uses canonical Phase-1 OP_RETURN tag (FLC1) with 32-byte commitment.",
+		"pq_carrier_flow":                 carrierFlow,
+		"carrier_koinu":                   carrierKoinu,
+		"pq_carrier_economics_downgraded": econDowngraded,
+		"signing_note":                    "ECDSA P2PKH via such -c sign. With libdogecoin liboqs: TX_C adds FLC1 OP_RETURN + canonical P2SH carrier; TX_R reveals Falcon payload via pqc_carrier_mkpart (+ multi-part set_scriptsig when the payload spans several carrier outputs).",
 		"transport":        "libdogecoin_sendtx_p2p",
 		"transport_note":   "Same model as Dogecoin Wallet (Android): broadcast is wallet-to-network P2P (here libdogecoin sendtx), not JSON-RPC sendrawtransaction to a local Core node.",
-	})
+	}
+	if txRID != "" {
+		resp["tx_r_txid"] = txRID
+	}
+	if pqMkParts > 0 {
+		resp["pq_carrier_mkpart_parts"] = pqMkParts
+	}
+	if txRErr != "" {
+		resp["tx_r_error"] = txRErr
+	}
+	writeJSON(w, http.StatusOK, resp)
 }

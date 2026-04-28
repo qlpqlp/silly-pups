@@ -30,6 +30,32 @@ var (
 	reSPVDate  = regexp.MustCompile(`\b(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\s*UTC|Z)?)\b`)
 )
 
+// normalizeRESTDirectionHint maps libdogecoin / SPV REST text hints to in|out.
+func normalizeRESTDirectionHint(raw string) string {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	if s == "" {
+		return ""
+	}
+	if s == "in" || s == "recv" || s == "receive" || s == "incoming" || s == "credit" ||
+		strings.Contains(s, "receive") || strings.Contains(s, "recv") || strings.Contains(s, "credit") {
+		return "in"
+	}
+	if s == "out" || s == "send" || s == "sent" || s == "outgoing" || s == "spent" || s == "debit" ||
+		strings.Contains(s, "sent") || strings.Contains(s, "spent") || strings.Contains(s, "debit") {
+		return "out"
+	}
+	return ""
+}
+
+func directionFromRESTCur(cur map[string]string, fallback string) string {
+	for _, k := range []string{"direction", "type", "io", "kind", "in_out", "flow", "side"} {
+		if d := normalizeRESTDirectionHint(cur[k]); d != "" {
+			return d
+		}
+	}
+	return fallback
+}
+
 func parseSPVDateTime(s string) int64 {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -117,6 +143,12 @@ func parseSPVRESTRows(raw, direction string) []spvRESTTxRow {
 	parsePipeFallback := func(ln string) (spvRESTTxRow, bool) {
 		var row spvRESTTxRow
 		row.Direction = direction
+		lowLn := strings.ToLower(ln)
+		if strings.Contains(lowLn, "recv") || strings.Contains(lowLn, "receive") || strings.Contains(lowLn, "incoming") || strings.Contains(lowLn, "credit") {
+			row.Direction = "in"
+		} else if strings.Contains(lowLn, "sent") || strings.Contains(lowLn, "spent") || strings.Contains(lowLn, "debit") || strings.Contains(lowLn, "outgoing") {
+			row.Direction = "out"
+		}
 		if m := reSPVHex64.FindStringSubmatch(ln); len(m) >= 2 {
 			row.Txid = normalizeTxid(m[1])
 		}
@@ -197,12 +229,13 @@ func parseSPVRESTRows(raw, direction string) []spvRESTTxRow {
 		if seen.IsZero() {
 			seen = parseAnyToTime(cur["block_timestamp"])
 		}
+		rowDir := directionFromRESTCur(cur, direction)
 		rows = append(rows, spvRESTTxRow{
 			Txid:          txid,
 			Vout:          uint32(vout),
 			Address:       addr,
 			AmountDOGE:    absFloat(amt),
-			Direction:     direction,
+			Direction:     rowDir,
 			Confirmations: conf,
 			SeenAt:        seen,
 		})
@@ -461,13 +494,14 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 		return false
 	}
 	// UTXO rows alone do not reliably encode tx direction (change outputs can look like "in").
-	// Keep them as unknown; authoritative direction comes from /getTransactions and SPV wallet DB.
+	// Keep them as unknown unless the REST row includes an explicit direction hint.
 	rows := parseSPVRESTRows(utxoRaw, "unknown")
-	rows = append(rows, parseSPVRESTRows(txRaw, "out")...)
+	rows = append(rows, parseSPVRESTRows(txRaw, "unknown")...)
 	if len(rows) == 0 {
 		return false
 	}
 	byTxid := map[string]TxRecord{}
+	var txOrder []string
 	testnet := false
 	if wf, err := s.loadWallet(); err == nil && wf != nil {
 		testnet = strings.EqualFold(wf.Network, "testnet")
@@ -502,6 +536,7 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 				Source:        "spv",
 				SeenAt:        r.SeenAt,
 			}
+			txOrder = append(txOrder, id)
 			continue
 		}
 		prev.AmountDOGE += r.AmountDOGE
@@ -512,6 +547,10 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 		// keep it as OUT so sent txs do not get mislabeled as IN.
 		if strings.EqualFold(r.Direction, "out") {
 			prev.Direction = "out"
+		} else if strings.EqualFold(r.Direction, "in") && !strings.EqualFold(prev.Direction, "out") {
+			if prev.Direction == "" || strings.EqualFold(prev.Direction, "unknown") {
+				prev.Direction = "in"
+			}
 		} else if prev.Direction == "" {
 			prev.Direction = r.Direction
 		}
@@ -526,9 +565,9 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 	if len(byTxid) == 0 {
 		return false
 	}
-	incoming := make([]TxRecord, 0, len(byTxid))
-	for _, tr := range byTxid {
-		incoming = append(incoming, tr)
+	incoming := make([]TxRecord, 0, len(txOrder))
+	for _, id := range txOrder {
+		incoming = append(incoming, byTxid[id])
 	}
 	before := len(st.Transactions)
 	merged := mergeTxRecords(st.Transactions, incoming)

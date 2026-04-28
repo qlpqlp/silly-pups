@@ -1,17 +1,11 @@
 package main
 
 import (
-	"encoding/hex"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"strings"
 )
-
-type rawTxWalletView struct {
-	IncomingDOGE float64
-	Address      string
-	Matched      bool
-}
 
 func walletP2PKHHash160Map(wf *WalletFile) map[string]string {
 	out := make(map[string]string)
@@ -32,8 +26,27 @@ func walletP2PKHHash160Map(wf *WalletFile) map[string]string {
 	return out
 }
 
-func decodeSPVRawTxWalletView(rawHex string, walletByHash160 map[string]string) (rawTxWalletView, error) {
-	var out rawTxWalletView
+func dogeP2PKHAddrFromH160(h160 []byte, testnet bool) string {
+	if len(h160) != 20 {
+		return ""
+	}
+	ver := byte(0x1e)
+	if testnet {
+		ver = 0x71
+	}
+	return base58CheckEncode(ver, h160)
+}
+
+// rawTxFlow classifies legacy P2PKH outputs between this wallet and external counterparties.
+type rawTxFlow struct {
+	WalletSats   int64
+	ExternalSats int64
+	WalletAddr   string
+	ExternalAddr string
+}
+
+func decodeSPVRawTxFlow(rawHex string, walletByHash160 map[string]string, testnet bool) (rawTxFlow, error) {
+	var out rawTxFlow
 	rawHex = strings.TrimSpace(strings.ToLower(rawHex))
 	if rawHex == "" {
 		return out, errors.New("empty raw hex")
@@ -46,12 +59,10 @@ func decodeSPVRawTxWalletView(rawHex string, walletByHash160 map[string]string) 
 		return out, errors.New("raw tx too short")
 	}
 	off := 0
-	// version
 	if off+4 > len(raw) {
 		return out, errors.New("truncated version")
 	}
 	off += 4
-	// segwit marker+flag (defensive; doge uses legacy, but parser stays tolerant)
 	if off+2 <= len(raw) && raw[off] == 0x00 && raw[off+1] == 0x01 {
 		off += 2
 	}
@@ -63,7 +74,7 @@ func decodeSPVRawTxWalletView(rawHex string, walletByHash160 map[string]string) 
 		if off+36 > len(raw) {
 			return out, errors.New("truncated txin")
 		}
-		off += 36 // prevout hash + index
+		off += 36
 		slen, err := readCompactSize(raw, &off)
 		if err != nil {
 			return out, err
@@ -80,8 +91,7 @@ func decodeSPVRawTxWalletView(rawHex string, walletByHash160 map[string]string) 
 	if err != nil {
 		return out, err
 	}
-	var incomingSats int64
-	firstAddr := ""
+	var bestWalletVal, bestExtVal int64
 	for i := 0; i < int(nout); i++ {
 		if off+8 > len(raw) {
 			return out, errors.New("truncated output value")
@@ -96,18 +106,29 @@ func decodeSPVRawTxWalletView(rawHex string, walletByHash160 map[string]string) 
 			return out, errors.New("truncated scriptPubKey")
 		}
 		script := raw[off-int(slen) : off]
-		if h160, ok := p2pkhHash160FromScript(script); ok {
-			if addr, ok := walletByHash160[hex.EncodeToString(h160)]; ok {
-				out.Matched = true
-				incomingSats += valueSats
-				if firstAddr == "" {
-					firstAddr = addr
-				}
+		h160, ok := p2pkhHash160FromScript(script)
+		if !ok {
+			continue
+		}
+		hh := hex.EncodeToString(h160)
+		if addr, ok := walletByHash160[hh]; ok {
+			out.WalletSats += valueSats
+			if valueSats >= bestWalletVal {
+				bestWalletVal = valueSats
+				out.WalletAddr = addr
 			}
+			continue
+		}
+		extAddr := dogeP2PKHAddrFromH160(h160, testnet)
+		if extAddr == "" {
+			continue
+		}
+		out.ExternalSats += valueSats
+		if valueSats >= bestExtVal {
+			bestExtVal = valueSats
+			out.ExternalAddr = extAddr
 		}
 	}
-	out.IncomingDOGE = float64(incomingSats) / 1e8
-	out.Address = firstAddr
 	return out, nil
 }
 
@@ -177,41 +198,67 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 	if len(walletByHash160) == 0 {
 		return false
 	}
+	testnet := strings.EqualFold(wf.Network, "testnet")
 	changed := false
-	cache := make(map[string]rawTxWalletView)
+	cache := make(map[string]rawTxFlow)
 	for i := range st.Transactions {
 		tx := &st.Transactions[i]
 		raw := strings.TrimSpace(tx.RawHex)
 		if raw == "" {
 			continue
 		}
-		needs := tx.AmountDOGE == 0 || tx.Address == "" || strings.EqualFold(tx.Direction, "unknown") || tx.Direction == ""
-		if !needs {
-			continue
-		}
-		view, ok := cache[raw]
+		fl, ok := cache[raw]
 		if !ok {
-			v, err := decodeSPVRawTxWalletView(raw, walletByHash160)
+			v, err := decodeSPVRawTxFlow(raw, walletByHash160, testnet)
 			if err != nil {
 				continue
 			}
 			cache[raw] = v
-			view = v
+			fl = v
 		}
-		if !view.Matched {
+		if fl.WalletSats == 0 && fl.ExternalSats == 0 {
 			continue
 		}
-		if tx.AmountDOGE == 0 && view.IncomingDOGE > 0 {
-			tx.AmountDOGE = view.IncomingDOGE
+		isRecv := fl.ExternalSats == 0 && fl.WalletSats > 0
+		isSend := fl.ExternalSats > 0
+		dirBad := (isRecv && strings.EqualFold(tx.Direction, "out")) || (isSend && !isRecv && strings.EqualFold(tx.Direction, "in"))
+		needs := tx.AmountDOGE == 0 || tx.Address == "" || strings.EqualFold(tx.Direction, "unknown") || tx.Direction == "" || dirBad
+		if !needs {
+			if tx.Source == "" {
+				tx.Source = "spv"
+				changed = true
+			}
+			continue
+		}
+		if isRecv {
+			tx.Direction = "in"
+			amt := round2(float64(fl.WalletSats) / 1e8)
+			if tx.AmountDOGE == 0 || dirBad {
+				tx.AmountDOGE = amt
+				changed = true
+			} else if strings.EqualFold(tx.Direction, "unknown") || tx.Direction == "" {
+				tx.AmountDOGE = amt
+				changed = true
+			}
+			if tx.Address == "" && fl.WalletAddr != "" {
+				tx.Address = fl.WalletAddr
+				changed = true
+			}
+			tx.FeeDOGE = 0
+			changed = true
+		} else if isSend {
+			tx.Direction = "out"
+			amt := round2(float64(fl.ExternalSats) / 1e8)
+			if tx.AmountDOGE == 0 || dirBad || strings.EqualFold(tx.Direction, "unknown") || tx.Direction == "" {
+				tx.AmountDOGE = amt
+				changed = true
+			}
+			if tx.Address == "" && fl.ExternalAddr != "" {
+				tx.Address = fl.ExternalAddr
+				changed = true
+			}
 			changed = true
 		}
-		if tx.Address == "" && view.Address != "" {
-			tx.Address = view.Address
-			changed = true
-		}
-		// Do not force direction from raw-output matching alone.
-		// During sync, outgoing txs can include wallet change outputs, which would
-		// look "incoming" here and cause temporary wrong IN labels.
 		if tx.Source == "" {
 			tx.Source = "spv"
 			changed = true

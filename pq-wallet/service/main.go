@@ -36,6 +36,9 @@ type Server struct {
 	stateMergeMu  sync.Mutex // serializes loadState + SPV/mempool merges + saveState (do not hold s.mu across slow I/O)
 	spvStartMu    sync.Mutex
 	suchMergeMu   sync.Mutex
+	suchProbeMu   sync.Mutex
+	suchProbeAt   time.Time
+	suchProbeData map[string]any
 	storageDir    string
 	walletPath    string
 	watchPath     string

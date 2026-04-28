@@ -600,14 +600,16 @@ function buildTxExpandableCard(tx, includeSource) {
   const conf = Number(tx.confirmations || 0);
   const pending = !!tx.pending || conf <= 0 || String(tx.source || "").toLowerCase() === "memetracker";
   const dir = String(tx.direction || "unknown").toLowerCase();
-  const dirLabel = dir === "in" ? "In" : dir === "out" ? "Out" : "Unknown";
-  const sign = dir === "out" ? "-" : dir === "in" ? "+" : "";
-  const amount = tx.amount_doge != null && !Number.isNaN(Number(tx.amount_doge))
-    ? `${sign}${Number(tx.amount_doge).toFixed(2)} DOGE`
-    : "—";
+  const nAmt = tx.amount_doge != null && !Number.isNaN(Number(tx.amount_doge)) ? Number(tx.amount_doge) : null;
+  let sign = "";
+  if (dir === "out") sign = "-";
+  else if (dir === "in") sign = "+";
+  else if (nAmt != null && nAmt > 0) sign = "+";
+  const amount = nAmt != null ? `${sign}${nAmt.toFixed(2)} DOGE` : "—";
   const seen = tx.seen_at ? fmtTime(tx.seen_at) : "—";
   const isConfirmed = conf > 0;
   const short = txidFull ? txidFull.slice(0, 18) + (txidFull.length > 18 ? "…" : "") : "—";
+  const addrLine = String(tx.address || "").trim() || "—";
   const card = document.createElement("details");
   card.className = "tx-card tx-card-modern";
   card.setAttribute("role", "listitem");
@@ -615,25 +617,28 @@ function buildTxExpandableCard(tx, includeSource) {
   const summary = document.createElement("summary");
   const left = document.createElement("div");
   left.className = "tx-main";
-  const top = document.createElement("div");
-  top.className = "tx-main-top";
-  const confPie = document.createElement("span");
-  confPie.className = "tx-conf-pie";
-  const percent = Math.max(0, Math.min(100, Math.floor((conf / 4) * 100))); // 4 conf = 100%
-  confPie.style.setProperty("--pct", `${percent}%`);
-  confPie.classList.toggle("pending", pending);
-  confPie.title = pending ? "Seen in mempool" : `${conf} confirmations`;
-  confPie.setAttribute("aria-label", confPie.title);
-  const dirPill = document.createElement("span");
-  dirPill.className = `tx-dir-pill ${dir === "in" ? "in" : dir === "out" ? "out" : ""}`;
-  dirPill.textContent = dirLabel;
-  dirPill.title = dirLabel;
-  top.appendChild(confPie);
-  top.appendChild(dirPill);
-  left.appendChild(top);
+  const row1 = document.createElement("div");
+  row1.className = "tx-main-top tx-main-row-wallet";
+  const statusDot = document.createElement("span");
+  statusDot.className = "tx-status-dot";
+  statusDot.classList.toggle("pending", pending);
+  statusDot.classList.toggle("confirmed", !pending && isConfirmed);
+  statusDot.title = pending ? "Mempool / unconfirmed" : `Confirmed (${conf} confirmation${conf === 1 ? "" : "s"})`;
+  statusDot.setAttribute("aria-label", statusDot.title);
+  const timeEl = document.createElement("span");
+  timeEl.className = "tx-time-inline";
+  timeEl.textContent = seen;
+  const addrEl = document.createElement("span");
+  addrEl.className = "tx-addr-inline mono";
+  addrEl.textContent = addrLine;
+  addrEl.title = addrLine;
+  row1.appendChild(statusDot);
+  row1.appendChild(timeEl);
+  row1.appendChild(addrEl);
+  left.appendChild(row1);
   const meta = document.createElement("div");
   meta.className = "tx-meta-line mono";
-  meta.textContent = `${short} · ${seen}`;
+  meta.textContent = short;
   left.appendChild(meta);
   const right = document.createElement("div");
   right.style.display = "flex";
@@ -641,6 +646,8 @@ function buildTxExpandableCard(tx, includeSource) {
   right.style.gap = "0.5rem";
   const amt = document.createElement("span");
   amt.className = "tx-card-amt mono";
+  if (sign === "+") amt.classList.add("tx-amt-in");
+  else if (sign === "-") amt.classList.add("tx-amt-out");
   amt.textContent = amount;
   const caret = document.createElement("span");
   caret.className = "material-symbols-outlined tx-expand-caret";
@@ -666,17 +673,22 @@ function buildTxExpandableCard(tx, includeSource) {
     body.appendChild(row);
   }
   addRow("Txid", txidFull || "—", true);
-  addRow("Direction", dirLabel, false);
   addRow(isConfirmed ? "Block time" : "Seen", seen, false);
-  addRow("Address", tx.address || "—", true);
+  addRow("Address", addrLine, true);
+  const feeN = Number(tx.fee_doge);
+  if (dir === "out") {
+    addRow("Network fee", Number.isFinite(feeN) && feeN > 0 ? `${feeN.toFixed(4)} DOGE` : "—", false);
+  }
   addRow("PQ", tx.pq_hint ? "Yes" : "No", false);
   if (includeSource) addRow("Source", tx.source || "—", false);
   if (txidFull) {
     const row = document.createElement("div");
-    row.className = "tx-card-row";
+    row.className = "tx-card-row tx-card-row-actions";
     const k = document.createElement("span");
     k.className = "tx-card-k";
     k.textContent = "Actions";
+    const wrap = document.createElement("div");
+    wrap.className = "tx-actions-wrap";
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "btn btn-sm";
@@ -686,8 +698,22 @@ function buildTxExpandableCard(tx, includeSource) {
       e.stopPropagation();
       openTxDetailModal(tx);
     });
+    const a = document.createElement("a");
+    a.className = "btn btn-sm btn-icon-sochain";
+    a.href = sochainTxUrl(txidFull);
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.title = "View on SoChain";
+    a.setAttribute("aria-label", "View on SoChain");
+    a.addEventListener("click", (e) => e.stopPropagation());
+    const ic = document.createElement("span");
+    ic.className = "material-symbols-outlined";
+    ic.textContent = "open_in_new";
+    a.appendChild(ic);
+    wrap.appendChild(btn);
+    wrap.appendChild(a);
     row.appendChild(k);
-    row.appendChild(btn);
+    row.appendChild(wrap);
     body.appendChild(row);
   }
   card.appendChild(body);

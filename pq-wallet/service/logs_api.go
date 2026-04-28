@@ -23,6 +23,34 @@ func readLastNLinesFromFile(path string, maxBytes, n int) (string, error) {
 	return strings.Join(lines[len(lines)-n:], "\n"), nil
 }
 
+// augmentSPVLogWithHeaderHashes appends block hash (from SQLite headers.db) to lines that mention a height but have no 64-hex hash yet.
+func (s *Server) augmentSPVLogWithHeaderHashes(text string) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	lines := strings.Split(text, "\n")
+	for i, ln := range lines {
+		if reBlockHash.MatchString(ln) {
+			continue
+		}
+		var h int64
+		if m := reLooseHeight.FindStringSubmatch(ln); len(m) > 1 {
+			h, _ = strconv.ParseInt(m[1], 10, 64)
+		} else if m := reBlockAt.FindStringSubmatch(ln); len(m) > 1 {
+			h, _ = strconv.ParseInt(m[1], 10, 64)
+		} else if m := reHeaderHeight.FindStringSubmatch(ln); len(m) > 1 {
+			h, _ = strconv.ParseInt(m[1], 10, 64)
+		}
+		if h <= 0 {
+			continue
+		}
+		hash := s.sqliteHeaderHashAtHeight(h)
+		if hash == "" {
+			continue
+		}
+		lines[i] = strings.TrimRight(ln, " \t") + "  hash=" + hash
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (s *Server) handleLogsSPV(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET only"})
@@ -41,6 +69,7 @@ func (s *Server) handleLogsSPV(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("(spv log empty or unavailable)\n"))
 		return
 	}
+	text = s.augmentSPVLogWithHeaderHashes(text)
 	_, _ = w.Write([]byte(text))
 }
 

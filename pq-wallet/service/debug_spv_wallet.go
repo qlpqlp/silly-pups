@@ -116,22 +116,30 @@ func (s *Server) nonSQLiteVirtualRows(wf *WalletFile, table string) ([]map[strin
 	case "transactions":
 		all := []map[string]any{}
 		if raw, err := s.fetchSPVREST("/getUTXOs"); err == nil {
-			for _, r := range parseSPVRESTRows(raw, "in") {
+			for _, r := range parseSPVRESTRows(raw, "unknown") {
+				dir := strings.TrimSpace(strings.ToLower(r.Direction))
+				if dir == "" {
+					dir = "unknown"
+				}
 				all = append(all, map[string]any{
 					"txid":          normalizeTxid(r.Txid),
 					"address":       r.Address,
-					"direction":     "in",
+					"direction":     dir,
 					"amount_doge":   r.AmountDOGE,
 					"confirmations": r.Confirmations,
 				})
 			}
 		}
 		if raw, err := s.fetchSPVREST("/getTransactions"); err == nil {
-			for _, r := range parseSPVRESTRows(raw, "out") {
+			for _, r := range parseSPVRESTRows(raw, "unknown") {
+				dir := strings.TrimSpace(strings.ToLower(r.Direction))
+				if dir == "" {
+					dir = "unknown"
+				}
 				all = append(all, map[string]any{
 					"txid":          normalizeTxid(r.Txid),
 					"address":       r.Address,
-					"direction":     "out",
+					"direction":     dir,
 					"amount_doge":   r.AmountDOGE,
 					"confirmations": r.Confirmations,
 				})

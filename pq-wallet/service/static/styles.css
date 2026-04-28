@@ -1034,6 +1034,78 @@ body {
   gap: 0.45rem;
 }
 
+.tx-main-row-wallet {
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.tx-status-dot {
+  flex: 0 0 auto;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: #43d18f;
+  box-shadow: 0 0 0 2px rgba(67, 209, 143, 0.35);
+}
+
+.tx-status-dot.pending {
+  background: transparent;
+  border: 2px solid #f2cb2c;
+  box-shadow: none;
+}
+
+.tx-status-dot.confirmed {
+  background: #43d18f;
+}
+
+.tx-time-inline {
+  flex: 0 0 auto;
+  font-size: 0.82rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.tx-addr-inline {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tx-amt-in {
+  color: #4ade80 !important;
+}
+
+.tx-amt-out {
+  color: #fb923c !important;
+}
+
+.tx-actions-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.btn-icon-sochain {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.25rem;
+  padding: 0.35rem 0.5rem;
+  text-decoration: none;
+}
+
+.btn-icon-sochain .material-symbols-outlined {
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
 .tx-conf-pie {
   --pct: 0%;
   width: 0.95rem;
@@ -1124,6 +1196,10 @@ body {
   font-size: 1.05rem;
   font-weight: 700;
   color: var(--accent);
+}
+
+.tx-card-amt:not(.tx-amt-in):not(.tx-amt-out) {
+  color: var(--muted);
 }
 
 .tx-card-body {

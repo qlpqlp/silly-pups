@@ -28,6 +28,10 @@ var (
 	reSuchAnyHexValue = regexp.MustCompile(`(?i)\b([0-9a-f]{64,})\b`)
 	reSuchUTXOLine    = regexp.MustCompile(`(?i)\btxid[=: ]+([a-f0-9]{64})\b.*?\bvout[=: ]+(\d+)\b.*?\b(?:value|amount|koinu|satoshis)[=: ]+(-?\d+(?:\.\d+)?)`)
 	reSendtxStartTxid = regexp.MustCompile(`(?i)start broadcasting transaction:\s*([a-f0-9]{64})`)
+	reSuchFlexibleTxHex = regexp.MustCompile(`(?i)(?:signed|unsigned|modified)\s+TX\s*:\s*([0-9a-f]+)`)
+	reSuchCarrierSPK   = regexp.MustCompile(`(?i)carrier_p2sh_scriptpubkey:\s*([0-9a-f]+)`)
+	reSuchCarrierMkSig = regexp.MustCompile(`(?i)carrier_part_scriptsig\[(\d+)\]\s*:\s*([0-9a-f]+)`)
+	reSuchLongHex      = regexp.MustCompile(`\b([0-9a-f]{200,})\b`)
 )
 
 // runSuchP2PKHWallet runs `such -c generate_private_key` then `such -c generate_public_key -p <WIF>` (libdogecoin ECC + base58).
@@ -277,6 +281,236 @@ func (s *Server) runSuchFalconSign(msgHex, privHex string, testnet bool) (string
 		return "", fmt.Errorf("falcon signature parse failed")
 	}
 	return strings.ToLower(strings.TrimSpace(best)), nil
+}
+
+// parseSuchTransactionHex extracts raw transaction hex from such stdout (sign / set_scriptsig / falcon_add_*).
+func parseSuchTransactionHex(text string) string {
+	text = strings.TrimSpace(text)
+	if m := reSuchFlexibleTxHex.FindStringSubmatch(text); len(m) >= 2 && len(m[1]) >= 120 {
+		return strings.ToLower(m[1])
+	}
+	if m := reSuchSignedTx.FindStringSubmatch(text); len(m) >= 2 && len(m[1]) >= 120 {
+		return strings.ToLower(m[1])
+	}
+	best := ""
+	for _, m := range reSuchLongHex.FindAllStringSubmatch(text, -1) {
+		if len(m) >= 2 && len(m[1]) > len(best) {
+			best = strings.ToLower(m[1])
+		}
+	}
+	return best
+}
+
+func (s *Server) runSuchFalconAddCommitAndCarrierTx(unsignedHex, commit32Hex, pubHex, sigHex string, carrierKoinu int64, testnet bool) (string, error) {
+	unsignedHex = strings.TrimSpace(unsignedHex)
+	commit32Hex = strings.TrimSpace(commit32Hex)
+	pubHex = strings.TrimSpace(pubHex)
+	sigHex = strings.TrimSpace(sigHex)
+	if unsignedHex == "" || commit32Hex == "" || pubHex == "" || sigHex == "" {
+		return "", fmt.Errorf("missing falcon_add_commit_and_carrier_tx argument")
+	}
+	if carrierKoinu <= 0 {
+		carrierKoinu = 100_000_000
+	}
+	args := []string{
+		"-c", "falcon_add_commit_and_carrier_tx",
+		"-x", unsignedHex,
+		"-m", commit32Hex,
+		"-k", pubHex,
+		"-s", sigHex,
+		"-h", strconv.FormatInt(carrierKoinu, 10),
+	}
+	if testnet {
+		args = append([]string{"-t"}, args...)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, s.suchPath(), args...)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("such falcon_add_commit_and_carrier_tx: %w — %s", err, truncateStr(out.String(), 800))
+	}
+	h := parseSuchTransactionHex(out.String())
+	if h == "" {
+		return "", fmt.Errorf("falcon_add_commit_and_carrier_tx: no transaction hex in output: %s", truncateStr(out.String(), 1200))
+	}
+	return h, nil
+}
+
+func (s *Server) runSuchPqcCarrierScriptPubkey(testnet bool) (string, error) {
+	args := []string{"-c", "pqc_carrier_scriptpubkey"}
+	if testnet {
+		args = append([]string{"-t"}, args...)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, s.suchPath(), args...)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("such pqc_carrier_scriptpubkey: %w — %s", err, truncateStr(out.String(), 600))
+	}
+	if m := reSuchCarrierSPK.FindStringSubmatch(out.String()); len(m) >= 2 && len(m[1]) >= 4 {
+		return strings.ToLower(strings.TrimSpace(m[1])), nil
+	}
+	return "", fmt.Errorf("pqc_carrier_scriptpubkey: parse failed: %s", truncateStr(out.String(), 800))
+}
+
+func (s *Server) runSuchPqcCarrierMkpart(tag4Hex, pubHex, sigHex string, partIndex int, testnet bool) (string, error) {
+	tag4Hex = strings.TrimSpace(tag4Hex)
+	pubHex = strings.TrimSpace(pubHex)
+	sigHex = strings.TrimSpace(sigHex)
+	if tag4Hex == "" || pubHex == "" || sigHex == "" {
+		return "", fmt.Errorf("missing pqc_carrier_mkpart argument")
+	}
+	args := []string{
+		"-c", "pqc_carrier_mkpart",
+		"-k", tag4Hex,
+		"-p", pubHex,
+		"-s", sigHex,
+		"-i", strconv.Itoa(partIndex),
+	}
+	if testnet {
+		args = append([]string{"-t"}, args...)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, s.suchPath(), args...)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("such pqc_carrier_mkpart: %w — %s", err, truncateStr(out.String(), 800))
+	}
+	txt := out.String()
+	if m := reSuchCarrierMkSig.FindStringSubmatch(txt); len(m) >= 3 {
+		if pi, err := strconv.Atoi(m[1]); err == nil && pi == partIndex {
+			return strings.ToLower(strings.TrimSpace(m[2])), nil
+		}
+	}
+	return "", fmt.Errorf("pqc_carrier_mkpart: parse failed: %s", truncateStr(txt, 1200))
+}
+
+func (s *Server) runSuchSetScriptSig(rawHex string, vin int, scriptSigHex string, testnet bool) (string, error) {
+	rawHex = strings.TrimSpace(rawHex)
+	scriptSigHex = strings.TrimSpace(scriptSigHex)
+	if rawHex == "" || scriptSigHex == "" {
+		return "", fmt.Errorf("empty set_scriptsig argument")
+	}
+	args := []string{
+		"-c", "set_scriptsig",
+		"-x", rawHex,
+		"-i", strconv.Itoa(vin),
+		"-s", scriptSigHex,
+	}
+	if testnet {
+		args = append([]string{"-t"}, args...)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, s.suchPath(), args...)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("such set_scriptsig: %w — %s", err, truncateStr(out.String(), 800))
+	}
+	h := parseSuchTransactionHex(out.String())
+	if h == "" {
+		return "", fmt.Errorf("set_scriptsig: no transaction hex in output: %s", truncateStr(out.String(), 1200))
+	}
+	return h, nil
+}
+
+// runSuchSetScriptSigMulti applies set_scriptsig for vin 0..len(sigs)-1 in order.
+func (s *Server) runSuchSetScriptSigMulti(rawHex string, sigs []string, testnet bool) (string, error) {
+	h := strings.TrimSpace(rawHex)
+	for i, sg := range sigs {
+		var err error
+		h, err = s.runSuchSetScriptSig(h, i, sg, testnet)
+		if err != nil {
+			return "", fmt.Errorf("set_scriptsig vin %d: %w", i, err)
+		}
+	}
+	return h, nil
+}
+
+// collectCarrierScriptSigs calls pqc_carrier_mkpart for part indices 0,1,... until the tool errors (single-part payloads stop at i=1).
+func (s *Server) collectCarrierScriptSigs(tag4Hex, pubHex, sigHex string, testnet bool) ([]string, error) {
+	var out []string
+	for i := 0; i < 48; i++ {
+		sg, err := s.runSuchPqcCarrierMkpart(tag4Hex, pubHex, sigHex, i, testnet)
+		if err != nil {
+			if i == 0 {
+				return nil, err
+			}
+			break
+		}
+		out = append(out, sg)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no carrier scriptSig parts from pqc_carrier_mkpart")
+	}
+	return out, nil
+}
+
+// probeSuchPQC runs lightweight such probes (short timeout) to report whether the liboqs/PQC CLI surface is present.
+func (s *Server) probeSuchPQC(ctx context.Context) map[string]any {
+	out := map[string]any{"such_path": s.suchPath()}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	args := []string{"-c", "pqc_carrier_scriptpubkey"}
+	cmd := exec.CommandContext(ctx, s.suchPath(), args...)
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	err := cmd.Run()
+	txt := buf.String()
+	if err != nil {
+		out["pqc_carrier_scriptpubkey_ok"] = false
+		out["pqc_carrier_scriptpubkey_error"] = truncateStr(strings.TrimSpace(txt+" | "+err.Error()), 500)
+	} else if m := reSuchCarrierSPK.FindStringSubmatch(txt); len(m) >= 2 {
+		out["pqc_carrier_scriptpubkey_ok"] = true
+		out["carrier_p2sh_scriptpubkey_hex"] = strings.ToLower(strings.TrimSpace(m[1]))
+	} else {
+		out["pqc_carrier_scriptpubkey_ok"] = false
+		out["pqc_carrier_scriptpubkey_error"] = truncateStr(txt, 500)
+	}
+	// Missing-args invocation distinguishes "unknown command" (non-OQS build) from a usage / missing-parameter error.
+	args2 := []string{"-c", "falcon_add_commit_and_carrier_tx"}
+	cmd2 := exec.CommandContext(ctx, s.suchPath(), args2...)
+	var b2 bytes.Buffer
+	cmd2.Stdout = &b2
+	cmd2.Stderr = &b2
+	_ = cmd2.Run()
+	t2 := strings.ToLower(b2.String())
+	if strings.Contains(t2, "unknown command") {
+		out["falcon_add_commit_and_carrier_tx"] = false
+	} else {
+		out["falcon_add_commit_and_carrier_tx"] = true
+	}
+	return out
+}
+
+func (s *Server) cachedSuchPQCProbe(ctx context.Context) map[string]any {
+	s.suchProbeMu.Lock()
+	defer s.suchProbeMu.Unlock()
+	if s.suchProbeData != nil && time.Since(s.suchProbeAt) < 2*time.Minute {
+		return s.suchProbeData
+	}
+	c := ctx
+	if c == nil {
+		c = context.Background()
+	}
+	c, cancel := context.WithTimeout(c, 6*time.Second)
+	defer cancel()
+	s.suchProbeData = s.probeSuchPQC(c)
+	s.suchProbeAt = time.Now()
+	return s.suchProbeData
 }
 
 // runSuchListUnspent tries to use a native libdogecoin/such unspent query command.
@@ -795,6 +1029,9 @@ func (s *Server) readSPVStatus() map[string]any {
 		"log_file":            logPath,
 		"storage_dir":         s.storageDir,
 		"spv_http_url":        s.spvHTTPBaseURL(),
+	}
+	if tail, err := readFileTail(logPath, 384*1024); err == nil && strings.TrimSpace(tail) != "" {
+		out["log_tail"] = tail
 	}
 	hdb := filepath.Join(s.storageDir, "headers.db")
 	wdb := filepath.Join(s.storageDir, "spv_wallet.db")

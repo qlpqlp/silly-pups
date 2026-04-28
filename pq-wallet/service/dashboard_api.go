@@ -166,13 +166,13 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		rawChanged = s.applySPVRawHex(st, logTail)
 		confirmChanged = s.applySPVConfirmations(st, logTail)
 	}
-	enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
 	restChanged := s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
 	dbChanged := s.mergeTransactionsFromSPVWalletDB(wf, st)
 	suchChanged := false
 	if s.shouldRunSuchMerge(20 * time.Second) {
 		suchChanged = s.mergeTransactionsFromSuchListUnspent(wf, st)
 	}
+	enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
 	if seenChanged || rawChanged || confirmChanged || enrichedChanged || restChanged || dbChanged || suchChanged {
 		_ = s.saveState(st)
 	}
@@ -260,6 +260,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 				"memetracker_p2p_active":        mtrP2PActive,
 				"memetracker_workers_connected": mtrConn,
 				"memetracker_mempool_tx_count":  mtrCount,
+				"such_pqc":                      s.cachedSuchPQCProbe(r.Context()),
 			},
 			"spv": map[string]any{
 				"running":          running,
@@ -438,13 +439,13 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 		rawChanged = s.applySPVRawHex(st, logTail)
 		confirmChanged = s.applySPVConfirmations(st, logTail)
 	}
-	enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
 	restChanged := s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
 	dbChanged := s.mergeTransactionsFromSPVWalletDB(wf, st)
 	suchChanged := false
 	if s.shouldRunSuchMerge(20 * time.Second) {
 		suchChanged = s.mergeTransactionsFromSuchListUnspent(wf, st)
 	}
+	enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
 	if changed || rawChanged || confirmChanged || enrichedChanged || restChanged || dbChanged || suchChanged {
 		_ = s.saveState(st)
 	}
@@ -830,12 +831,10 @@ func (s *Server) backgroundMetricsLoop() {
 		_ = s.applySPVSeenTxids(st, logTail)
 		_ = s.applySPVConfirmations(st, logTail)
 		_ = s.applySPVRawHex(st, logTail)
-		_ = s.enrichSPVTxFromRawHex(st, wf)
 		_ = s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
 		_ = s.mergeTransactionsFromSPVWalletDB(wf, st)
-		if s.mergeTransactionsFromSuchListUnspent(wf, st) {
-			_ = s.enrichSPVTxFromRawHex(st, wf)
-		}
+		_ = s.mergeTransactionsFromSuchListUnspent(wf, st)
+		_ = s.enrichSPVTxFromRawHex(st, wf)
 		mempoolRelay := 0
 		if eng, eerr := s.ensureMempoolEngine(wf); eerr == nil && eng != nil {
 			mempoolRelay, _, _, _ = eng.DashboardSnapshot()

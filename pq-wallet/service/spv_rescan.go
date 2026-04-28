@@ -141,6 +141,87 @@ func sqlite3PickHeightColumn(ctx context.Context, sqlite3Bin, dbPath, table stri
 	return ""
 }
 
+func sqlite3PickHashColumn(ctx context.Context, sqlite3Bin, dbPath, table string) string {
+	q := fmt.Sprintf(`PRAGMA table_info(%s);`, sqlite3QuoteIdent(table))
+	cmd := exec.CommandContext(ctx, sqlite3Bin, "-bail", "-batch", dbPath, q)
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	var candidates []string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "|")
+		if len(parts) < 2 {
+			continue
+		}
+		col := strings.TrimSpace(parts[1])
+		low := strings.ToLower(col)
+		if low == "txid" || strings.Contains(low, "prev_block") || strings.Contains(low, "witness") {
+			continue
+		}
+		if strings.Contains(low, "hash") {
+			candidates = append(candidates, col)
+		}
+	}
+	for _, col := range candidates {
+		if strings.EqualFold(col, "block_hash") {
+			return col
+		}
+	}
+	for _, col := range candidates {
+		if strings.EqualFold(col, "hash") {
+			return col
+		}
+	}
+	if len(candidates) > 0 {
+		return candidates[0]
+	}
+	return ""
+}
+
+// sqliteHeaderHashAtHeight looks up a 64-hex block hash for a height in SQLite headers.db (libdogecoin layout varies by version).
+func (s *Server) sqliteHeaderHashAtHeight(height int64) string {
+	if height <= 0 || s == nil || strings.TrimSpace(s.storageDir) == "" {
+		return ""
+	}
+	dbPath := filepath.Join(s.storageDir, "headers.db")
+	if !isSQLiteDBFile(dbPath) {
+		return ""
+	}
+	sqlite3Bin, err := exec.LookPath("sqlite3")
+	if err != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	tables, err := sqlite3ListTables(ctx, sqlite3Bin, dbPath)
+	if err != nil {
+		return ""
+	}
+	for _, tbl := range tables {
+		hcol := sqlite3PickHeightColumn(ctx, sqlite3Bin, dbPath, tbl)
+		bcol := sqlite3PickHashColumn(ctx, sqlite3Bin, dbPath, tbl)
+		if hcol == "" || bcol == "" {
+			continue
+		}
+		q := fmt.Sprintf(`SELECT %s FROM %s WHERE %s = %d LIMIT 1;`, sqlite3QuoteIdent(bcol), sqlite3QuoteIdent(tbl), sqlite3QuoteIdent(hcol), height)
+		cmd := exec.CommandContext(ctx, sqlite3Bin, "-noheader", "-batch", dbPath, q)
+		b, err := cmd.Output()
+		if err != nil {
+			continue
+		}
+		h := normalizeTxid(strings.TrimSpace(string(b)))
+		if len(h) == 64 {
+			return h
+		}
+	}
+	return ""
+}
+
 // sqlite3DeleteHeadersAbove removes rows with height > keepHeight from every table that has a height-like column.
 func sqlite3DeleteHeadersAbove(ctx context.Context, sqlite3Bin, dbPath string, keepHeight int64) ([]string, error) {
 	if keepHeight < 0 {

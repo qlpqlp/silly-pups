@@ -300,19 +300,45 @@ async function refreshLogs() {
       }, ms);
       return c.signal;
     };
-    const [mtr, bc] = await Promise.all([
+    const [mtr, bc, spvStatus] = await Promise.all([
       fetch("/api/logs/mempooltracker", { signal: mkSignal(15000) }).then((r) => r.text()),
       fetch("/api/logs/broadcast?lines=200", { signal: mkSignal(15000) }).then((r) => r.text()),
+      api("/api/spv/status", { timeout_ms: 12000 }),
     ]);
     const elM = $("log-mtr");
     const elB = $("log-bc");
+    const elHashes = $("log-spv-hashes");
     if (elM) elM.textContent = mtr;
     if (elB) elB.textContent = bc;
+    if (elHashes) {
+      const tail = spvStatus && spvStatus.log_tail ? String(spvStatus.log_tail) : "";
+      const rows = extractRecentHeaderHashes(tail, 16);
+      elHashes.textContent = rows.length ? rows.join("\n") : "No recent header hashes detected yet.";
+    }
   } catch {
     /* ignore */
   } finally {
     state.inFlightLogs = false;
   }
+}
+
+function extractRecentHeaderHashes(logTail, maxRows) {
+  const out = [];
+  const seen = new Set();
+  const tail = String(logTail || "");
+  if (!tail) return out;
+  const lines = tail.split(/\r?\n/).filter(Boolean);
+  for (let i = lines.length - 1; i >= 0 && out.length < (maxRows || 12); i--) {
+    const line = lines[i];
+    if (!line) continue;
+    const m = line.match(/\b([0-9a-fA-F]{64})\b/g);
+    if (!m || !m.length) continue;
+    const hash = m[m.length - 1].toLowerCase();
+    if (seen.has(hash)) continue;
+    seen.add(hash);
+    out.push(hash);
+  }
+  return out;
 }
 
 function setSendTab(n) {
@@ -792,6 +818,7 @@ async function refreshWallet() {
     lockEl.classList.toggle("hidden", !state.walletLocked);
     lockEl.setAttribute("aria-hidden", state.walletLocked ? "false" : "true");
   }
+  updateEncryptionButtons(!!data.sealed, !!data.locked);
   setOnboarding(data.wallet);
   if (data.wallet) {
     renderAddresses(data.wallet);
@@ -799,6 +826,13 @@ async function refreshWallet() {
     refreshDashboard().catch(() => {});
     refreshTxList(false).catch(() => {});
   }
+}
+
+function updateEncryptionButtons(isSealed, isLocked) {
+  const btnUnseal = $("btn-unseal-wallet");
+  const btnLock = $("btn-lock-session");
+  if (btnUnseal) btnUnseal.classList.toggle("hidden", !isSealed);
+  if (btnLock) btnLock.classList.toggle("hidden", !isSealed || isLocked);
 }
 
 function maybeNotifyPending(pending) {
@@ -1016,7 +1050,6 @@ function applyDashboardSnapshot(dashboard) {
     const hh = Number.isFinite(h) && h > 0 ? String(h) : "—";
     const ts = Number(spv.header_unix_time || 0);
     const tsText = Number.isFinite(ts) && ts > 0 ? new Date(ts * 1000).toISOString() : "—";
-    const bh = spv.best_block_hash ? String(spv.best_block_hash) : "—";
     const lag = spv.sync_lag_label || "Unknown";
     const running = spv.running ? "yes" : "no";
     spvDbg.textContent = [
@@ -1024,9 +1057,7 @@ function applyDashboardSnapshot(dashboard) {
       `header_height: ${hh}`,
       `sync: ${lag}`,
       `header_unix_time: ${ts > 0 ? String(ts) : "—"}`,
-      `header_time_iso: ${tsText}`,
-      `best_block_hash: ${bh}`,
-      `spv_http_url: ${spv.spv_http_url || "—"}`
+      `header_time_iso: ${tsText}`
     ].join("\n");
   }
   const sample = dashboard.metrics_sample || [];

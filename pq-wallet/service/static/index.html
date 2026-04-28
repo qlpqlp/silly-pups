@@ -279,7 +279,7 @@
               <button type="button" class="btn" id="btn-unseal-wallet"><span class="material-symbols-outlined btn-ico">lock_open</span> Disable encryption</button>
             </div>
             <p class="small muted" id="seal-msg"></p>
-            <button type="button" class="btn" id="btn-lock-session"><span class="material-symbols-outlined btn-ico">logout</span> Lock session (clear PIN from memory)</button>
+            <button type="button" class="btn" id="btn-lock-session"><span class="material-symbols-outlined btn-ico">logout</span> Lock session</button>
           </div>
           <div class="card">
             <h2>Backup</h2>
@@ -316,6 +316,10 @@
                 <h3>SPV headers (debug)</h3>
                 <pre class="dos-screen" id="log-spv-headers">…</pre>
               </div>
+            </div>
+            <div class="card dos-panel" style="margin-top:.75rem">
+              <h3>Latest SPV header hashes</h3>
+              <pre class="dos-screen" id="log-spv-hashes">…</pre>
             </div>
           </div>
           <div class="card">

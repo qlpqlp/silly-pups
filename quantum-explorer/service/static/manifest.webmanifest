@@ -1,0 +1,22 @@
+{
+  "name": "Dogecoin Quantum Explorer",
+  "short_name": "Quantum Explorer",
+  "description": "Explore Dogecoin blockchain data and post-quantum transaction signals.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0c121a",
+  "theme_color": "#0c121a",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

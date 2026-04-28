@@ -6,6 +6,8 @@
   <title>Quantum Explorer</title>
   <link rel="icon" href="/logo.png" type="image/png" sizes="any" />
   <link rel="apple-touch-icon" href="/logo.png" />
+  <link rel="manifest" href="/static/manifest.webmanifest" />
+  <meta name="theme-color" content="#0c121a" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&display=swap" rel="stylesheet" />
@@ -110,6 +112,7 @@
     .chart-canvas-wrap canvas { max-height:140px; }
     .docs-btn { display:inline-flex; align-items:center; gap:.35rem; width:auto; padding:.45rem .7rem; }
     .docs-btn .material-symbols-outlined { font-size:18px; line-height:1; }
+    .install-btn { display:none; }
     .hero-actions { margin-left:auto; display:flex; align-items:center; gap:.55rem; flex-wrap:wrap; justify-content:flex-end; }
     .doge-foundation-logo { height:auto; width:100px !important; filter:invert(1); opacity:.94; }
     .site-footer { margin:1rem 0 .2rem; display:flex; justify-content:space-between; align-items:center; gap:.75rem; flex-wrap:wrap; color:var(--muted); font-size:.86rem; }
@@ -235,6 +238,10 @@
         <button type="button" class="btn docs-btn" id="btn-user-docs" title="Open educational documentation">
           <span class="material-symbols-outlined" aria-hidden="true">school</span>
           <span>Docs</span>
+        </button>
+        <button type="button" class="btn docs-btn install-btn" id="btn-install-app" title="Install Quantum Explorer app">
+          <span class="material-symbols-outlined" aria-hidden="true">download</span>
+          <span>Install App</span>
         </button>
         <a href="https://foundation.dogecoin.com" target="_blank" rel="noopener" aria-label="Dogecoin Foundation">
           <img src="https://lib.dogecoin.org/img/dogecoin-foundation.svg" class="doge-foundation-logo" alt="Dogecoin Foundation logo" />
@@ -1695,6 +1702,33 @@
     docsModal.addEventListener("click", (e) => {
       if (e.target && e.target.id === "docs-modal") docsModal.classList.remove("show");
     });
+    let deferredInstallPrompt = null;
+    const btnInstallApp = document.getElementById("btn-install-app");
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      if (btnInstallApp) btnInstallApp.style.display = "inline-flex";
+    });
+    window.addEventListener("appinstalled", () => {
+      deferredInstallPrompt = null;
+      if (btnInstallApp) btnInstallApp.style.display = "none";
+    });
+    if (btnInstallApp) {
+      btnInstallApp.onclick = async () => {
+        if (!deferredInstallPrompt) return;
+        deferredInstallPrompt.prompt();
+        try {
+          await deferredInstallPrompt.userChoice;
+        } catch {
+          /* ignore */
+        }
+      };
+    }
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/static/sw.js").catch(() => {});
+      });
+    }
     updateSearchClearButton();
     renderRangeToolbar();
     load();

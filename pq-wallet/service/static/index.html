@@ -153,12 +153,35 @@
             <p class="wallet-hero-label">Available balance</p>
             <div class="wallet-hero-balance-row">
               <span class="wallet-hero-balance" id="wallet-balance-big">—</span>
-              <span class="wallet-hero-unit" id="wallet-balance-unit">DOGE</span>
+              <span class="wallet-hero-unit" id="wallet-balance-unit"></span>
             </div>
             <div class="wallet-sync-chip" id="wallet-sync-chip">Sync</div>
             <div class="wallet-pending-row" id="wallet-pending-row" hidden>
               <span class="badge badge-pending-label">Pending</span>
               <span class="badge badge-pending-amt mono" id="wallet-pending-line">—</span>
+            </div>
+          </div>
+          <div class="card svc-control-card hidden" id="svc-control-card-dash" aria-labelledby="svc-control-title-dash">
+            <h2 id="svc-control-title-dash"><span class="material-symbols-outlined icon-inline">tune</span> Background services</h2>
+            <div class="svc-row">
+              <div class="svc-row-main">
+                <strong>SPV node</strong>
+                <p class="small muted mono svc-status-line" id="svc-spv-status-dash">—</p>
+              </div>
+              <div class="svc-row-actions">
+                <button type="button" class="btn btn-sm" id="btn-svc-spv-stop-dash">Stop</button>
+                <button type="button" class="btn btn-sm primary" id="btn-svc-spv-start-dash">Start</button>
+              </div>
+            </div>
+            <div class="svc-row">
+              <div class="svc-row-main">
+                <strong>MemeTracker</strong>
+                <p class="small muted mono svc-status-line" id="svc-mtr-status-dash">—</p>
+              </div>
+              <div class="svc-row-actions">
+                <button type="button" class="btn btn-sm" id="btn-svc-mtr-stop-dash">Stop</button>
+                <button type="button" class="btn btn-sm primary" id="btn-svc-mtr-start-dash">Start</button>
+              </div>
             </div>
           </div>
           <div class="card tx-list-card dash-latest-tx-card">

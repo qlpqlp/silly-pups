@@ -272,6 +272,12 @@ body {
   justify-content: space-between;
   padding: 1.25rem 1.5rem 0.5rem;
   gap: 1rem;
+  position: sticky;
+  top: 0;
+  z-index: 70;
+  background: rgba(11, 15, 20, 0.94);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .topbar-titles {
@@ -1040,15 +1046,16 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 3.25rem;
+  min-width: 3.9rem;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.04);
-  padding: 0.12rem 0.5rem;
+  padding: 0.14rem 0.72rem;
   font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  line-height: 1.1;
 }
 
 .tx-dir-pill.in {
@@ -2055,6 +2062,41 @@ a {
   }
 
   #app.has-wallet .page-title-ico {
+  #view-dashboard:not(.hidden) {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  #view-dashboard .wallet-hero {
+    position: sticky;
+    top: 0;
+    z-index: 6;
+    margin: 0 0 0.6rem;
+    padding: 0.65rem 0.45rem 0.8rem;
+    background: linear-gradient(180deg, rgba(11, 15, 20, 0.98), rgba(11, 15, 20, 0.88));
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(6px);
+  }
+
+  #view-dashboard .dash-latest-tx-card {
+    flex: 1;
+    min-height: 0;
+    margin-bottom: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #view-dashboard .dash-latest-tx-card .tx-list {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
     font-size: 1.25rem !important;
   }
 

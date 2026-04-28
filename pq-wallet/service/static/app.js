@@ -75,6 +75,7 @@ const state = {
   inFlightDashboard: false,
   inFlightTx: false,
   inFlightLogs: false,
+  lastDashboard: null,
 };
 
 function flashButtonFeedback(el) {
@@ -725,14 +726,18 @@ function maybeNotifyPending(pending) {
 
 function updateServicesControlUI(svc) {
   const card = $("svc-control-card");
+  const dashCard = $("svc-control-card-dash");
   const spvLine = $("svc-spv-status");
+  const spvLineDash = $("svc-spv-status-dash");
   const mtrLine = $("svc-mtr-status");
-  const bSpvStop = $("btn-svc-spv-stop");
-  const bSpvStart = $("btn-svc-spv-start");
-  const bMtrStop = $("btn-svc-mtr-stop");
-  const bMtrStart = $("btn-svc-mtr-start");
-  if (!svc || !card) return;
-  card.classList.remove("hidden");
+  const mtrLineDash = $("svc-mtr-status-dash");
+  const bSpvStop = [$("btn-svc-spv-stop"), $("btn-svc-spv-stop-dash")].filter(Boolean);
+  const bSpvStart = [$("btn-svc-spv-start"), $("btn-svc-spv-start-dash")].filter(Boolean);
+  const bMtrStop = [$("btn-svc-mtr-stop"), $("btn-svc-mtr-stop-dash")].filter(Boolean);
+  const bMtrStart = [$("btn-svc-mtr-start"), $("btn-svc-mtr-start-dash")].filter(Boolean);
+  if (!svc) return;
+  if (card) card.classList.remove("hidden");
+  if (dashCard) dashCard.classList.remove("hidden");
   const spvOn = !!svc.spv_enabled;
   const spvRun = !!svc.spv_running;
   const mtrOn = !!svc.memetracker_enabled;
@@ -743,16 +748,25 @@ function updateServicesControlUI(svc) {
   if (spvLine) {
     spvLine.textContent = `Preference: ${spvOn ? "on" : "off"} · Process: ${spvRun ? "running" : "stopped"}`;
   }
+  if (spvLineDash) {
+    spvLineDash.textContent = `Preference: ${spvOn ? "on" : "off"} · Process: ${spvRun ? "running" : "stopped"}`;
+  }
   if (mtrLine) {
     mtrLine.textContent = `Preference: ${mtrOn ? "on" : "off"} · Engine: ${mtrEng ? "up" : "down"} · P2P: ${mtrP2p ? "active" : "idle"} · workers ${wk} · relay txs ${mcnt}`;
   }
-  if (bSpvStop) bSpvStop.disabled = !spvOn;
-  if (bSpvStart) bSpvStart.disabled = spvOn && spvRun;
-  if (bMtrStop) bMtrStop.disabled = !mtrOn;
-  if (bMtrStart) bMtrStart.disabled = mtrOn && mtrEng;
+  if (mtrLineDash) {
+    mtrLineDash.textContent = `Preference: ${mtrOn ? "on" : "off"} · Engine: ${mtrEng ? "up" : "down"} · P2P: ${mtrP2p ? "active" : "idle"} · workers ${wk} · relay txs ${mcnt}`;
+  }
+  bSpvStop.forEach((el) => { el.disabled = !spvOn; });
+  bSpvStart.forEach((el) => { el.disabled = spvOn && spvRun; });
+  bMtrStop.forEach((el) => { el.disabled = !mtrOn; });
+  bMtrStart.forEach((el) => { el.disabled = mtrOn && mtrEng; });
 }
 
-const SERVICE_CTRL_BTN_IDS = ["btn-svc-spv-stop", "btn-svc-spv-start", "btn-svc-mtr-stop", "btn-svc-mtr-start"];
+const SERVICE_CTRL_BTN_IDS = [
+  "btn-svc-spv-stop", "btn-svc-spv-start", "btn-svc-mtr-stop", "btn-svc-mtr-start",
+  "btn-svc-spv-stop-dash", "btn-svc-spv-start-dash", "btn-svc-mtr-stop-dash", "btn-svc-mtr-start-dash"
+];
 
 function setServiceControlBusy(busy) {
   const els = SERVICE_CTRL_BTN_IDS.map((id) => document.getElementById(id)).filter(Boolean);
@@ -808,12 +822,8 @@ async function refreshDashboard() {
   state.inFlightDashboard = true;
   try {
   const data = await api("/api/dashboard", { timeout_ms: 45000 });
-  const svcCard = $("svc-control-card");
-  if (!data.dashboard) {
-    if (svcCard) svcCard.classList.add("hidden");
-    return;
-  }
-  if (svcCard) svcCard.classList.remove("hidden");
+  if (!data || data.error || !data.dashboard || typeof data.dashboard !== "object") return;
+  state.lastDashboard = data.dashboard;
   const t = data.dashboard.totals || {};
   const spendStr =
     t.spendable_hint_doge != null && !Number.isNaN(Number(t.spendable_hint_doge))
@@ -822,10 +832,7 @@ async function refreshDashboard() {
   const balBig = $("wallet-balance-big");
   const balUnit = $("wallet-balance-unit");
   if (balBig) balBig.textContent = `Ð ${spendStr}`;
-  if (balUnit) {
-    const net = (state.wallet && state.wallet.network && String(state.wallet.network).toLowerCase()) || "mainnet";
-    balUnit.textContent = net === "testnet" ? "Doge (testnet)" : "Doge";
-  }
+  if (balUnit) balUnit.textContent = "";
   const pendRaw = t.pending_mempool_doge;
   const pendNum = Number(pendRaw);
   const hasPending = pendRaw != null && Number.isFinite(pendNum) && pendNum > 0;
@@ -854,8 +861,8 @@ async function refreshDashboard() {
     } else {
       mtrMeta.textContent = mtr.engine_error || "Mempool engine not available.";
     }
-    mtrList.innerHTML = "";
     const rows = mtr.mempool_transactions || [];
+    mtrList.innerHTML = "";
     rows.forEach((row, i) => {
       const tx = row.txid != null ? String(row.txid) : "";
       if (!tx) return;
@@ -943,10 +950,10 @@ function renderDashboardTxPreview() {
   upsertTxList(list, txs.slice(0, max), false, null);
 }
 
-$("btn-svc-spv-stop")?.addEventListener("click", () => postServiceControl({ spv_enabled: false }));
-$("btn-svc-spv-start")?.addEventListener("click", () => postServiceControl({ spv_enabled: true }));
-$("btn-svc-mtr-stop")?.addEventListener("click", () => postServiceControl({ memetracker_enabled: false }));
-$("btn-svc-mtr-start")?.addEventListener("click", () => postServiceControl({ memetracker_enabled: true }));
+["btn-svc-spv-stop", "btn-svc-spv-stop-dash"].forEach((id) => $(id)?.addEventListener("click", () => postServiceControl({ spv_enabled: false })));
+["btn-svc-spv-start", "btn-svc-spv-start-dash"].forEach((id) => $(id)?.addEventListener("click", () => postServiceControl({ spv_enabled: true })));
+["btn-svc-mtr-stop", "btn-svc-mtr-stop-dash"].forEach((id) => $(id)?.addEventListener("click", () => postServiceControl({ memetracker_enabled: false })));
+["btn-svc-mtr-start", "btn-svc-mtr-start-dash"].forEach((id) => $(id)?.addEventListener("click", () => postServiceControl({ memetracker_enabled: true })));
 
 async function refreshTxList(refresh) {
   if (state.inFlightTx) return;
@@ -954,6 +961,7 @@ async function refreshTxList(refresh) {
   try {
   const q = "";
   const data = await api("/api/transactions" + q, { timeout_ms: 45000 });
+  if (!data || data.error || !Array.isArray(data.transactions)) return;
   const txs = (data.transactions || []).slice().sort((a, b) => {
     const ta = new Date(a && a.seen_at ? a.seen_at : 0).getTime() || 0;
     const tb = new Date(b && b.seen_at ? b.seen_at : 0).getTime() || 0;
@@ -1732,7 +1740,11 @@ function startPollers() {
   }, 4000);
   state.pollTx = setInterval(async () => {
     if (!state.wallet) return;
-    await refreshTxList(false);
+    try {
+      await refreshTxList(false);
+    } catch {
+      /* tx poll failed */
+    }
   }, 12000);
 }
 

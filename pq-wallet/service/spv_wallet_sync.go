@@ -339,13 +339,18 @@ func (s *Server) mergeTransactionsFromSuchListUnspent(wf *WalletFile, st *Wallet
 	testnet := strings.EqualFold(wf.Network, "testnet")
 	byTxid := make(map[string]TxRecord)
 	spendableDOGE := 0.0
+	successfulSuchReads := 0
 	for _, addr := range wf.AllDistinctP2PKHAddresses() {
 		addr = strings.TrimSpace(addr)
 		if addr == "" {
 			continue
 		}
 		utxos, err := s.runSuchListUnspent(addr, testnet)
-		if err != nil || len(utxos) == 0 {
+		if err != nil {
+			continue
+		}
+		successfulSuchReads++
+		if len(utxos) == 0 {
 			continue
 		}
 		for _, u := range utxos {
@@ -378,17 +383,17 @@ func (s *Server) mergeTransactionsFromSuchListUnspent(wf *WalletFile, st *Wallet
 			byTxid[id] = prev
 		}
 	}
-	if len(byTxid) == 0 {
+	// Only update cached spendable if at least one such call succeeded.
+	// This avoids replacing a good cached balance with zero on transient CLI/SPV failures.
+	if successfulSuchReads > 0 {
 		s.suchMergeMu.Lock()
-		s.lastSuchSpendableDOGE = 0
+		s.lastSuchSpendableDOGE = round2(spendableDOGE)
 		s.lastSuchSpendableAt = time.Now()
 		s.suchMergeMu.Unlock()
+	}
+	if len(byTxid) == 0 {
 		return false
 	}
-	s.suchMergeMu.Lock()
-	s.lastSuchSpendableDOGE = round2(spendableDOGE)
-	s.lastSuchSpendableAt = time.Now()
-	s.suchMergeMu.Unlock()
 	incoming := make([]TxRecord, 0, len(byTxid))
 	for _, tr := range byTxid {
 		incoming = append(incoming, tr)

@@ -209,10 +209,9 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 			tx.Address = view.Address
 			changed = true
 		}
-		if tx.Direction == "" || strings.EqualFold(tx.Direction, "unknown") {
-			tx.Direction = "in"
-			changed = true
-		}
+		// Do not force direction from raw-output matching alone.
+		// During sync, outgoing txs can include wallet change outputs, which would
+		// look "incoming" here and cause temporary wrong IN labels.
 		if tx.Source == "" {
 			tx.Source = "spv"
 			changed = true

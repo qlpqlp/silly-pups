@@ -460,7 +460,9 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 	if errU != nil && errT != nil {
 		return false
 	}
-	rows := parseSPVRESTRows(utxoRaw, "in")
+	// UTXO rows alone do not reliably encode tx direction (change outputs can look like "in").
+	// Keep them as unknown; authoritative direction comes from /getTransactions and SPV wallet DB.
+	rows := parseSPVRESTRows(utxoRaw, "unknown")
 	rows = append(rows, parseSPVRESTRows(txRaw, "out")...)
 	if len(rows) == 0 {
 		return false

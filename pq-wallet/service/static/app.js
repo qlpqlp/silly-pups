@@ -1151,6 +1151,12 @@ async function refreshTxList(refresh) {
     const ta = new Date(a && a.seen_at ? a.seen_at : 0).getTime() || 0;
     const tb = new Date(b && b.seen_at ? b.seen_at : 0).getTime() || 0;
     if (tb !== ta) return tb - ta;
+    const ha = Number(a && a.block_height || 0);
+    const hb = Number(b && b.block_height || 0);
+    if (hb !== ha) return hb - ha;
+    const ca = Number(a && a.confirmations || 0);
+    const cb = Number(b && b.confirmations || 0);
+    if (cb !== ca) return cb - ca;
     return String((b && b.txid) || "").localeCompare(String((a && a.txid) || ""));
   });
   applyTxSnapshot(txs, !!refresh);

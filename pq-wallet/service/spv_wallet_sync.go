@@ -293,9 +293,6 @@ func normalizeDirection(raw string, amountDOGE float64) string {
 	if amountDOGE < 0 {
 		return "out"
 	}
-	if amountDOGE > 0 {
-		return "in"
-	}
 	return "unknown"
 }
 

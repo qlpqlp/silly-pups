@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -46,6 +47,49 @@ func (s *Server) latestSuchSpendable(maxAge time.Duration) (float64, bool) {
 		return 0, false
 	}
 	return s.lastSuchSpendableDOGE, true
+}
+
+func (s *Server) computeSuchSpendableDOGE(wf *WalletFile) (float64, bool) {
+	if wf == nil {
+		return 0, false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	sumKoinu := int64(0)
+	seen := map[string]struct{}{}
+	successfulReads := 0
+	for _, addr := range wf.AllDistinctP2PKHAddresses() {
+		addr = strings.TrimSpace(addr)
+		if addr == "" {
+			continue
+		}
+		utxos, err := s.fetchUTXOsFromExplorer(ctx, addr)
+		if err != nil {
+			continue
+		}
+		successfulReads++
+		for _, u := range utxos {
+			txid := normalizeTxid(u.TxID)
+			if txid == "" || u.Value <= 0 {
+				continue
+			}
+			k := txid + ":" + strconv.FormatUint(uint64(u.Vout), 10)
+			if _, ok := seen[k]; ok {
+				continue
+			}
+			seen[k] = struct{}{}
+			sumKoinu += u.Value
+		}
+	}
+	if successfulReads == 0 {
+		return 0, false
+	}
+	sum := round2(float64(sumKoinu) / 1e8)
+	s.suchMergeMu.Lock()
+	s.lastSuchSpendableDOGE = sum
+	s.lastSuchSpendableAt = time.Now()
+	s.suchMergeMu.Unlock()
+	return sum, true
 }
 
 // handleDashboard returns balances, SPV header parse, metrics tail, and merged tx summary.
@@ -143,9 +187,12 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	spendable := math.Max(0, inSum-outSum)
-	// Prefer recent UTXO-derived spendable from such list_unspent when available.
-	// This avoids drift when direction-classification history is imperfect.
-	if utxoSpendable, ok := s.latestSuchSpendable(3 * time.Minute); ok {
+	// Prefer direct UTXO-derived spendable from such list_unspent when available.
+	// This is the authoritative spendable source for "Available balance".
+	if utxoSpendable, ok := s.computeSuchSpendableDOGE(wf); ok {
+		spendable = math.Max(0, utxoSpendable)
+	} else if utxoSpendable, ok := s.latestSuchSpendable(10 * time.Minute); ok {
+		// If such is transiently unavailable, keep last known spendable.
 		spendable = math.Max(0, utxoSpendable)
 	}
 
@@ -581,6 +628,22 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 		}
 		out = append(out, tr)
 	}
+	sort.SliceStable(out, func(i, j int) bool {
+		ti := out[i]
+		tj := out[j]
+		ui := ti.SeenAt.Unix()
+		uj := tj.SeenAt.Unix()
+		if ui != uj {
+			return ui > uj
+		}
+		if ti.BlockHeight != tj.BlockHeight {
+			return ti.BlockHeight > tj.BlockHeight
+		}
+		if ti.Confirmations != tj.Confirmations {
+			return ti.Confirmations > tj.Confirmations
+		}
+		return strings.ToLower(strings.TrimSpace(ti.Txid)) > strings.ToLower(strings.TrimSpace(tj.Txid))
+	})
 	return out
 }
 

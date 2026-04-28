@@ -76,6 +76,7 @@ const state = {
   inFlightTx: false,
   inFlightLogs: false,
   lastDashboard: null,
+  spvHeaderFeed: [],
 };
 
 const CACHE_DB_NAME = "pq-wallet-ui-cache";
@@ -300,21 +301,14 @@ async function refreshLogs() {
       }, ms);
       return c.signal;
     };
-    const [mtr, bc, spvLog] = await Promise.all([
+    const [mtr, bc] = await Promise.all([
       fetch("/api/logs/mempooltracker", { signal: mkSignal(15000) }).then((r) => r.text()),
       fetch("/api/logs/broadcast?lines=200", { signal: mkSignal(15000) }).then((r) => r.text()),
-      fetch("/api/logs/spv?lines=320", { signal: mkSignal(15000) }).then((r) => r.text()),
     ]);
     const elM = $("log-mtr");
     const elB = $("log-bc");
-    const elHashes = $("log-spv-hashes");
     if (elM) elM.textContent = mtr;
     if (elB) elB.textContent = bc;
-    if (elHashes) {
-      const tail = String(spvLog || "");
-      const rows = extractRecentHeaderHashes(tail, 16);
-      elHashes.textContent = rows.length ? rows.join("\n") : "No recent header hashes detected yet.";
-    }
   } catch {
     /* ignore */
   } finally {
@@ -322,23 +316,21 @@ async function refreshLogs() {
   }
 }
 
-function extractRecentHeaderHashes(logTail, maxRows) {
-  const out = [];
-  const seen = new Set();
-  const tail = String(logTail || "");
-  if (!tail) return out;
-  const lines = tail.split(/\r?\n/).filter(Boolean);
-  for (let i = lines.length - 1; i >= 0 && out.length < (maxRows || 12); i--) {
-    const line = lines[i];
-    if (!line) continue;
-    const m = line.match(/\b([0-9a-fA-F]{64})\b/g);
-    if (!m || !m.length) continue;
-    const hash = m[m.length - 1].toLowerCase();
-    if (seen.has(hash)) continue;
-    seen.add(hash);
-    out.push(hash);
-  }
-  return out;
+function rememberSpvHeaderSample(spv) {
+  const h = Number(spv && spv.header_height);
+  const ts = Number(spv && spv.header_unix_time);
+  const hash = spv && spv.best_block_hash ? String(spv.best_block_hash) : "";
+  if (!Number.isFinite(h) || h <= 0) return;
+  const key = `${h}|${Number.isFinite(ts) && ts > 0 ? ts : 0}|${hash}`;
+  const feed = Array.isArray(state.spvHeaderFeed) ? state.spvHeaderFeed.slice() : [];
+  if (feed.some((row) => row.key === key)) return;
+  feed.unshift({
+    key,
+    height: h,
+    ts: Number.isFinite(ts) && ts > 0 ? ts : 0,
+    hash,
+  });
+  state.spvHeaderFeed = feed.slice(0, 12);
 }
 
 function setSendTab(n) {
@@ -994,6 +986,7 @@ function applyDashboardSnapshot(dashboard) {
   }
   maybeNotifyPending(hasPending ? pendNum : 0);
   const spv = dashboard.spv || {};
+  rememberSpvHeaderSample(spv);
   const mtr = dashboard.memetracker || {};
   const mtrMeta = $("mtr-mempool-meta");
   const mtrList = $("mtr-mempool-list");
@@ -1052,13 +1045,23 @@ function applyDashboardSnapshot(dashboard) {
     const tsText = Number.isFinite(ts) && ts > 0 ? new Date(ts * 1000).toISOString() : "—";
     const lag = spv.sync_lag_label || "Unknown";
     const running = spv.running ? "yes" : "no";
-    spvDbg.textContent = [
+    const lines = [
       `running: ${running}`,
       `header_height: ${hh}`,
       `sync: ${lag}`,
       `header_unix_time: ${ts > 0 ? String(ts) : "—"}`,
       `header_time_iso: ${tsText}`
-    ].join("\n");
+    ];
+    const feed = Array.isArray(state.spvHeaderFeed) ? state.spvHeaderFeed : [];
+    if (feed.length) {
+      lines.push("", "header_feed_live:");
+      for (const row of feed) {
+        const iso = row.ts > 0 ? new Date(row.ts * 1000).toISOString() : "—";
+        const hashShort = row.hash ? row.hash.slice(0, 12) + "…" : "";
+        lines.push(`  h=${row.height} t=${iso}${hashShort ? " hash=" + hashShort : ""}`);
+      }
+    }
+    spvDbg.textContent = lines.join("\n");
   }
   const sample = dashboard.metrics_sample || [];
   initCharts();

@@ -114,8 +114,14 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	seenChanged := s.applySPVSeenTxids(st, logTail)
-	rawChanged := s.applySPVRawHex(st, logTail)
+	seenChanged := false
+	rawChanged := false
+	confirmChanged := false
+	if logTail != "" {
+		seenChanged = s.applySPVSeenTxids(st, logTail)
+		rawChanged = s.applySPVRawHex(st, logTail)
+		confirmChanged = s.applySPVConfirmations(st, logTail)
+	}
 	enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
 	restChanged := s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
 	dbChanged := s.mergeTransactionsFromSPVWalletDB(wf, st)
@@ -123,12 +129,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	if s.shouldRunSuchMerge(20 * time.Second) {
 		suchChanged = s.mergeTransactionsFromSuchListUnspent(wf, st)
 	}
-	if suchChanged && s.enrichSPVTxFromRawHex(st, wf) {
-		enrichedChanged = true
-	}
-	if s.applySPVConfirmations(st, logTail) {
-		_ = s.saveState(st)
-	} else if seenChanged || rawChanged || enrichedChanged || restChanged || dbChanged || suchChanged {
+	if seenChanged || rawChanged || confirmChanged || enrichedChanged || restChanged || dbChanged || suchChanged {
 		_ = s.saveState(st)
 	}
 
@@ -381,24 +382,24 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 			_ = s.saveState(st)
 		}
 	}
-	if logTail, _ := spv["log_tail"].(string); logTail != "" {
-		changed := s.applySPVSeenTxids(st, logTail)
-		rawChanged := s.applySPVRawHex(st, logTail)
-		enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
-		restChanged := s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
-		dbChanged := s.mergeTransactionsFromSPVWalletDB(wf, st)
-		suchChanged := false
-		if s.shouldRunSuchMerge(20 * time.Second) {
-			suchChanged = s.mergeTransactionsFromSuchListUnspent(wf, st)
-		}
-		if suchChanged {
-			if s.enrichSPVTxFromRawHex(st, wf) {
-				enrichedChanged = true
-			}
-		}
-		if s.applySPVConfirmations(st, logTail) || changed || rawChanged || enrichedChanged || restChanged || dbChanged || suchChanged {
-			_ = s.saveState(st)
-		}
+	logTail, _ := spv["log_tail"].(string)
+	changed := false
+	rawChanged := false
+	confirmChanged := false
+	if logTail != "" {
+		changed = s.applySPVSeenTxids(st, logTail)
+		rawChanged = s.applySPVRawHex(st, logTail)
+		confirmChanged = s.applySPVConfirmations(st, logTail)
+	}
+	enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
+	restChanged := s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
+	dbChanged := s.mergeTransactionsFromSPVWalletDB(wf, st)
+	suchChanged := false
+	if s.shouldRunSuchMerge(20 * time.Second) {
+		suchChanged = s.mergeTransactionsFromSuchListUnspent(wf, st)
+	}
+	if changed || rawChanged || confirmChanged || enrichedChanged || restChanged || dbChanged || suchChanged {
+		_ = s.saveState(st)
 	}
 	s.stateMergeMu.Unlock()
 

@@ -337,7 +337,6 @@ func (s *Server) mergeTransactionsFromSuchListUnspent(wf *WalletFile, st *Wallet
 		return false
 	}
 	testnet := strings.EqualFold(wf.Network, "testnet")
-	byTxid := make(map[string]TxRecord)
 	spendableDOGE := 0.0
 	successfulSuchReads := 0
 	for _, addr := range wf.AllDistinctP2PKHAddresses() {
@@ -354,33 +353,10 @@ func (s *Server) mergeTransactionsFromSuchListUnspent(wf *WalletFile, st *Wallet
 			continue
 		}
 		for _, u := range utxos {
-			id := normalizeTxid(u.TxID)
-			if id == "" {
-				continue
-			}
 			doge := float64(u.Value) / 1e8
 			if doge > 0 {
 				spendableDOGE += doge
 			}
-			prev, ok := byTxid[id]
-			if !ok {
-				byTxid[id] = TxRecord{
-					Txid:          id,
-					// UTXO-only rows can be receive OR self-change from an outgoing tx.
-					// Keep unknown until REST/DB enrichment confirms direction.
-					Direction:     "unknown",
-					AmountDOGE:    doge,
-					Address:       addr,
-					Source:        "spv",
-					Confirmations: 0,
-				}
-				continue
-			}
-			prev.AmountDOGE += doge
-			if prev.Address == "" {
-				prev.Address = addr
-			}
-			byTxid[id] = prev
 		}
 	}
 	// Only update cached spendable if at least one such call succeeded.
@@ -391,39 +367,8 @@ func (s *Server) mergeTransactionsFromSuchListUnspent(wf *WalletFile, st *Wallet
 		s.lastSuchSpendableAt = time.Now()
 		s.suchMergeMu.Unlock()
 	}
-	if len(byTxid) == 0 {
-		return false
-	}
-	incoming := make([]TxRecord, 0, len(byTxid))
-	for _, tr := range byTxid {
-		incoming = append(incoming, tr)
-	}
-	before := len(st.Transactions)
-	merged := mergeTxRecords(st.Transactions, incoming)
-	changed := len(merged) != before
-	if !changed {
-		oldByID := map[string]TxRecord{}
-		for _, t := range st.Transactions {
-			id := normalizeTxid(t.Txid)
-			if id != "" {
-				oldByID[id] = t
-			}
-		}
-		for _, t := range merged {
-			id := normalizeTxid(t.Txid)
-			o, ok := oldByID[id]
-			if !ok {
-				changed = true
-				break
-			}
-			if t.AmountDOGE != o.AmountDOGE || t.Direction != o.Direction || t.Address != o.Address {
-				changed = true
-				break
-			}
-		}
-	}
-	if changed {
-		st.Transactions = merged
-	}
-	return changed
+	// Keep this function spendable-only. UTXO snapshots do not encode reliable
+	// IN/OUT transaction direction during sync (change outputs can look like IN).
+	// Authoritative tx rows must come from SPV REST / SPV wallet DB pipelines.
+	return false
 }

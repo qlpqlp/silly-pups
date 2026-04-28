@@ -32,7 +32,8 @@ func dogeP2PKHScriptFromAddress(addr string, testnet bool) ([]byte, error) {
 		return nil, fmt.Errorf("unexpected address version %d (want %d)", version, wantVer)
 	}
 	out := make([]byte, 0, 25)
-	out = append(out, 0x76, 0xa0, 0x14)
+	// Standard P2PKH script: OP_DUP OP_HASH160 PUSH20 <pubKeyHash> OP_EQUALVERIFY OP_CHECKSIG
+	out = append(out, 0x76, 0xa9, 0x14)
 	out = append(out, payload...)
 	out = append(out, 0x88, 0xac)
 	return out, nil

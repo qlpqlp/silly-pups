@@ -905,30 +905,88 @@
       document.getElementById("tx-modal").classList.add("show");
     }
 
+    function opcodeName(op){
+      const m = {
+        0x00: "OP_0", 0x4c: "OP_PUSHDATA1", 0x4d: "OP_PUSHDATA2", 0x4e: "OP_PUSHDATA4",
+        0x51: "OP_1", 0x52: "OP_2", 0x53: "OP_3", 0x54: "OP_4", 0x55: "OP_5",
+        0x56: "OP_6", 0x57: "OP_7", 0x58: "OP_8", 0x59: "OP_9", 0x5a: "OP_10",
+        0x5b: "OP_11", 0x5c: "OP_12", 0x5d: "OP_13", 0x5e: "OP_14", 0x5f: "OP_15", 0x60: "OP_16",
+        0x63: "OP_IF", 0x64: "OP_NOTIF", 0x67: "OP_ELSE", 0x68: "OP_ENDIF",
+        0x69: "OP_VERIFY", 0x6a: "OP_RETURN", 0x6b: "OP_TOALTSTACK", 0x6c: "OP_FROMALTSTACK",
+        0x73: "OP_IFDUP", 0x74: "OP_DEPTH", 0x75: "OP_DROP", 0x76: "OP_DUP",
+        0x77: "OP_NIP", 0x78: "OP_OVER", 0x79: "OP_PICK", 0x7a: "OP_ROLL", 0x7b: "OP_ROT",
+        0x87: "OP_EQUAL", 0x88: "OP_EQUALVERIFY", 0xa6: "OP_RIPEMD160", 0xa7: "OP_SHA1",
+        0xa8: "OP_SHA256", 0xa9: "OP_HASH160", 0xaa: "OP_HASH256",
+        0xac: "OP_CHECKSIG", 0xad: "OP_CHECKSIGVERIFY", 0xae: "OP_CHECKMULTISIG", 0xaf: "OP_CHECKMULTISIGVERIFY"
+      };
+      return m[op] || ("OP_0x" + op.toString(16).padStart(2, "0"));
+    }
+
+    function decodeScriptOpcodes(hexStr){
+      const hex = String(hexStr || "").trim().toLowerCase();
+      if (!hex || hex.length % 2 !== 0 || /[^0-9a-f]/.test(hex)) return "";
+      const out = [];
+      for (let i = 0; i < hex.length; ){
+        const op = parseInt(hex.slice(i, i + 2), 16);
+        i += 2;
+        if (op >= 0x01 && op <= 0x4b) {
+          const n = op;
+          const need = n * 2;
+          const d = hex.slice(i, i + need);
+          if (d.length < need) break;
+          out.push(`<${n}b:${d.slice(0, 24)}${d.length > 24 ? "…" : ""}>`);
+          i += need;
+          continue;
+        }
+        if (op === 0x4c || op === 0x4d || op === 0x4e) {
+          out.push(opcodeName(op));
+          if (op === 0x4c && i + 2 <= hex.length) { i += 2; continue; }
+          if (op === 0x4d && i + 4 <= hex.length) { i += 4; continue; }
+          if (op === 0x4e && i + 8 <= hex.length) { i += 8; continue; }
+          break;
+        }
+        out.push(opcodeName(op));
+      }
+      return out.join(" ");
+    }
+
     function renderDecodeSection(dec){
       if (!dec || dec.error) {
         return `<p class="bad">${esc(dec && dec.error ? dec.error : "No decode")}</p>`;
       }
-      const ins = (dec.inputs || []).map(i => `
+      const ins = (dec.inputs || []).map(i => {
+        const fromAddr = i.prev_output && i.prev_output.address
+          ? `<button type="button" class="link-tx" data-open-address="${esc(i.prev_output.address)}">${esc(i.prev_output.address)}</button>`
+          : "<span class='muted'>unknown script/address</span>";
+        const fromVal = i.prev_output && i.prev_output.value_doge != null ? `${esc(String(i.prev_output.value_doge))} DOGE` : "—";
+        return `
         <div class="tx-io-card">
           <strong>Input ${esc(String(i.n))}</strong>
-          <div class="detail-kv mono" style="margin-top:.35rem"><strong>Prev txid</strong> <button type="button" class="link-tx" data-open-txid="${esc(i.prev_txid||"")}">${esc(i.prev_txid||"")}</button></div>
-          <div class="detail-kv"><strong>Prev vout</strong> ${esc(String(i.prev_vout ?? ""))}</div>
-          ${i.prev_output && i.prev_output.address ? `<div class="detail-kv"><strong>From address</strong> <button type="button" class="link-tx" data-open-address="${esc(i.prev_output.address)}">${esc(i.prev_output.address)}</button></div>` : ""}
-          ${i.prev_output && i.prev_output.value_doge != null ? `<div class="detail-kv"><strong>Prev output value</strong> ${esc(String(i.prev_output.value_doge))} DOGE</div>` : ""}
+          <div class="detail-kv"><strong>From</strong> ${fromAddr}</div>
+          <div class="detail-kv"><strong>Amount</strong> ${fromVal}</div>
+          <div class="detail-kv mono"><strong>Prev outpoint</strong> <button type="button" class="link-tx" data-open-txid="${esc(i.prev_txid||"")}">${esc((i.prev_txid||"").slice(0,24))}…</button> : ${esc(String(i.prev_vout ?? ""))}</div>
           <div class="detail-kv"><strong>Sequence</strong> ${esc(String(i.sequence||""))}</div>
           ${i.coinbase ? `<div class="edu-callout">${esc(i.learn || "Coinbase input.")}</div>` : ""}
-          <div class="detail-kv mono muted" style="font-size:.72rem;margin-top:.25rem"><strong>scriptSig</strong> ${esc((i.script_sig_hex||"").slice(0,120))}${(i.script_sig_hex||"").length>120?"…":""}</div>
-        </div>`).join("");
-      const outs = (dec.outputs || []).map(o => `
+          <div class="detail-kv mono muted" style="font-size:.72rem;margin-top:.25rem"><strong>scriptSig hex</strong> ${esc((i.script_sig_hex||"").slice(0,140))}${(i.script_sig_hex||"").length>140?"…":""}</div>
+          <div class="detail-kv mono muted" style="font-size:.72rem"><strong>scriptSig opcodes</strong> ${esc(decodeScriptOpcodes(i.script_sig_hex || "")) || "—"}</div>
+        </div>`;
+      }).join("");
+      const outs = (dec.outputs || []).map(o => {
+        const toAddr = o.address
+          ? `<button type="button" class="link-tx" data-open-address="${esc(o.address)}">${esc(o.address)}</button>`
+          : "<span class='muted'>script-only output</span>";
+        const spkOps = decodeScriptOpcodes(o.script_hex || "");
+        return `
         <div class="tx-io-card">
           <strong>Output ${esc(String(o.n))}</strong> · <span style="color:var(--doge)">${esc(o.value_doge||"0")} DOGE</span>
-          <div class="detail-kv"><strong>Value (koinu)</strong> ${esc(String(o.value_sats ?? ""))}</div>
+          <div class="detail-kv"><strong>To</strong> ${toAddr}</div>
           <div class="detail-kv"><strong>Type</strong> ${esc(o.script_kind||"")}</div>
-          ${o.address ? `<div class="mono" style="margin:.3rem 0;font-size:.8rem"><strong>Address</strong> <button type="button" class="link-tx" data-open-address="${esc(o.address)}">${esc(o.address)}</button></div>` : ""}
+          <div class="detail-kv"><strong>Value (koinu)</strong> ${esc(String(o.value_sats ?? ""))}</div>
+          <div class="detail-kv mono muted" style="font-size:.72rem"><strong>scriptPubKey opcodes</strong> ${esc(spkOps) || "—"}</div>
           ${o.op_return_hex ? `<div class="detail-kv"><strong>OP_RETURN hex</strong> <span class="mono" style="font-size:.72rem">${esc(o.op_return_hex)}</span></div>` : ""}
           ${o.op_return_preview ? `<div class="detail-kv muted" style="font-size:.75rem"><strong>OP_RETURN decoded</strong> ${esc(o.op_return_preview)}</div>` : ""}
-        </div>`).join("");
+        </div>`;
+      }).join("");
       const wit = (dec.witness || []).map(w => {
         const items = (w.stack || []).map(s => `<div class="mono muted" style="font-size:.7rem;margin:.15rem 0">· ${esc(s.hex||"").slice(0,96)}${(s.hex||"").length>96?"…":""}</div>`).join("");
         return `<div class="tx-io-card"><strong>Witness · input ${esc(String(w.input_index))}</strong>${items}</div>`;
@@ -948,6 +1006,7 @@
             <div class="detail-kv muted">${esc(dec.locktime_note||"")}</div>
             <div class="detail-kv"><strong>Size</strong> ${esc(String(dec.size_bytes ?? ""))} B · <strong>vsize</strong> ${esc(String(dec.vsize ?? ""))} · <strong>Weight</strong> ${esc(String(dec.weight ?? ""))}</div>
             <div class="detail-kv"><strong>Output sum</strong> ${esc(String(dec.output_total_doge ?? ""))} DOGE (${esc(String(dec.output_total_sats ?? ""))} koinu)</div>
+            <div class="detail-kv muted" style="font-size:.76rem">Flow view: inputs = where value came from, outputs = where value was sent.</div>
           </div>
           <div class="tx-tab-pane" data-pane="inputs">
             <div class="io-grid">${ins || "<p class='muted'>None</p>"}</div>
@@ -956,6 +1015,10 @@
             <div class="io-grid two">${outs || "<p class='muted'>None</p>"}</div>
           </div>
           ${wit ? `<div class="tx-tab-pane" data-pane="witness">${wit}</div>` : ""}
+          <div class="detail-kv" style="margin-top:.55rem;display:flex;gap:.4rem;justify-content:flex-end">
+            <button type="button" class="btn btn-inline" data-tab-nav="prev">Back</button>
+            <button type="button" class="btn btn-inline" data-tab-nav="next">Next</button>
+          </div>
         </div>`;
     }
 
@@ -965,11 +1028,26 @@
       if (!tabWrap) return;
       const btns = Array.from(tabWrap.querySelectorAll(".tx-tab-btn"));
       const panes = Array.from(tabWrap.querySelectorAll(".tx-tab-pane"));
+      const navBtns = Array.from(tabWrap.querySelectorAll("[data-tab-nav]"));
+      const ordered = btns.map(b => String(b.getAttribute("data-tab") || ""));
+      function activate(target){
+        btns.forEach(b => b.classList.toggle("active", b.getAttribute("data-tab") === target));
+        panes.forEach(p => p.classList.toggle("active", p.getAttribute("data-pane") === target));
+      }
       btns.forEach(btn => {
         btn.onclick = () => {
           const target = btn.getAttribute("data-tab") || "summary";
-          btns.forEach(b => b.classList.toggle("active", b === btn));
-          panes.forEach(p => p.classList.toggle("active", p.getAttribute("data-pane") === target));
+          activate(target);
+        };
+      });
+      navBtns.forEach(btn => {
+        btn.onclick = () => {
+          const dir = btn.getAttribute("data-tab-nav");
+          const cur = (btns.find(b => b.classList.contains("active")) || btns[0]);
+          const curTab = cur ? String(cur.getAttribute("data-tab") || "summary") : "summary";
+          const idx = Math.max(0, ordered.indexOf(curTab));
+          const nextIdx = dir === "prev" ? Math.max(0, idx - 1) : Math.min(ordered.length - 1, idx + 1);
+          activate(ordered[nextIdx] || "summary");
         };
       });
     }

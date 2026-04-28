@@ -26,7 +26,7 @@ import (
 var staticFS embed.FS
 
 // pqWalletAppVersion is shown in /api/health, education JSON, and the UI footer (keep in sync with manifest.json).
-const pqWalletAppVersion = "0.0.42"
+const pqWalletAppVersion = "0.0.44"
 
 // pqWalletBuildHash is a release fingerprint (SHA-256 hex of "pq-wallet-<version>"); bump when cutting a release.
 const pqWalletBuildHash = "f2d5b36a0b15476fc72e3b6d8e3ffd74c48810f3ca252e8c0512b184920a3bd0"
@@ -35,6 +35,7 @@ type Server struct {
 	mu            sync.Mutex
 	stateMergeMu  sync.Mutex // serializes loadState + SPV/mempool merges + saveState (do not hold s.mu across slow I/O)
 	spvStartMu    sync.Mutex
+	suchMergeMu   sync.Mutex
 	storageDir    string
 	walletPath    string
 	watchPath     string
@@ -44,6 +45,7 @@ type Server struct {
 	sealSalt      []byte
 	memWallet     *WalletFile
 	unlockUntil   time.Time
+	lastSuchMerge time.Time
 }
 
 func env(key, def string) string {

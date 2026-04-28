@@ -13,6 +13,20 @@ async function api(path, opts) {
   const method = String(opts.method || "GET").toUpperCase();
   const isMutation = method !== "GET";
   const { signal, ...fetchOpts } = opts;
+  const reqTimeoutMs = Number(fetchOpts.timeout_ms) > 0
+    ? Number(fetchOpts.timeout_ms)
+    : (isMutation ? 30000 : 12000);
+  delete fetchOpts.timeout_ms;
+  let timeoutHandle = null;
+  let effectiveSignal = signal;
+  let timeoutController = null;
+  if (!effectiveSignal && typeof AbortController !== "undefined") {
+    timeoutController = new AbortController();
+    effectiveSignal = timeoutController.signal;
+    timeoutHandle = setTimeout(() => {
+      try { timeoutController.abort(); } catch { /* ignore */ }
+    }, reqTimeoutMs);
+  }
   if (isMutation) {
     activeMutations += 1;
     setGlobalActionBusy(true);
@@ -21,7 +35,7 @@ async function api(path, opts) {
     const r = await fetch(path, {
       headers: { "Content-Type": "application/json" },
       ...fetchOpts,
-      signal,
+      signal: effectiveSignal,
     });
     const text = await r.text();
     try {
@@ -29,7 +43,13 @@ async function api(path, opts) {
     } catch {
       return { _raw: text, _status: r.status };
     }
+  } catch (e) {
+    if (e && e.name === "AbortError") {
+      return { error: "request timeout", _timeout: true };
+    }
+    throw e;
   } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
     if (isMutation) {
       activeMutations = Math.max(0, activeMutations - 1);
       setGlobalActionBusy(activeMutations > 0);
@@ -208,9 +228,20 @@ function showView(name) {
 
 async function refreshLogs() {
   try {
+    const mkSignal = (ms) => {
+      if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+        return AbortSignal.timeout(ms);
+      }
+      if (typeof AbortController === "undefined") return undefined;
+      const c = new AbortController();
+      setTimeout(() => {
+        try { c.abort(); } catch { /* ignore */ }
+      }, ms);
+      return c.signal;
+    };
     const [mtr, bc] = await Promise.all([
-      fetch("/api/logs/mempooltracker").then((r) => r.text()),
-      fetch("/api/logs/broadcast?lines=200").then((r) => r.text()),
+      fetch("/api/logs/mempooltracker", { signal: mkSignal(7000) }).then((r) => r.text()),
+      fetch("/api/logs/broadcast?lines=200", { signal: mkSignal(7000) }).then((r) => r.text()),
     ]);
     const elM = $("log-mtr");
     const elB = $("log-bc");

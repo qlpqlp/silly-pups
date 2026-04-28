@@ -18,6 +18,21 @@ type txListRow struct {
 	Pending bool `json:"pending"`
 }
 
+// shouldRunSuchMerge throttles expensive such list_unspent merges.
+// Frequent dashboard/transactions polls should not repeatedly spawn such.
+func (s *Server) shouldRunSuchMerge(minInterval time.Duration) bool {
+	if minInterval <= 0 {
+		minInterval = 20 * time.Second
+	}
+	s.suchMergeMu.Lock()
+	defer s.suchMergeMu.Unlock()
+	if time.Since(s.lastSuchMerge) < minInterval {
+		return false
+	}
+	s.lastSuchMerge = time.Now()
+	return true
+}
+
 // handleDashboard returns balances, SPV header parse, metrics tail, and merged tx summary.
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -89,7 +104,10 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
 	restChanged := s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
 	dbChanged := s.mergeTransactionsFromSPVWalletDB(wf, st)
-	suchChanged := s.mergeTransactionsFromSuchListUnspent(wf, st)
+	suchChanged := false
+	if s.shouldRunSuchMerge(20 * time.Second) {
+		suchChanged = s.mergeTransactionsFromSuchListUnspent(wf, st)
+	}
 	if suchChanged && s.enrichSPVTxFromRawHex(st, wf) {
 		enrichedChanged = true
 	}
@@ -110,7 +128,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	spendable := math.Max(0, inSum-outSum)
 
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
 	pendingMeme, memeErr = s.syncMemeTracker(ctx, wf, st)
 	cancel()
 
@@ -347,7 +365,10 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 		enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
 		restChanged := s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
 		dbChanged := s.mergeTransactionsFromSPVWalletDB(wf, st)
-		suchChanged := s.mergeTransactionsFromSuchListUnspent(wf, st)
+		suchChanged := false
+		if s.shouldRunSuchMerge(20 * time.Second) {
+			suchChanged = s.mergeTransactionsFromSuchListUnspent(wf, st)
+		}
 		if suchChanged {
 			if s.enrichSPVTxFromRawHex(st, wf) {
 				enrichedChanged = true

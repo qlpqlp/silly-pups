@@ -1087,6 +1087,9 @@ func (a *app) publicStatus(w http.ResponseWriter, r *http.Request) {
 					// This avoids clearing the homepage list while aggregates still show PQ rows.
 					row["pq_carrier_role"] = pqCarrierTXRole(row)
 					if rowHasQuantumPQ(row) || strings.EqualFold(strings.TrimSpace(fmt.Sprint(row["quantum_state"])), "quantum") {
+						if strings.EqualFold(strings.TrimSpace(fmt.Sprint(row["quantum_state"])), "quantum") {
+							row["pq_valid"] = true
+						}
 						enrichedRQ = append(enrichedRQ, row)
 						if len(enrichedRQ) >= 80 {
 							break
@@ -1102,6 +1105,9 @@ func (a *app) publicStatus(w http.ResponseWriter, r *http.Request) {
 				pq = a.enrichReverseCarrierVerification(ctx, pq, txid, blkH)
 				row["pq_verification"] = pq
 				if car, ok := pq["carrier_phase1"].(map[string]any); ok {
+					if cv, ok := car["verified"].(bool); ok {
+						row["carrier_verified"] = cv
+					}
 					if fcv, ok := car["falcon_crypto_verify"].(map[string]any); ok {
 						row["falcon_status"] = strings.ToLower(strings.TrimSpace(fmt.Sprint(fcv["status"])))
 					}
@@ -1111,6 +1117,7 @@ func (a *app) publicStatus(w http.ResponseWriter, r *http.Request) {
 					row["matched_txr_txid"] = strings.ToLower(strings.TrimSpace(fmt.Sprint(rev["matched_txr_txid"])))
 				}
 				row["pq_carrier_role"] = pqCarrierTXRole(row)
+				row["pq_valid"] = rowHasQuantumPQ(row) || strings.EqualFold(strings.TrimSpace(qState), "quantum")
 				if !rowHasQuantumPQ(row) && !strings.EqualFold(strings.TrimSpace(fmt.Sprint(row["quantum_state"])), "quantum") {
 					continue
 				}

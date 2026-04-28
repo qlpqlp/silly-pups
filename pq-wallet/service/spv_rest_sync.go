@@ -506,6 +506,13 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 		if prev.Address == "" && r.Address != "" {
 			prev.Address = r.Address
 		}
+		// If the same txid appears in both /getUTXOs (in/change) and /getTransactions (spent),
+		// keep it as OUT so sent txs do not get mislabeled as IN.
+		if strings.EqualFold(r.Direction, "out") {
+			prev.Direction = "out"
+		} else if prev.Direction == "" {
+			prev.Direction = r.Direction
+		}
 		if r.Confirmations > prev.Confirmations {
 			prev.Confirmations = r.Confirmations
 		}

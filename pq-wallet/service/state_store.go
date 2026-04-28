@@ -38,6 +38,17 @@ type MetricPoint struct {
 	MempoolRelayCount int `json:"mempool_relay_count,omitempty"` // embedded MemeTracker relay visibility count
 }
 
+func directionRank(dir string) int {
+	switch strings.ToLower(strings.TrimSpace(dir)) {
+	case "out":
+		return 3
+	case "in":
+		return 2
+	default:
+		return 1
+	}
+}
+
 // WalletState is persisted as state.json (separate from keys).
 type WalletState struct {
 	Version      int           `json:"version"`
@@ -130,7 +141,11 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 				prev.RawHex = t.RawHex
 			}
 			if t.Direction != "" && t.Direction != "unknown" {
-				prev.Direction = t.Direction
+				// Keep stronger direction when sources disagree (OUT > IN > UNKNOWN),
+				// so receive-side merges do not overwrite confirmed sends.
+				if directionRank(t.Direction) >= directionRank(prev.Direction) {
+					prev.Direction = t.Direction
+				}
 			}
 			if t.Source != "" {
 				prev.Source = t.Source

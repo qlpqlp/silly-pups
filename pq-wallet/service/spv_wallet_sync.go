@@ -338,6 +338,7 @@ func (s *Server) mergeTransactionsFromSuchListUnspent(wf *WalletFile, st *Wallet
 	}
 	testnet := strings.EqualFold(wf.Network, "testnet")
 	byTxid := make(map[string]TxRecord)
+	spendableDOGE := 0.0
 	for _, addr := range wf.AllDistinctP2PKHAddresses() {
 		addr = strings.TrimSpace(addr)
 		if addr == "" {
@@ -353,11 +354,16 @@ func (s *Server) mergeTransactionsFromSuchListUnspent(wf *WalletFile, st *Wallet
 				continue
 			}
 			doge := float64(u.Value) / 1e8
+			if doge > 0 {
+				spendableDOGE += doge
+			}
 			prev, ok := byTxid[id]
 			if !ok {
 				byTxid[id] = TxRecord{
 					Txid:          id,
-					Direction:     "in",
+					// UTXO-only rows can be receive OR self-change from an outgoing tx.
+					// Keep unknown until REST/DB enrichment confirms direction.
+					Direction:     "unknown",
 					AmountDOGE:    doge,
 					Address:       addr,
 					Source:        "spv",
@@ -373,8 +379,16 @@ func (s *Server) mergeTransactionsFromSuchListUnspent(wf *WalletFile, st *Wallet
 		}
 	}
 	if len(byTxid) == 0 {
+		s.suchMergeMu.Lock()
+		s.lastSuchSpendableDOGE = 0
+		s.lastSuchSpendableAt = time.Now()
+		s.suchMergeMu.Unlock()
 		return false
 	}
+	s.suchMergeMu.Lock()
+	s.lastSuchSpendableDOGE = round2(spendableDOGE)
+	s.lastSuchSpendableAt = time.Now()
+	s.suchMergeMu.Unlock()
 	incoming := make([]TxRecord, 0, len(byTxid))
 	for _, tr := range byTxid {
 		incoming = append(incoming, tr)

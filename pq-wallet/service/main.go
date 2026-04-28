@@ -46,6 +46,8 @@ type Server struct {
 	memWallet     *WalletFile
 	unlockUntil   time.Time
 	lastSuchMerge time.Time
+	lastSuchSpendableDOGE float64
+	lastSuchSpendableAt   time.Time
 }
 
 func env(key, def string) string {

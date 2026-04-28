@@ -33,6 +33,21 @@ func (s *Server) shouldRunSuchMerge(minInterval time.Duration) bool {
 	return true
 }
 
+func (s *Server) latestSuchSpendable(maxAge time.Duration) (float64, bool) {
+	if maxAge <= 0 {
+		maxAge = 3 * time.Minute
+	}
+	s.suchMergeMu.Lock()
+	defer s.suchMergeMu.Unlock()
+	if s.lastSuchSpendableAt.IsZero() {
+		return 0, false
+	}
+	if time.Since(s.lastSuchSpendableAt) > maxAge {
+		return 0, false
+	}
+	return s.lastSuchSpendableDOGE, true
+}
+
 // handleDashboard returns balances, SPV header parse, metrics tail, and merged tx summary.
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -127,6 +142,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	spendable := math.Max(0, inSum-outSum)
+	// Prefer recent UTXO-derived spendable from such list_unspent when available.
+	// This avoids drift when direction-classification history is imperfect.
+	if utxoSpendable, ok := s.latestSuchSpendable(3 * time.Minute); ok {
+		spendable = math.Max(0, utxoSpendable)
+	}
 
 	eng, engErr := s.ensureMempoolEngine(wf)
 	if eng != nil && engErr == nil {

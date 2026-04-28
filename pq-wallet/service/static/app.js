@@ -78,6 +78,64 @@ const state = {
   lastDashboard: null,
 };
 
+const CACHE_DB_NAME = "pq-wallet-ui-cache";
+const CACHE_DB_VERSION = 1;
+const CACHE_STORE = "snapshots";
+const CACHE_KEY_DASHBOARD = "dashboard_v1";
+const CACHE_KEY_TXS = "txs_v1";
+
+function cacheOpenDB() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") {
+      reject(new Error("indexeddb unavailable"));
+      return;
+    }
+    const req = indexedDB.open(CACHE_DB_NAME, CACHE_DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(CACHE_STORE)) {
+        db.createObjectStore(CACHE_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error("indexeddb open failed"));
+  });
+}
+
+async function cacheSet(key, value) {
+  try {
+    const db = await cacheOpenDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(CACHE_STORE, "readwrite");
+      const store = tx.objectStore(CACHE_STORE);
+      const req = store.put({ key, value, saved_at: Date.now() }, key);
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error || new Error("indexeddb put failed"));
+    });
+    db.close();
+  } catch {
+    /* cache best effort only */
+  }
+}
+
+async function cacheGet(key) {
+  try {
+    const db = await cacheOpenDB();
+    const row = await new Promise((resolve, reject) => {
+      const tx = db.transaction(CACHE_STORE, "readonly");
+      const store = tx.objectStore(CACHE_STORE);
+      const req = store.get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error || new Error("indexeddb get failed"));
+    });
+    db.close();
+    if (!row || typeof row !== "object") return null;
+    return row.value != null ? row.value : null;
+  } catch {
+    return null;
+  }
+}
+
 function flashButtonFeedback(el) {
   if (!el) return;
   el.classList.add("btn-flash");
@@ -222,6 +280,7 @@ function showView(name) {
     if (sb) {
       sb.classList.add("sidebar-drawer-closed");
       syncSidebarDrawerToggleIcon();
+      syncMobileMenuIcon();
     }
   }
 }
@@ -396,7 +455,6 @@ function setOnboarding(w) {
     $(id).classList.toggle("hidden", !has);
   });
   if (has) {
-    if (w && w.network) $("net-badge").textContent = (w.network || "mainnet").toUpperCase();
     showView(state.view || "dashboard");
     ensureMobileSidebarLayout();
     updateReceiveView();
@@ -404,6 +462,7 @@ function setOnboarding(w) {
   } else {
     ensureOnboardingMobileSidebar();
   }
+  syncMobileMenuIcon();
 }
 
 function isNarrowViewport() {
@@ -432,6 +491,7 @@ function ensureMobileSidebarLayout() {
     sb.classList.remove("sidebar-drawer-closed");
   }
   syncSidebarDrawerToggleIcon();
+  syncMobileMenuIcon();
 }
 
 /** On narrow viewports, keep the nav drawer closed on create/restore until the user opens it. */
@@ -445,6 +505,7 @@ function ensureOnboardingMobileSidebar() {
     sb.classList.remove("sidebar-drawer-closed");
   }
   syncSidebarDrawerToggleIcon();
+  syncMobileMenuIcon();
 }
 
 function syncSidebarDrawerToggleIcon() {
@@ -462,6 +523,36 @@ function syncSidebarDrawerToggleIcon() {
     icon.textContent = collapsed ? "menu" : "menu_open";
     btn.setAttribute("aria-expanded", (!collapsed).toString());
   }
+}
+
+function syncMobileMenuIcon() {
+  const sb = $("sidebar");
+  const btn = $("btn-mobile-menu");
+  if (!sb || !btn) return;
+  const icon = btn.querySelector(".material-symbols-outlined");
+  if (!icon) return;
+  if (isNarrowViewport()) {
+    const shut = sb.classList.contains("sidebar-drawer-closed");
+    icon.textContent = shut ? "menu" : "close";
+    btn.setAttribute("aria-expanded", shut ? "false" : "true");
+    btn.setAttribute("aria-label", shut ? "Open navigation menu" : "Close navigation menu");
+    btn.title = shut ? "Menu" : "Close";
+    return;
+  }
+  icon.textContent = "menu";
+  btn.setAttribute("aria-expanded", "false");
+  btn.setAttribute("aria-label", "Open navigation menu");
+  btn.title = "Menu";
+}
+
+function updateSyncChipVisual(label) {
+  const chip = $("wallet-sync-chip-top");
+  if (!chip) return;
+  const txt = String(label || "Sync");
+  chip.textContent = txt;
+  chip.classList.remove("syncing", "synced");
+  if (txt === "Synced") chip.classList.add("synced");
+  else chip.classList.add("syncing");
 }
 
 function fmtTime(iso) {
@@ -724,20 +815,33 @@ function maybeNotifyPending(pending) {
   state.lastPendingDoge = p;
 }
 
+function recalcBalanceFromTransactions() {
+  const txs = Array.isArray(state.lastTxs) ? state.lastTxs : [];
+  if (!txs.length) return null;
+  let total = 0;
+  let any = false;
+  for (const tx of txs) {
+    const amt = Number(tx && tx.amount_doge);
+    if (!Number.isFinite(amt)) continue;
+    const dir = String(tx && tx.direction || "").toLowerCase();
+    if (dir === "in") total += amt;
+    else if (dir === "out") total -= amt;
+    any = true;
+  }
+  if (!any) return null;
+  return Math.max(0, total);
+}
+
 function updateServicesControlUI(svc) {
   const card = $("svc-control-card");
-  const dashCard = $("svc-control-card-dash");
   const spvLine = $("svc-spv-status");
-  const spvLineDash = $("svc-spv-status-dash");
   const mtrLine = $("svc-mtr-status");
-  const mtrLineDash = $("svc-mtr-status-dash");
-  const bSpvStop = [$("btn-svc-spv-stop"), $("btn-svc-spv-stop-dash")].filter(Boolean);
-  const bSpvStart = [$("btn-svc-spv-start"), $("btn-svc-spv-start-dash")].filter(Boolean);
-  const bMtrStop = [$("btn-svc-mtr-stop"), $("btn-svc-mtr-stop-dash")].filter(Boolean);
-  const bMtrStart = [$("btn-svc-mtr-start"), $("btn-svc-mtr-start-dash")].filter(Boolean);
+  const bSpvStop = [$("btn-svc-spv-stop")].filter(Boolean);
+  const bSpvStart = [$("btn-svc-spv-start")].filter(Boolean);
+  const bMtrStop = [$("btn-svc-mtr-stop")].filter(Boolean);
+  const bMtrStart = [$("btn-svc-mtr-start")].filter(Boolean);
   if (!svc) return;
   if (card) card.classList.remove("hidden");
-  if (dashCard) dashCard.classList.remove("hidden");
   const spvOn = !!svc.spv_enabled;
   const spvRun = !!svc.spv_running;
   const mtrOn = !!svc.memetracker_enabled;
@@ -748,14 +852,8 @@ function updateServicesControlUI(svc) {
   if (spvLine) {
     spvLine.textContent = `Preference: ${spvOn ? "on" : "off"} · Process: ${spvRun ? "running" : "stopped"}`;
   }
-  if (spvLineDash) {
-    spvLineDash.textContent = `Preference: ${spvOn ? "on" : "off"} · Process: ${spvRun ? "running" : "stopped"}`;
-  }
   if (mtrLine) {
     mtrLine.textContent = `Preference: ${mtrOn ? "on" : "off"} · Engine: ${mtrEng ? "up" : "down"} · P2P: ${mtrP2p ? "active" : "idle"} · workers ${wk} · relay txs ${mcnt}`;
-  }
-  if (mtrLineDash) {
-    mtrLineDash.textContent = `Preference: ${mtrOn ? "on" : "off"} · Engine: ${mtrEng ? "up" : "down"} · P2P: ${mtrP2p ? "active" : "idle"} · workers ${wk} · relay txs ${mcnt}`;
   }
   bSpvStop.forEach((el) => { el.disabled = !spvOn; });
   bSpvStart.forEach((el) => { el.disabled = spvOn && spvRun; });
@@ -764,8 +862,7 @@ function updateServicesControlUI(svc) {
 }
 
 const SERVICE_CTRL_BTN_IDS = [
-  "btn-svc-spv-stop", "btn-svc-spv-start", "btn-svc-mtr-stop", "btn-svc-mtr-start",
-  "btn-svc-spv-stop-dash", "btn-svc-spv-start-dash", "btn-svc-mtr-stop-dash", "btn-svc-mtr-start-dash"
+  "btn-svc-spv-stop", "btn-svc-spv-start", "btn-svc-mtr-stop", "btn-svc-mtr-start"
 ];
 
 function setServiceControlBusy(busy) {
@@ -817,21 +914,35 @@ async function postServiceControl(patch) {
   }
 }
 
-async function refreshDashboard() {
-  if (state.inFlightDashboard) return;
-  state.inFlightDashboard = true;
-  try {
-  const data = await api("/api/dashboard", { timeout_ms: 45000 });
-  if (!data || data.error || !data.dashboard || typeof data.dashboard !== "object") return;
-  state.lastDashboard = data.dashboard;
-  const t = data.dashboard.totals || {};
+function updatePendingNavBadge(txs) {
+  let pendingNav = 0;
+  (Array.isArray(txs) ? txs : []).forEach((tx) => {
+    const isMTR = String(tx && tx.source ? tx.source : "").toLowerCase() === "memetracker";
+    if (isMTR || (tx && tx.pending)) pendingNav += 1;
+  });
+  const navB = $("nav-tx-pending-badge");
+  if (!navB) return;
+  if (pendingNav > 0) {
+    navB.textContent = pendingNav > 99 ? "99+" : String(pendingNav);
+    navB.classList.remove("hidden");
+  } else {
+    navB.classList.add("hidden");
+  }
+}
+
+function applyDashboardSnapshot(dashboard) {
+  if (!dashboard || typeof dashboard !== "object") return;
+  state.lastDashboard = dashboard;
+  const t = dashboard.totals || {};
   const spendStr =
     t.spendable_hint_doge != null && !Number.isNaN(Number(t.spendable_hint_doge))
       ? Number(t.spendable_hint_doge).toFixed(2)
       : "—";
   const balBig = $("wallet-balance-big");
   const balUnit = $("wallet-balance-unit");
-  if (balBig) balBig.textContent = `Ð ${spendStr}`;
+  const txDerived = recalcBalanceFromTransactions();
+  const shown = spendStr !== "—" ? spendStr : (txDerived != null ? txDerived.toFixed(2) : "—");
+  if (balBig) balBig.textContent = `Ð ${shown}`;
   if (balUnit) balUnit.textContent = "";
   const pendRaw = t.pending_mempool_doge;
   const pendNum = Number(pendRaw);
@@ -848,8 +959,8 @@ async function refreshDashboard() {
     }
   }
   maybeNotifyPending(hasPending ? pendNum : 0);
-  const spv = data.dashboard.spv || {};
-  const mtr = data.dashboard.memetracker || {};
+  const spv = dashboard.spv || {};
+  const mtr = dashboard.memetracker || {};
   const mtrMeta = $("mtr-mempool-meta");
   const mtrList = $("mtr-mempool-list");
   const mtrExpand = $("btn-mtr-mempool-expand");
@@ -895,12 +1006,10 @@ async function refreshDashboard() {
       }
     }
   }
-  const chip = $("wallet-sync-chip");
-  if (chip) {
-    const syncLabel = humanizeSyncEta(spv.sync_lag_seconds);
-    chip.textContent = syncLabel || "Sync";
-    chip.title = spv.sync_lag_label || "";
-  }
+  const syncLabel = humanizeSyncEta(spv.sync_lag_seconds) || "Sync";
+  updateSyncChipVisual(syncLabel);
+  const chip = $("wallet-sync-chip-top");
+  if (chip) chip.title = spv.sync_lag_label || "";
   const spvDbg = $("log-spv-headers");
   if (spvDbg) {
     const h = Number(spv.header_height || 0);
@@ -920,11 +1029,53 @@ async function refreshDashboard() {
       `spv_http_url: ${spv.spv_http_url || "—"}`
     ].join("\n");
   }
-  const sample = data.dashboard.metrics_sample || [];
+  const sample = dashboard.metrics_sample || [];
   initCharts();
   updateCharts(sample);
-  if (data.dashboard.services) updateServicesControlUI(data.dashboard.services);
+  if (dashboard.services) updateServicesControlUI(dashboard.services);
   renderDashboardTxPreview();
+}
+
+function applyTxSnapshot(txs, refresh) {
+  const rows = Array.isArray(txs) ? txs : [];
+  state.lastTxs = rows;
+  const balBig = $("wallet-balance-big");
+  const dashTotals = state.lastDashboard && state.lastDashboard.totals ? state.lastDashboard.totals : null;
+  const spendHint = dashTotals && dashTotals.spendable_hint_doge != null ? Number(dashTotals.spendable_hint_doge) : NaN;
+  if ((!Number.isFinite(spendHint) || spendHint <= 0) && balBig) {
+    const derived = recalcBalanceFromTransactions();
+    if (derived != null && derived > 0) balBig.textContent = `Ð ${derived.toFixed(2)}`;
+  }
+  const hint = $("tx-sync-hint");
+  if (hint) hint.textContent = refresh ? "Refreshed" : "";
+  const list = $("tx-list");
+  const emptyEl = $("tx-list-empty");
+  if (list) upsertTxList(list, rows, true, emptyEl);
+  updatePendingNavBadge(rows);
+  renderDashboardTxPreview();
+}
+
+async function hydrateUiFromCache() {
+  const [cachedDashboard, cachedTxs] = await Promise.all([
+    cacheGet(CACHE_KEY_DASHBOARD),
+    cacheGet(CACHE_KEY_TXS),
+  ]);
+  if (cachedTxs && Array.isArray(cachedTxs.transactions)) {
+    applyTxSnapshot(cachedTxs.transactions, false);
+  }
+  if (cachedDashboard && cachedDashboard.dashboard && typeof cachedDashboard.dashboard === "object") {
+    applyDashboardSnapshot(cachedDashboard.dashboard);
+  }
+}
+
+async function refreshDashboard() {
+  if (state.inFlightDashboard) return;
+  state.inFlightDashboard = true;
+  try {
+  const data = await api("/api/dashboard", { timeout_ms: 18000 });
+  if (!data || data.error || !data.dashboard || typeof data.dashboard !== "object") return;
+  applyDashboardSnapshot(data.dashboard);
+  cacheSet(CACHE_KEY_DASHBOARD, { dashboard: data.dashboard });
   } finally {
     state.inFlightDashboard = false;
   }
@@ -950,17 +1101,17 @@ function renderDashboardTxPreview() {
   upsertTxList(list, txs.slice(0, max), false, null);
 }
 
-["btn-svc-spv-stop", "btn-svc-spv-stop-dash"].forEach((id) => $(id)?.addEventListener("click", () => postServiceControl({ spv_enabled: false })));
-["btn-svc-spv-start", "btn-svc-spv-start-dash"].forEach((id) => $(id)?.addEventListener("click", () => postServiceControl({ spv_enabled: true })));
-["btn-svc-mtr-stop", "btn-svc-mtr-stop-dash"].forEach((id) => $(id)?.addEventListener("click", () => postServiceControl({ memetracker_enabled: false })));
-["btn-svc-mtr-start", "btn-svc-mtr-start-dash"].forEach((id) => $(id)?.addEventListener("click", () => postServiceControl({ memetracker_enabled: true })));
+["btn-svc-spv-stop"].forEach((id) => $(id)?.addEventListener("click", () => postServiceControl({ spv_enabled: false })));
+["btn-svc-spv-start"].forEach((id) => $(id)?.addEventListener("click", () => postServiceControl({ spv_enabled: true })));
+["btn-svc-mtr-stop"].forEach((id) => $(id)?.addEventListener("click", () => postServiceControl({ memetracker_enabled: false })));
+["btn-svc-mtr-start"].forEach((id) => $(id)?.addEventListener("click", () => postServiceControl({ memetracker_enabled: true })));
 
 async function refreshTxList(refresh) {
   if (state.inFlightTx) return;
   state.inFlightTx = true;
   try {
   const q = "";
-  const data = await api("/api/transactions" + q, { timeout_ms: 45000 });
+  const data = await api("/api/transactions" + q, { timeout_ms: 18000 });
   if (!data || data.error || !Array.isArray(data.transactions)) return;
   const txs = (data.transactions || []).slice().sort((a, b) => {
     const ta = new Date(a && a.seen_at ? a.seen_at : 0).getTime() || 0;
@@ -968,29 +1119,8 @@ async function refreshTxList(refresh) {
     if (tb !== ta) return tb - ta;
     return String((b && b.txid) || "").localeCompare(String((a && a.txid) || ""));
   });
-  state.lastTxs = txs;
-  const hint = $("tx-sync-hint");
-  if (hint) hint.textContent = refresh ? "Refreshed" : "";
-  const list = $("tx-list");
-  const emptyEl = $("tx-list-empty");
-  if (!list) return;
-  upsertTxList(list, txs, true, emptyEl);
-  let pendingNav = 0;
-  txs.forEach((tx) => {
-    const isMTR = String(tx.source || "").toLowerCase() === "memetracker";
-    const showPending = isMTR || tx.pending;
-    if (showPending) pendingNav += 1;
-  });
-  const navB = $("nav-tx-pending-badge");
-  if (navB) {
-    if (pendingNav > 0) {
-      navB.textContent = pendingNav > 99 ? "99+" : String(pendingNav);
-      navB.classList.remove("hidden");
-    } else {
-      navB.classList.add("hidden");
-    }
-  }
-  renderDashboardTxPreview();
+  applyTxSnapshot(txs, !!refresh);
+  cacheSet(CACHE_KEY_TXS, { transactions: txs });
   } finally {
     state.inFlightTx = false;
   }
@@ -1361,6 +1491,7 @@ function openSidebarNav() {
   sb.classList.remove("collapsed");
   sb.classList.remove("sidebar-drawer-closed");
   syncSidebarDrawerToggleIcon();
+  syncMobileMenuIcon();
 }
 
 $("btn-sidebar-toggle").addEventListener("click", () => {
@@ -1372,11 +1503,22 @@ $("btn-sidebar-toggle").addEventListener("click", () => {
     sb.classList.toggle("collapsed");
   }
   syncSidebarDrawerToggleIcon();
+  syncMobileMenuIcon();
 });
 
 const btnMob = $("btn-mobile-menu");
 if (btnMob) {
-  btnMob.addEventListener("click", () => openSidebarNav());
+  btnMob.addEventListener("click", () => {
+    const sb = $("sidebar");
+    if (!sb) return;
+    if (isNarrowViewport()) {
+      sb.classList.toggle("sidebar-drawer-closed");
+      syncSidebarDrawerToggleIcon();
+      syncMobileMenuIcon();
+      return;
+    }
+    openSidebarNav();
+  });
 }
 
 document.querySelectorAll("[data-send-tab]").forEach((tab) => {
@@ -1790,6 +1932,40 @@ function wireImportFileUI() {
 
 wireImportFileUI();
 
+let deferredInstallPrompt = null;
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  const btn = $("btn-install-app");
+  const hint = $("install-app-hint");
+  if (btn) btn.classList.remove("hidden");
+  if (hint) hint.classList.add("hidden");
+});
+window.addEventListener("appinstalled", () => {
+  deferredInstallPrompt = null;
+  const btn = $("btn-install-app");
+  if (btn) btn.classList.add("hidden");
+});
+const btnInstall = $("btn-install-app");
+if (btnInstall) {
+  btnInstall.addEventListener("click", async () => {
+    if (!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    try { await deferredInstallPrompt.userChoice; } catch { /* ignore */ }
+  });
+}
+const installHint = $("install-app-hint");
+if (installHint) {
+  const isiOS = /iphone|ipad|ipod/i.test(navigator.userAgent || "");
+  const isStandalone = window.matchMedia && window.matchMedia("(display-mode: standalone)").matches;
+  if (isiOS && !isStandalone) installHint.classList.remove("hidden");
+}
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/static/sw.js").catch(() => {});
+  });
+}
+
 let qrResizeTimer;
 window.addEventListener("resize", () => {
   clearTimeout(qrResizeTimer);
@@ -1803,6 +1979,7 @@ window.addEventListener("resize", () => {
         ensureOnboardingMobileSidebar();
       }
     }
+    syncMobileMenuIcon();
     if (state.view !== "receive") return;
     const bucket = window.matchMedia("(max-width: 900px)").matches ? "sm" : "lg";
     if (bucket === state.receiveQrBucket) return;
@@ -1860,4 +2037,8 @@ if (typeof Notification !== "undefined" && Notification.permission === "default"
   }
 })();
 
-refreshWallet();
+updateSyncChipVisual("Sync");
+(async () => {
+  await hydrateUiFromCache();
+  await refreshWallet();
+})();

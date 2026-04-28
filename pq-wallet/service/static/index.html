@@ -4,6 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Post Quantum Doge Wallet</title>
+  <meta name="theme-color" content="#0b0f14" />
+  <link rel="manifest" href="/static/manifest.webmanifest" />
   <link rel="icon" href="/logo.png" type="image/png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -84,7 +86,7 @@
           <p class="page-sub sr-only" id="page-sub">SPV headers, balances, and post-quantum hints</p>
         </div>
         <div class="topbar-actions">
-          <span class="badge" id="net-badge">mainnet</span>
+          <span class="wallet-sync-chip" id="wallet-sync-chip-top">Sync</span>
           <span class="badge hidden" id="global-action-badge">Working…</span>
         </div>
       </header>
@@ -155,33 +157,9 @@
               <span class="wallet-hero-balance" id="wallet-balance-big">—</span>
               <span class="wallet-hero-unit" id="wallet-balance-unit"></span>
             </div>
-            <div class="wallet-sync-chip" id="wallet-sync-chip">Sync</div>
             <div class="wallet-pending-row" id="wallet-pending-row" hidden>
               <span class="badge badge-pending-label">Pending</span>
               <span class="badge badge-pending-amt mono" id="wallet-pending-line">—</span>
-            </div>
-          </div>
-          <div class="card svc-control-card hidden" id="svc-control-card-dash" aria-labelledby="svc-control-title-dash">
-            <h2 id="svc-control-title-dash"><span class="material-symbols-outlined icon-inline">tune</span> Background services</h2>
-            <div class="svc-row">
-              <div class="svc-row-main">
-                <strong>SPV node</strong>
-                <p class="small muted mono svc-status-line" id="svc-spv-status-dash">—</p>
-              </div>
-              <div class="svc-row-actions">
-                <button type="button" class="btn btn-sm" id="btn-svc-spv-stop-dash">Stop</button>
-                <button type="button" class="btn btn-sm primary" id="btn-svc-spv-start-dash">Start</button>
-              </div>
-            </div>
-            <div class="svc-row">
-              <div class="svc-row-main">
-                <strong>MemeTracker</strong>
-                <p class="small muted mono svc-status-line" id="svc-mtr-status-dash">—</p>
-              </div>
-              <div class="svc-row-actions">
-                <button type="button" class="btn btn-sm" id="btn-svc-mtr-stop-dash">Stop</button>
-                <button type="button" class="btn btn-sm primary" id="btn-svc-mtr-start-dash">Start</button>
-              </div>
             </div>
           </div>
           <div class="card tx-list-card dash-latest-tx-card">
@@ -304,32 +282,9 @@
             <button type="button" class="btn" id="btn-lock-session"><span class="material-symbols-outlined btn-ico">logout</span> Lock session (clear PIN from memory)</button>
           </div>
           <div class="card">
-            <h2><span class="material-symbols-outlined icon-inline">settings_backup_restore</span> SPV repair &amp; rescan</h2>
-            <button type="button" class="btn" id="btn-open-spv-repair"><span class="material-symbols-outlined btn-ico">settings_backup_restore</span> Rollback to checkpoint (libdogecoin bundled)</button>
-          </div>
-          <div class="card svc-control-card hidden" id="svc-control-card" aria-labelledby="svc-control-title">
-            <h2 id="svc-control-title"><span class="material-symbols-outlined icon-inline">tune</span> Background services</h2>
-            <p class="small muted" style="margin-top:.25rem">Stop or start <code class="mono">spvnode</code> (SPV) and the embedded MemeTracker (mempool P2P). Settings are saved as <code class="mono">service_prefs.json</code> in your pup storage.</p>
-            <div class="svc-row">
-              <div class="svc-row-main">
-                <strong>SPV node</strong>
-                <p class="small muted mono svc-status-line" id="svc-spv-status">—</p>
-              </div>
-              <div class="svc-row-actions">
-                <button type="button" class="btn btn-sm" id="btn-svc-spv-stop">Stop</button>
-                <button type="button" class="btn btn-sm primary" id="btn-svc-spv-start">Start</button>
-              </div>
-            </div>
-            <div class="svc-row">
-              <div class="svc-row-main">
-                <strong>MemeTracker</strong>
-                <p class="small muted mono svc-status-line" id="svc-mtr-status">—</p>
-              </div>
-              <div class="svc-row-actions">
-                <button type="button" class="btn btn-sm" id="btn-svc-mtr-stop">Stop</button>
-                <button type="button" class="btn btn-sm primary" id="btn-svc-mtr-start">Start</button>
-              </div>
-            </div>
+            <h2>Backup</h2>
+            <p class="small muted">Downloads wallet JSON (only while not sealed, or export after unlock).</p>
+            <button type="button" class="btn primary" id="btn-backup"><span class="material-symbols-outlined btn-ico">payments</span> Download backup</button>
           </div>
           <div class="card">
             <h2><span class="material-symbols-outlined icon-inline">terminal</span> Logs</h2>
@@ -364,9 +319,38 @@
             </div>
           </div>
           <div class="card">
-            <h2>Backup</h2>
-            <p class="small muted">Downloads wallet JSON (only while not sealed, or export after unlock).</p>
-            <button type="button" class="btn primary" id="btn-backup"><span class="material-symbols-outlined btn-ico">payments</span> Download backup</button>
+            <h2><span class="material-symbols-outlined icon-inline">settings_backup_restore</span> SPV repair &amp; rescan</h2>
+            <button type="button" class="btn" id="btn-open-spv-repair"><span class="material-symbols-outlined btn-ico">settings_backup_restore</span> Rollback to checkpoint (libdogecoin bundled)</button>
+          </div>
+          <div class="card svc-control-card hidden" id="svc-control-card" aria-labelledby="svc-control-title">
+            <h2 id="svc-control-title"><span class="material-symbols-outlined icon-inline">tune</span> Background services</h2>
+            <p class="small muted" style="margin-top:.25rem">Stop or start <code class="mono">spvnode</code> (SPV) and the embedded MemeTracker (mempool P2P). Settings are saved as <code class="mono">service_prefs.json</code> in your pup storage.</p>
+            <div class="svc-row">
+              <div class="svc-row-main">
+                <strong>SPV node</strong>
+                <p class="small muted mono svc-status-line" id="svc-spv-status">—</p>
+              </div>
+              <div class="svc-row-actions">
+                <button type="button" class="btn btn-sm" id="btn-svc-spv-stop">Stop</button>
+                <button type="button" class="btn btn-sm primary" id="btn-svc-spv-start">Start</button>
+              </div>
+            </div>
+            <div class="svc-row">
+              <div class="svc-row-main">
+                <strong>MemeTracker</strong>
+                <p class="small muted mono svc-status-line" id="svc-mtr-status">—</p>
+              </div>
+              <div class="svc-row-actions">
+                <button type="button" class="btn btn-sm" id="btn-svc-mtr-stop">Stop</button>
+                <button type="button" class="btn btn-sm primary" id="btn-svc-mtr-start">Start</button>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <h2><span class="material-symbols-outlined icon-inline">install_mobile</span> Install app</h2>
+            <p class="small muted">Install this wallet UI on your phone or desktop. It uses the same origin you open in the browser for API calls.</p>
+            <button type="button" class="btn primary hidden" id="btn-install-app"><span class="material-symbols-outlined btn-ico">download</span> Install app</button>
+            <p class="small muted hidden" id="install-app-hint">On iPhone/iPad: Share → Add to Home Screen.</p>
           </div>
           <div class="card danger-zone">
             <h2>Remove wallet</h2>

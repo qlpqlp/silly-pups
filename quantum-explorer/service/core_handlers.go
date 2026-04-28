@@ -124,7 +124,13 @@ func (a *app) publicCoreRecentTxs(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	rows, err := a.cidx.recentTransactions(ctx, fetchLimit, "")
+	recentMode := ""
+	if mode == "quantum" {
+		// Primary source for quantum feed: DB-classified quantum rows.
+		// This prevents starvation when latest non-quantum volume is high.
+		recentMode = "quantum"
+	}
+	rows, err := a.cidx.recentTransactions(ctx, fetchLimit, recentMode)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
@@ -164,6 +170,31 @@ func (a *app) publicCoreRecentTxs(w http.ResponseWriter, r *http.Request) {
 	}
 	rows = enriched
 	if mode == "quantum" {
+		// Top-up with carrier-linked rows from the generic recent stream when needed.
+		// This keeps TX_R entries visible even when quantum_state is not "quantum".
+		if len(rows) < limit {
+			extraRows, extraErr := a.cidx.recentTransactions(ctx, fetchLimit, "")
+			if extraErr == nil {
+				seen := make(map[string]struct{}, len(rows))
+				for _, row := range rows {
+					txid := strings.ToLower(strings.TrimSpace(rowString(row, "txid")))
+					if len(txid) == 64 && isHex64String(txid) {
+						seen[txid] = struct{}{}
+					}
+				}
+				for _, row := range extraRows {
+					txid := strings.ToLower(strings.TrimSpace(rowString(row, "txid")))
+					if len(txid) != 64 || !isHex64String(txid) {
+						continue
+					}
+					if _, ok := seen[txid]; ok {
+						continue
+					}
+					rows = append(rows, row)
+					seen[txid] = struct{}{}
+				}
+			}
+		}
 		filtered := make([]map[string]any, 0, len(rows))
 		for _, row := range rows {
 			if rowHasQuantumPQ(row) {

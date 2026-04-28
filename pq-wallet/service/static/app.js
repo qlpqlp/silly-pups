@@ -300,10 +300,10 @@ async function refreshLogs() {
       }, ms);
       return c.signal;
     };
-    const [mtr, bc, spvStatus] = await Promise.all([
+    const [mtr, bc, spvLog] = await Promise.all([
       fetch("/api/logs/mempooltracker", { signal: mkSignal(15000) }).then((r) => r.text()),
       fetch("/api/logs/broadcast?lines=200", { signal: mkSignal(15000) }).then((r) => r.text()),
-      api("/api/spv/status", { timeout_ms: 12000 }),
+      fetch("/api/logs/spv?lines=320", { signal: mkSignal(15000) }).then((r) => r.text()),
     ]);
     const elM = $("log-mtr");
     const elB = $("log-bc");
@@ -311,7 +311,7 @@ async function refreshLogs() {
     if (elM) elM.textContent = mtr;
     if (elB) elB.textContent = bc;
     if (elHashes) {
-      const tail = spvStatus && spvStatus.log_tail ? String(spvStatus.log_tail) : "";
+      const tail = String(spvLog || "");
       const rows = extractRecentHeaderHashes(tail, 16);
       elHashes.textContent = rows.length ? rows.join("\n") : "No recent header hashes detected yet.";
     }

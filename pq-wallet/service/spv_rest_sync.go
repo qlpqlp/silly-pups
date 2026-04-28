@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -243,7 +244,7 @@ func (s *Server) fetchTxTimestampFromSoChain(txid string, testnet bool) time.Tim
 		coin = "DOGETEST"
 	}
 	u := fmt.Sprintf("https://sochain.com/api/v2/tx/%s/%s", coin, txid)
-	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
@@ -470,7 +471,13 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 		testnet = strings.EqualFold(wf.Network, "testnet")
 	}
 	tsLookups := 0
-	const maxChainTimestampLookups = 24
+	maxChainTimestampLookups := parseIntDefault(strings.TrimSpace(os.Getenv("PUP_SPV_CHAIN_TS_LOOKUPS")), 0)
+	if maxChainTimestampLookups < 0 {
+		maxChainTimestampLookups = 0
+	}
+	if maxChainTimestampLookups > 8 {
+		maxChainTimestampLookups = 8
+	}
 	for _, r := range rows {
 		id := normalizeTxid(r.Txid)
 		if id == "" {

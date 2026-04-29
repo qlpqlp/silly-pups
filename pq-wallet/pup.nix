@@ -63,10 +63,11 @@ let
           for a in "''${SPV_ADDRS[@]}"; do
             SPV_ARGS+=(-a "$a")
           done
+          printf '\n--- spvnode (pup entrypoint) starting pid pending ---\n' >>"$STORAGE/spv.log"
           if command -v stdbuf >/dev/null 2>&1; then
-            nohup stdbuf -oL -eL spvnode $TN_FLAG $CP_FLAG -u "$SPV_HTTP_ADDR" -c -l "''${SPV_ARGS[@]}" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >/dev/null 2>&1 &
+            nohup stdbuf -oL -eL spvnode $TN_FLAG $CP_FLAG -u "$SPV_HTTP_ADDR" -c -l "''${SPV_ARGS[@]}" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >>"$STORAGE/spv.log" 2>&1 &
           else
-            nohup spvnode $TN_FLAG $CP_FLAG -u "$SPV_HTTP_ADDR" -c -l "''${SPV_ARGS[@]}" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >/dev/null 2>&1 &
+            nohup spvnode $TN_FLAG $CP_FLAG -u "$SPV_HTTP_ADDR" -c -l "''${SPV_ARGS[@]}" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >>"$STORAGE/spv.log" 2>&1 &
           fi
           echo $! >"$STORAGE/spv.pid"
         fi

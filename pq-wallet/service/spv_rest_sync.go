@@ -41,7 +41,9 @@ func normalizeRESTDirectionHint(raw string) string {
 		return "in"
 	}
 	if s == "out" || s == "send" || s == "sent" || s == "outgoing" || s == "spent" || s == "debit" ||
-		strings.Contains(s, "sent") || strings.Contains(s, "spent") || strings.Contains(s, "debit") {
+		s == "spend" || s == "withdraw" || s == "payment" || s == "paid" ||
+		strings.Contains(s, "sent") || strings.Contains(s, "spent") || strings.Contains(s, "debit") ||
+		strings.Contains(s, "spend") || strings.Contains(s, "withdraw") {
 		return "out"
 	}
 	return ""
@@ -146,7 +148,8 @@ func parseSPVRESTRows(raw, direction string) []spvRESTTxRow {
 		lowLn := strings.ToLower(ln)
 		if strings.Contains(lowLn, "recv") || strings.Contains(lowLn, "receive") || strings.Contains(lowLn, "incoming") || strings.Contains(lowLn, "credit") {
 			row.Direction = "in"
-		} else if strings.Contains(lowLn, "sent") || strings.Contains(lowLn, "spent") || strings.Contains(lowLn, "debit") || strings.Contains(lowLn, "outgoing") {
+		} else if strings.Contains(lowLn, "sent") || strings.Contains(lowLn, "spent") || strings.Contains(lowLn, "debit") || strings.Contains(lowLn, "outgoing") ||
+			strings.Contains(lowLn, "spend") || strings.Contains(lowLn, "withdraw") {
 			row.Direction = "out"
 		}
 		if m := reSPVHex64.FindStringSubmatch(ln); len(m) >= 2 {

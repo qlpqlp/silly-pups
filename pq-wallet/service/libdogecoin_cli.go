@@ -947,18 +947,22 @@ func (s *Server) startSPVNode(w *WalletFile) {
 	}
 	s.stopSPVNode()
 	testnet := strings.EqualFold(w.Network, "testnet")
-	f, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0600)
-	if err != nil {
-		log.Printf("[pq-wallet] spv output sink: %v", err)
-		return
-	}
 	var used []string
 	list := addrs
 	if len(list) == 0 {
-		_ = f.Close()
 		return
 	}
 	sort.Strings(list)
+	logPath := s.spvLogPath()
+	lf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		log.Printf("[pq-wallet] spv log %s: %v", logPath, err)
+		lf, err = os.OpenFile(os.DevNull, os.O_WRONLY, 0600)
+		if err != nil {
+			log.Printf("[pq-wallet] spv output sink: %v", err)
+			return
+		}
+	}
 	prefs := s.readSPVSyncPrefs()
 	httpAddr := strings.TrimSpace(os.Getenv("SPV_HTTP_ADDR"))
 	if httpAddr == "" {
@@ -966,21 +970,22 @@ func (s *Server) startSPVNode(w *WalletFile) {
 	}
 	args := spvnodeArgs(testnet, list, s.storageDir, prefs.UseCheckpoint, httpAddr)
 	cmd := exec.Command(s.spvnodePath(), args...)
-	cmd.Stdout = f
-	cmd.Stderr = f
+	cmd.Stdout = lf
+	cmd.Stderr = lf
 	if err := cmd.Start(); err != nil {
-		_ = f.Close()
+		_ = lf.Close()
 		log.Printf("[pq-wallet] spvnode start addrs=%d: %v", len(list), err)
 		return
 	}
 	started := cmd.Process
 	used = list
+	_, _ = fmt.Fprintf(lf, "\n--- spvnode started %s pid=%d watch_addrs=%d ---\n", time.Now().UTC().Format(time.RFC3339), started.Pid, len(used))
 	_ = os.WriteFile(s.spvPidPath(), []byte(strconv.Itoa(started.Pid)), 0600)
 	_ = os.WriteFile(s.spvWatchAddrPath(), []byte(strings.Join(used, "\n")), 0600)
-	go func(proc *os.Process, lf *os.File) {
+	go func(proc *os.Process, logf *os.File) {
 		_, _ = proc.Wait()
-		_ = lf.Close()
-	}(started, f)
+		_ = logf.Close()
+	}(started, lf)
 	log.Printf("[pq-wallet] spvnode pid=%d watch_addrs=%d", started.Pid, len(used))
 }
 

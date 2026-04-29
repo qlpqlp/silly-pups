@@ -911,7 +911,17 @@ body {
 }
 
 .mtr-tx-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
   min-width: 0;
+}
+
+.mtr-tx-row-ico {
+  flex-shrink: 0;
+  font-size: 1.05rem;
+  opacity: 0.72;
+  margin-top: 0.05rem;
 }
 
 .mtr-tx-id {
@@ -1323,6 +1333,21 @@ body {
   color: var(--muted);
 }
 
+.dos-spv-deep-toggles {
+  margin: 0.35rem 0 0.25rem;
+}
+
+.dos-spv-deep-toggles .spv-deep-switch.switch-row {
+  margin: 0.4rem 0;
+}
+
+.dos-spv-deep-toggles .spv-deep-switch.switch-row > span {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.38;
+  padding-right: 0.35rem;
+}
+
 .dos-screen {
   margin: 0;
   padding: 0.65rem 0.75rem;
@@ -1368,6 +1393,38 @@ body {
   flex-wrap: wrap;
   gap: 0.35rem;
   margin-bottom: 0.75rem;
+}
+
+.send-mode-card {
+  margin-bottom: 0.75rem;
+  padding: 0.85rem 1rem;
+}
+
+.send-mode-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+}
+
+.send-mode-titles {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.send-mode-heading {
+  margin: 0 0 0.25rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.send-mode-sub {
+  margin: 0;
+}
+
+#btn-send-mode-switch {
+  flex-shrink: 0;
 }
 
 .pq-plan-badge {
@@ -2435,20 +2492,14 @@ a {
     word-break: break-all;
   }
 
-  #view-tools .send-tabs {
-    display: flex;
+  #view-tools .send-mode-bar {
     flex-direction: column;
-    gap: 0.5rem;
-    margin-bottom: 0.45rem;
-    flex-shrink: 0;
+    align-items: stretch;
   }
 
-  #view-tools .wiz-tab {
+  #view-tools #btn-send-mode-switch {
     width: 100%;
-    border-radius: 12px;
-    padding: 0.65rem 0.85rem;
-    font-size: 0.9rem;
-    min-height: 2.75rem;
+    justify-content: center;
   }
 
   #view-tools .send-to-row {

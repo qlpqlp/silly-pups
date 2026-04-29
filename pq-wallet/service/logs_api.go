@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -135,8 +136,14 @@ func (s *Server) handleLogsSPVDeep(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	var b strings.Builder
 	fmt.Fprintf(&b, "pq-wallet SPV deep digest (last %d lines of spv.log)\n", n)
+	fmt.Fprintf(&b, "log_path=%s\n", s.spvLogPath())
 	if err != nil {
-		fmt.Fprintf(&b, "\n(read error: %v)\n", err)
+		fmt.Fprintf(&b, "\n")
+		if os.IsNotExist(err) {
+			fmt.Fprintf(&b, "(spv.log not found — the file is created when SPV runs and spvnode writes to it. Start SPV from Settings → Background services, or restart the pup; then refresh.)\n")
+		} else {
+			fmt.Fprintf(&b, "(read error: %v)\n", err)
+		}
 		_, _ = w.Write([]byte(b.String()))
 		return
 	}

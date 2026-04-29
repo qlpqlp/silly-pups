@@ -210,9 +210,17 @@
         </section>
 
         <section id="view-tools" class="view hidden">
-          <div class="send-tabs" role="tablist">
-            <button type="button" class="wiz-tab active" data-send-tab="0" aria-selected="true">Send Doge</button>
-            <button type="button" class="wiz-tab" data-send-tab="1">Manual PQ TX</button>
+          <div class="card send-mode-card">
+            <div class="send-mode-bar">
+              <div class="send-mode-titles">
+                <h2 class="send-mode-heading" id="send-mode-heading">Send Doge</h2>
+                <p class="small muted send-mode-sub" id="send-mode-sub">Pay with post-quantum-safe flow (TX_C + optional TX_R).</p>
+              </div>
+              <button type="button" class="btn primary" id="btn-send-mode-switch" aria-label="Switch to manual PQ transaction">
+                <span class="material-symbols-outlined btn-ico" id="btn-send-mode-switch-ico" aria-hidden="true">terminal</span>
+                <span id="btn-send-mode-switch-txt">Manual PQ TX</span>
+              </button>
+            </div>
           </div>
 
           <div class="send-panel" data-send-panel="0">
@@ -287,8 +295,8 @@
             <h2><span class="material-symbols-outlined icon-inline">shield_lock</span> Post-quantum send mode</h2>
             <p class="small muted">Pick one mode for normal sends. Default is commitment + reveal.</p>
             <div class="pq-mode-segment" role="tablist" aria-label="PQ send mode">
-              <button type="button" class="btn btn-sm" id="btn-pq-mode-txc-only">Send commitment only</button>
-              <button type="button" class="btn btn-sm primary" id="btn-pq-mode-txc-txr">Send commitment + reveal</button>
+              <button type="button" class="btn btn-sm" id="btn-pq-mode-txc-only"><span class="material-symbols-outlined btn-ico">lock</span> Send commitment only</button>
+              <button type="button" class="btn btn-sm primary" id="btn-pq-mode-txc-txr"><span class="material-symbols-outlined btn-ico">enhanced_encryption</span> Send commitment + reveal</button>
             </div>
             <p class="small muted" id="pq-mode-settings-note">Current mode: commitment + reveal</p>
           </div>
@@ -299,7 +307,7 @@
               <input type="text" class="input-modern" id="settings-fee-doge-per-kb" placeholder="0.01" inputmode="decimal" autocomplete="off" spellcheck="false" />
             </label>
             <div class="toolbar toolbar-actions">
-              <button type="button" class="btn btn-sm" id="btn-save-fee-per-kb">Save fee</button>
+              <button type="button" class="btn btn-sm" id="btn-save-fee-per-kb"><span class="material-symbols-outlined btn-ico">save</span> Save fee</button>
             </div>
             <p class="small muted" id="settings-fee-msg"></p>
           </div>
@@ -323,7 +331,7 @@
               <h3><span class="material-symbols-outlined icon-inline">hub</span> Memepool Tracker</h3>
               <p class="small muted" id="mtr-mempool-meta">—</p>
               <div class="mtr-tx-list" id="mtr-mempool-list" role="list"></div>
-              <button type="button" class="btn mtr-expand-btn hidden" id="btn-mtr-mempool-expand" aria-expanded="false">Show all</button>
+              <button type="button" class="btn mtr-expand-btn hidden" id="btn-mtr-mempool-expand" aria-expanded="false"><span class="material-symbols-outlined btn-ico">unfold_more</span> Show all</button>
             </div>
             <div class="dos-grid dos-grid-3">
               <div class="card dos-panel">
@@ -340,14 +348,44 @@
                 <pre class="dos-screen" id="log-spv-headers">…</pre>
                 <div class="toolbar toolbar-actions" style="margin-top:.65rem;flex-wrap:wrap;gap:.5rem">
                   <span class="small muted" style="flex:1 1 220px"><code class="mono">/api/logs/spv-deep</code> — classify spv.log + optional <code class="mono">headers.db</code> raw header bytes.</span>
-                  <button type="button" class="btn btn-sm" id="btn-spv-deep-refresh">Refresh deep</button>
+                  <button type="button" class="btn btn-sm" id="btn-spv-deep-refresh"><span class="material-symbols-outlined btn-ico">bug_report</span> Refresh deep</button>
                 </div>
-                <div class="dos-spv-deep-toggles" style="margin:.45rem 0 .35rem;display:flex;flex-wrap:wrap;gap:.65rem 1rem;align-items:center">
-                  <label class="small"><input type="checkbox" id="spv-deep-merkle" checked /> Merkle / filter / confirm lines</label>
-                  <label class="small"><input type="checkbox" id="spv-deep-hex" checked /> Long hex dumps</label>
-                  <label class="small"><input type="checkbox" id="spv-deep-addr" checked /> Wallet address substring hits</label>
-                  <label class="small"><input type="checkbox" id="spv-deep-rawhdr" /> Raw header from <code class="mono">headers.db</code></label>
-                  <label class="small"><input type="checkbox" id="spv-deep-tail" /> Append full augmented tail</label>
+                <div class="dos-spv-deep-toggles" role="group" aria-label="SPV deep digest options">
+                  <div class="field switch-row spv-deep-switch">
+                    <span class="small">Merkle / filter / confirm lines</span>
+                    <label class="switch">
+                      <input type="checkbox" id="spv-deep-merkle" checked />
+                      <span class="slider" aria-hidden="true"></span>
+                    </label>
+                  </div>
+                  <div class="field switch-row spv-deep-switch">
+                    <span class="small">Long hex dumps</span>
+                    <label class="switch">
+                      <input type="checkbox" id="spv-deep-hex" checked />
+                      <span class="slider" aria-hidden="true"></span>
+                    </label>
+                  </div>
+                  <div class="field switch-row spv-deep-switch">
+                    <span class="small">Wallet address substring hits</span>
+                    <label class="switch">
+                      <input type="checkbox" id="spv-deep-addr" checked />
+                      <span class="slider" aria-hidden="true"></span>
+                    </label>
+                  </div>
+                  <div class="field switch-row spv-deep-switch">
+                    <span class="small">Raw header from <code class="mono">headers.db</code></span>
+                    <label class="switch">
+                      <input type="checkbox" id="spv-deep-rawhdr" />
+                      <span class="slider" aria-hidden="true"></span>
+                    </label>
+                  </div>
+                  <div class="field switch-row spv-deep-switch">
+                    <span class="small">Append full augmented tail</span>
+                    <label class="switch">
+                      <input type="checkbox" id="spv-deep-tail" />
+                      <span class="slider" aria-hidden="true"></span>
+                    </label>
+                  </div>
                 </div>
                 <label class="small" style="display:flex;gap:.5rem;align-items:center;margin:.25rem 0 .5rem">
                   <span>Height override (raw header)</span>
@@ -371,8 +409,8 @@
                 <p class="small muted mono svc-status-line" id="svc-spv-status">—</p>
               </div>
               <div class="svc-row-actions">
-                <button type="button" class="btn btn-sm" id="btn-svc-spv-stop">Stop</button>
-                <button type="button" class="btn btn-sm primary" id="btn-svc-spv-start">Start</button>
+                <button type="button" class="btn btn-sm" id="btn-svc-spv-stop"><span class="material-symbols-outlined btn-ico">stop_circle</span> Stop</button>
+                <button type="button" class="btn btn-sm primary" id="btn-svc-spv-start"><span class="material-symbols-outlined btn-ico">play_arrow</span> Start</button>
               </div>
             </div>
             <div class="svc-row">
@@ -381,8 +419,8 @@
                 <p class="small muted mono svc-status-line" id="svc-mtr-status">—</p>
               </div>
               <div class="svc-row-actions">
-                <button type="button" class="btn btn-sm" id="btn-svc-mtr-stop">Stop</button>
-                <button type="button" class="btn btn-sm primary" id="btn-svc-mtr-start">Start</button>
+                <button type="button" class="btn btn-sm" id="btn-svc-mtr-stop"><span class="material-symbols-outlined btn-ico">stop_circle</span> Stop</button>
+                <button type="button" class="btn btn-sm primary" id="btn-svc-mtr-start"><span class="material-symbols-outlined btn-ico">play_arrow</span> Start</button>
               </div>
             </div>
           </div>
@@ -398,7 +436,7 @@
             <div class="danger-confirm-block">
               <label class="danger-label" for="delete-confirm">Type <strong>DELETE</strong> to confirm</label>
               <input type="text" class="input-modern danger-input" id="delete-confirm" placeholder="DELETE" autocomplete="off" spellcheck="false" />
-              <button type="button" class="btn danger danger-remove-btn" id="btn-delete" disabled>Remove wallet</button>
+              <button type="button" class="btn danger danger-remove-btn" id="btn-delete" disabled><span class="material-symbols-outlined btn-ico">delete_forever</span> Remove wallet</button>
             </div>
           </div>
         </section>
@@ -459,10 +497,10 @@
       <div class="tx-detail-actions">
         <button type="button" class="btn btn-sm" id="btn-tx-copy-txid"><span class="material-symbols-outlined btn-ico">content_copy</span> Copy txid</button>
         <button type="button" class="btn btn-sm" id="btn-tx-copy-raw" title="Copy hex if the explorer returned it"><span class="material-symbols-outlined btn-ico">content_copy</span> Copy raw hex</button>
-        <a class="btn btn-sm" id="btn-tx-external" href="#" target="_blank" rel="noopener noreferrer">Open on SoChain</a>
+        <a class="btn btn-sm" id="btn-tx-external" href="#" target="_blank" rel="noopener noreferrer"><span class="material-symbols-outlined btn-ico">open_in_new</span> Open on SoChain</a>
       </div>
       <pre class="mono small tx-detail-pre" id="tx-detail-body">…</pre>
-      <button type="button" class="btn" id="btn-tx-detail-close">Close</button>
+      <button type="button" class="btn" id="btn-tx-detail-close"><span class="material-symbols-outlined btn-ico">close</span> Close</button>
     </div>
   </div>
 
@@ -473,7 +511,7 @@
       <p class="small muted">Point the camera at a QR code containing a Dogecoin address.</p>
       <div id="qr-reader" class="qr-reader-host"></div>
       <div class="qr-scan-actions">
-        <button type="button" class="btn" id="btn-qr-scan-cancel">Cancel</button>
+        <button type="button" class="btn" id="btn-qr-scan-cancel"><span class="material-symbols-outlined btn-ico">cancel</span> Cancel</button>
       </div>
     </div>
   </div>

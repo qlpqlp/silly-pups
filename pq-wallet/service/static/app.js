@@ -68,6 +68,8 @@ const state = {
   pollTx: null,
   pollLogs: null,
   pollSpvDeep: null,
+  /** 0 = Send Doge, 1 = Manual PQ TX */
+  sendTabIndex: 0,
   qrScanner: null,
   receiveQrAddr: null,
   receiveQrBucket: "",
@@ -289,6 +291,9 @@ function showView(name) {
     state.pollSpvDeep = setInterval(refreshSpvDeepLog, 8000);
     refreshDashboard().catch(() => {});
   }
+  if (name === "tools") {
+    setSendTab(typeof state.sendTabIndex === "number" ? state.sendTabIndex : 0);
+  }
   if (isNarrowViewport()) {
     const sb = $("sidebar");
     if (sb) {
@@ -413,15 +418,51 @@ function rememberSpvHeaderSample(spv) {
   state.spvHeaderFeed = feed.slice(0, 12);
 }
 
+function syncToolsTopBarFromSendTab(n) {
+  const titleText = $("page-title-text");
+  const titleIco = $("page-title-ico");
+  const subEl = $("page-sub");
+  const titleEl = $("page-title");
+  if (n === 0) {
+    if (titleText) titleText.textContent = "Send Doge";
+    if (titleIco) titleIco.textContent = "send";
+    if (subEl) subEl.textContent = "Destination, amount, and PQ-safe send — or open Manual PQ TX.";
+    if (titleEl) titleEl.setAttribute("title", subEl ? subEl.textContent : "");
+  } else {
+    if (titleText) titleText.textContent = "Manual PQ TX";
+    if (titleIco) titleIco.textContent = "terminal";
+    if (subEl) subEl.textContent = "Paste signed raw hex and P2P broadcast — or return to Send Doge.";
+    if (titleEl) titleEl.setAttribute("title", subEl ? subEl.textContent : "");
+  }
+}
+
 function setSendTab(n) {
-  document.querySelectorAll("[data-send-tab]").forEach((t) => {
-    const on = parseInt(t.dataset.sendTab, 10) === n;
-    t.classList.toggle("active", on);
-    t.setAttribute("aria-selected", on ? "true" : "false");
-  });
+  if (n !== 0 && n !== 1) n = 0;
+  state.sendTabIndex = n;
   document.querySelectorAll("[data-send-panel]").forEach((p) => {
     p.classList.toggle("hidden", parseInt(p.getAttribute("data-send-panel"), 10) !== n);
   });
+  const heading = $("send-mode-heading");
+  const sub = $("send-mode-sub");
+  const ico = $("btn-send-mode-switch-ico");
+  const txt = $("btn-send-mode-switch-txt");
+  const btn = $("btn-send-mode-switch");
+  if (n === 0) {
+    if (heading) heading.textContent = "Send Doge";
+    if (sub) sub.textContent = "Pay with post-quantum-safe flow (TX_C + optional TX_R).";
+    if (ico) ico.textContent = "terminal";
+    if (txt) txt.textContent = "Manual PQ TX";
+    if (btn) btn.setAttribute("aria-label", "Switch to manual PQ transaction");
+  } else {
+    if (heading) heading.textContent = "Manual PQ TX";
+    if (sub) sub.textContent = "Paste a fully signed raw hex and broadcast via libdogecoin P2P (sendtx).";
+    if (ico) ico.textContent = "send";
+    if (txt) txt.textContent = "Send Doge";
+    if (btn) btn.setAttribute("aria-label", "Switch to Send Doge");
+  }
+  if (state.view === "tools") {
+    syncToolsTopBarFromSendTab(n);
+  }
 }
 
 async function loadEducation() {
@@ -843,7 +884,8 @@ function buildTxExpandableCard(tx, includeSource) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "btn btn-sm";
-    btn.textContent = "Open details";
+    btn.innerHTML =
+      '<span class="material-symbols-outlined btn-ico" aria-hidden="true">info</span>Open details';
     btn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -1259,7 +1301,7 @@ function applyDashboardSnapshot(dashboard) {
       const tracked = !!row.tracked_match;
       const amt = row.amount_doge != null ? String(row.amount_doge) : "";
       btn.innerHTML =
-        `<div class="mtr-tx-main"><div class="mtr-tx-id" title="${escapeHtml(tx)}">${escapeHtml(tx.length > 36 ? tx.slice(0, 34) + "…" : tx)}</div></div>` +
+        `<div class="mtr-tx-main"><span class="material-symbols-outlined mtr-tx-row-ico" aria-hidden="true">open_in_new</span><div class="mtr-tx-id" title="${escapeHtml(tx)}">${escapeHtml(tx.length > 36 ? tx.slice(0, 34) + "…" : tx)}</div></div>` +
         `<div class="mtr-tx-badges">` +
         `<span class="badge-mtr-track ${tracked ? "" : "off"}">${tracked ? "Tracked" : "Scanning"}</span>` +
         (amt ? `<span class="badge-mtr-amt">${escapeHtml(amt)} DOGE</span>` : "") +
@@ -1271,7 +1313,8 @@ function applyDashboardSnapshot(dashboard) {
       const extra = rows.length - MTR_VISIBLE;
       if (extra > 0) {
         mtrExpand.classList.remove("hidden");
-        mtrExpand.textContent = `Show all (${extra} more)`;
+        mtrExpand.innerHTML =
+          `<span class="material-symbols-outlined btn-ico" aria-hidden="true">unfold_more</span>Show all (${extra} more)`;
         mtrExpand.setAttribute("aria-expanded", "false");
         mtrCard.classList.remove("mtr-expanded");
       } else {
@@ -1453,7 +1496,8 @@ function renderAddresses(w) {
     const bCopy = document.createElement("button");
     bCopy.type = "button";
     bCopy.className = "btn";
-    bCopy.textContent = "Copy";
+    bCopy.innerHTML =
+      '<span class="material-symbols-outlined btn-ico" aria-hidden="true">content_copy</span>Copy';
     bCopy.addEventListener("click", (e) => {
       e.stopPropagation();
       navigator.clipboard.writeText(a.p2pkh_address || "");
@@ -1463,7 +1507,8 @@ function renderAddresses(w) {
       const bPrim = document.createElement("button");
       bPrim.type = "button";
       bPrim.className = "btn";
-      bPrim.textContent = "Set primary";
+      bPrim.innerHTML =
+        '<span class="material-symbols-outlined btn-ico" aria-hidden="true">star</span>Set primary';
       bPrim.addEventListener("click", async (e) => {
         e.stopPropagation();
         const r = await api("/api/wallet/primary", {
@@ -1477,7 +1522,8 @@ function renderAddresses(w) {
       const bDel = document.createElement("button");
       bDel.type = "button";
       bDel.className = "btn danger";
-      bDel.textContent = "Remove";
+      bDel.innerHTML =
+        '<span class="material-symbols-outlined btn-ico" aria-hidden="true">delete</span>Remove';
       bDel.addEventListener("click", async (e) => {
         e.stopPropagation();
         const typed = prompt(`Type this address to confirm removal:\n\n${a.p2pkh_address || ""}`);
@@ -1818,9 +1864,13 @@ if (btnMob) {
   });
 }
 
-document.querySelectorAll("[data-send-tab]").forEach((tab) => {
-  tab.addEventListener("click", () => setSendTab(parseInt(tab.dataset.sendTab, 10)));
-});
+const btnSendModeSwitch = $("btn-send-mode-switch");
+if (btnSendModeSwitch) {
+  btnSendModeSwitch.addEventListener("click", () => {
+    setSendTab(state.sendTabIndex === 0 ? 1 : 0);
+  });
+}
+setSendTab(0);
 
 /** Keep only digits and at most one '.' for DOGE amount fields. */
 function sanitizeDecimalDogeString(raw) {
@@ -1988,7 +2038,9 @@ if (btnMtrExpand) {
     const on = card.classList.toggle("mtr-expanded");
     btnMtrExpand.setAttribute("aria-expanded", on ? "true" : "false");
     const extra = card.querySelectorAll(".mtr-tx-item.mtr-extra-row").length;
-    btnMtrExpand.textContent = on ? "Show less" : `Show all (${extra} more)`;
+    btnMtrExpand.innerHTML = on
+      ? '<span class="material-symbols-outlined btn-ico" aria-hidden="true">unfold_less</span>Show less'
+      : `<span class="material-symbols-outlined btn-ico" aria-hidden="true">unfold_more</span>Show all (${extra} more)`;
   });
 }
 

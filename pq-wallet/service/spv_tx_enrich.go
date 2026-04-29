@@ -221,18 +221,14 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 		return false
 	}
 	testnet := strings.EqualFold(wf.Network, "testnet")
-	// If older state entries were created while `RawHex` parsing was failing, they may still be missing
-	// `RawHex` even though the txid is present in `spvnode` logs. Backfill those txs once per call
-	// so direction/amount doesn't get stuck at "unknown".
+	// Backfill RawHex from spv.log for any row that is still missing it. SPV REST often labels spends as
+	// "in" (UTXO/credit view); skipping backfill when direction+address were already filled prevented
+	// decodeSPVRawTxFlow from ever correcting those rows.
 	needRawBackfill := false
 	needByTxid := make(map[string]struct{})
 	for i := range st.Transactions {
 		tx := &st.Transactions[i]
 		if strings.TrimSpace(tx.RawHex) != "" {
-			continue
-		}
-		if !(strings.EqualFold(tx.Direction, "unknown") || strings.EqualFold(tx.Direction, "") || tx.Direction == "") && tx.Address != "" {
-			// Not strictly needed: if direction isn't unknown and we already have an address, we skip.
 			continue
 		}
 		id := normalizeTxid(tx.Txid)
@@ -284,22 +280,16 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 		}
 		isRecv := fl.ExternalSats == 0 && fl.WalletSats > 0
 		isSend := fl.ExternalSats > 0
-		dirBad := (isRecv && strings.EqualFold(tx.Direction, "out")) || (isSend && !isRecv && strings.EqualFold(tx.Direction, "in"))
-		needs := tx.AmountDOGE == 0 || tx.Address == "" || strings.EqualFold(tx.Direction, "unknown") || tx.Direction == "" || dirBad
-		if !needs {
-			if tx.Source == "" {
-				tx.Source = "spv"
-				changed = true
-			}
+		if !isRecv && !isSend {
 			continue
 		}
 		if isRecv {
-			tx.Direction = "in"
 			amt := round2(float64(fl.WalletSats) / 1e8)
-			if tx.AmountDOGE == 0 || dirBad {
-				tx.AmountDOGE = amt
+			if !strings.EqualFold(strings.TrimSpace(tx.Direction), "in") {
+				tx.Direction = "in"
 				changed = true
-			} else if strings.EqualFold(tx.Direction, "unknown") || tx.Direction == "" {
+			}
+			if tx.AmountDOGE != amt {
 				tx.AmountDOGE = amt
 				changed = true
 			}
@@ -307,12 +297,17 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 				tx.Address = fl.WalletAddr
 				changed = true
 			}
-			tx.FeeDOGE = 0
-			changed = true
+			if tx.FeeDOGE != 0 {
+				tx.FeeDOGE = 0
+				changed = true
+			}
 		} else if isSend {
-			tx.Direction = "out"
 			amt := round2(float64(fl.ExternalSats) / 1e8)
-			if tx.AmountDOGE == 0 || dirBad || strings.EqualFold(tx.Direction, "unknown") || tx.Direction == "" {
+			if !strings.EqualFold(strings.TrimSpace(tx.Direction), "out") {
+				tx.Direction = "out"
+				changed = true
+			}
+			if tx.AmountDOGE != amt {
 				tx.AmountDOGE = amt
 				changed = true
 			}
@@ -320,7 +315,6 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 				tx.Address = fl.ExternalAddr
 				changed = true
 			}
-			changed = true
 		}
 		if tx.Source == "" {
 			tx.Source = "spv"

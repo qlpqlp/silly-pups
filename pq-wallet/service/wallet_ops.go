@@ -224,9 +224,21 @@ func (s *Server) handleWalletImport(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	// Import/restore is typically an existing wallet history, not a new wallet.
+	// Clear tx cache + SPV wallet DB so libdogecoin can rebuild full history for
+	// the restored addresses from current headers.
+	s.stopSPVNode()
+	_ = os.Remove(filepath.Join(s.storageDir, "spv_wallet.db"))
+	_ = os.Remove(s.spvWatchAddrPath())
 	_ = s.saveState(&WalletState{Version: 1})
 	s.startSPVNode(&wf)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "wallet": wf})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":                 true,
+		"wallet":             wf,
+		"import_mode":        "restore_resync",
+		"removed_spv_wallet": filepath.Join(s.storageDir, "spv_wallet.db"),
+		"note":               "Wallet restore started. SPV wallet DB was reset so transaction history can resync for restored addresses.",
+	})
 }
 
 func (s *Server) handleWalletNewAddress(w http.ResponseWriter, r *http.Request) {

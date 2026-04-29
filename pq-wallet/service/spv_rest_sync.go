@@ -488,14 +488,37 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 	if st == nil {
 		return false
 	}
+	utxoRaw, errU := s.fetchSPVREST("/getUTXOs")
 	txRaw, errT := s.fetchSPVREST("/getTransactions")
-	if errT != nil {
+	if errU != nil && errT != nil {
 		return false
 	}
-	// Build tx history from /getTransactions only.
-	// /getUTXOs is a current unspent snapshot and can inject change outputs into history,
-	// which corrupts direction and amount for sent transactions.
-	rows := parseSPVRESTRows(txRaw, "unknown")
+	// Use both sources for coverage:
+	// - /getTransactions is the primary transaction history source
+	// - /getUTXOs fills gaps for receive-side rows some SPV builds omit from tx history
+	//
+	// Guardrail: if a txid exists in /getTransactions, do not merge /getUTXOs rows for
+	// that same txid (prevents UTXO/change rows from mutating OUT tx history).
+	txRows := parseSPVRESTRows(txRaw, "unknown")
+	utxoRows := parseSPVRESTRows(utxoRaw, "in")
+	rows := make([]spvRESTTxRow, 0, len(txRows)+len(utxoRows))
+	rows = append(rows, txRows...)
+	txSeen := make(map[string]struct{}, len(txRows))
+	for _, r := range txRows {
+		if id := normalizeTxid(r.Txid); id != "" {
+			txSeen[id] = struct{}{}
+		}
+	}
+	for _, r := range utxoRows {
+		id := normalizeTxid(r.Txid)
+		if id == "" {
+			continue
+		}
+		if _, ok := txSeen[id]; ok {
+			continue
+		}
+		rows = append(rows, r)
+	}
 	if len(rows) == 0 {
 		return false
 	}

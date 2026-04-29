@@ -234,7 +234,7 @@ func (s *Server) readSPVWalletDBTable(ctx context.Context, dbPath, table string,
 			}
 		}
 		amountDOGE := parseDBMoneyToDOGE(parts[2])
-		dir := normalizeDirection(parts[3], amountDOGE, addr, addrSet)
+		dir := normalizeDirection(parts[3], amountDOGE)
 		conf := parseIntDefault(parts[4], 0)
 		height := int64(parseIntDefault(parts[5], 0))
 		seen := parseDBTime(parts[6])
@@ -282,8 +282,22 @@ func parseDBMoneyToDOGE(raw string) float64 {
 	return float64(i)
 }
 
-func normalizeDirection(raw string, amountDOGE float64, addr string, addrSet map[string]struct{}) string {
+func normalizeDirection(raw string, amountDOGE float64) string {
 	s := strings.ToLower(strings.TrimSpace(raw))
+	// Some spv_wallet.db schemas may store direction as numeric codes.
+	// Heuristic mapping:
+	//   1 => in/credit, 2 => out/debit
+	// Negative amounts can also indicate out.
+	switch s {
+	case "1":
+		return "in"
+	case "-1":
+		return "out"
+	case "2":
+		return "out"
+	case "-2":
+		return "out"
+	}
 	if s == "in" || strings.Contains(s, "recv") || strings.Contains(s, "credit") {
 		return "in"
 	}
@@ -291,13 +305,6 @@ func normalizeDirection(raw string, amountDOGE float64, addr string, addrSet map
 		return "out"
 	}
 	if amountDOGE < 0 {
-		return "out"
-	}
-	addr = strings.ToLower(strings.TrimSpace(addr))
-	if addr != "" && len(addrSet) > 0 {
-		if _, ok := addrSet[addr]; ok {
-			return "in"
-		}
 		return "out"
 	}
 	return "unknown"

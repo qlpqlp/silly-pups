@@ -28,6 +28,8 @@ var (
 	reSpvConfirmedLine = regexp.MustCompile(`(?i)\b(confirm|confirmed|confirmation|confirmations|merkle|inclusion|matched|proof|block|height|depth|chain)\b`)
 	// Long continuous hex tokens (after stripping spaces) — often raw tx / wire payloads in verbose logs.
 	reHexOnly = regexp.MustCompile(`(?i)^[0-9a-f]+$`)
+	// Third column of pipe header lines when it is Unix seconds/ms (not a datetime string).
+	rePipeUnixToken = regexp.MustCompile(`^-?[0-9]{9,16}$`)
 )
 
 // PeerConnectionInfo is parsed from libdogecoin net.c log lines (current / last handshake in the tail).
@@ -150,13 +152,41 @@ func parsePipeHeaderTip(s string) (height int64, hash string, unixTime int64) {
 			best = h
 			bestHash = strings.ToLower(hx)
 			if len(parts) > 2 {
-				if ts, err := strconv.ParseInt(strings.TrimSpace(parts[2]), 10, 64); err == nil && ts > 0 {
+				if ts := unixSecondsFromSPVPipeField(strings.TrimSpace(parts[2])); ts > 0 {
 					bestTs = ts
 				}
 			}
 		}
 	}
 	return best, bestHash, bestTs
+}
+
+// unixSecondsFromSPVPipeField parses the third column of spvnode "hash|height|time|…" lines.
+// Some builds use Unix seconds; others use a human datetime like "2006-01-02 15:04:05".
+// strconv.ParseInt on "2026-04-28 …" incorrectly yields 2026 — reject non-integer tokens first.
+func unixSecondsFromSPVPipeField(s string) int64 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	// Bare integer: entire token is optional sign + digits (ms timestamps allowed).
+	if rePipeUnixToken.MatchString(s) {
+		n, err := strconv.ParseInt(s, 10, 64)
+		if err != nil || n <= 0 {
+			return 0
+		}
+		if n > 1_000_000_000_000 {
+			n /= 1000
+		}
+		if n >= 1231006505 {
+			return n
+		}
+		return 0
+	}
+	if u := parseSPVDateTime(s); u >= 1231006505 {
+		return u
+	}
+	return 0
 }
 
 // heightForHeaderHashInSPVLog finds a header row like "hash|height|…" matching wantHash (64 hex).

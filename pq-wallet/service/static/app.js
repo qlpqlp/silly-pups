@@ -79,6 +79,7 @@ const state = {
   inFlightTx: false,
   inFlightLogs: false,
   inFlightSpvDeep: false,
+  inFlightSpvLedger: false,
   lastDashboard: null,
   spvHeaderFeed: [],
   pqSendMode: "txc_txr",
@@ -367,6 +368,43 @@ function buildSpvDeepQuery() {
     params.set("height", String(hInp.value || "").trim());
   }
   return params.toString();
+}
+
+async function refreshSpvLedgerSnapshot() {
+  if (state.view !== "settings") return;
+  const el = $("log-spv-ledger");
+  if (state.inFlightSpvLedger) return;
+  state.inFlightSpvLedger = true;
+  try {
+    const mkSignal = (ms) => {
+      if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+        return AbortSignal.timeout(ms);
+      }
+      if (typeof AbortController === "undefined") return undefined;
+      const c = new AbortController();
+      setTimeout(() => {
+        try {
+          c.abort();
+        } catch {
+          /* ignore */
+        }
+      }, ms);
+      return c.signal;
+    };
+    const res = await fetch("/api/debug/spv-ledger", { signal: mkSignal(45000) });
+    const body = await res.text();
+    let pretty = body;
+    try {
+      pretty = JSON.stringify(JSON.parse(body), null, 2);
+    } catch {
+      /* keep raw */
+    }
+    if (el) el.textContent = res.ok ? pretty : `${res.status} ${res.statusText}\n${pretty}`;
+  } catch (e) {
+    if (el) el.textContent = `(ledger snapshot failed: ${e && e.message ? e.message : e})`;
+  } finally {
+    state.inFlightSpvLedger = false;
+  }
 }
 
 async function refreshSpvDeepLog() {
@@ -2080,6 +2118,8 @@ if (btnPqModeBoth) {
 
 const btnSpvDeep = $("btn-spv-deep-refresh");
 if (btnSpvDeep) btnSpvDeep.addEventListener("click", () => refreshSpvDeepLog());
+const btnSpvLedger = $("btn-spv-ledger-refresh");
+if (btnSpvLedger) btnSpvLedger.addEventListener("click", () => refreshSpvLedgerSnapshot());
 ["spv-deep-merkle", "spv-deep-hex", "spv-deep-addr", "spv-deep-rawhdr", "spv-deep-tail"].forEach((id) => {
   const el = $(id);
   if (!el) return;

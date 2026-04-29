@@ -393,6 +393,11 @@
                 </label>
                 <h3 class="chart-sub" style="margin-top:.25rem">SPV deep digest</h3>
                 <pre class="dos-screen" id="log-spv-deep" style="min-height:9rem">Enable options above and press Refresh deep (or open Settings — it auto-refreshes).</pre>
+                <div class="toolbar toolbar-actions" style="margin-top:.75rem;flex-wrap:wrap;gap:.5rem">
+                  <span class="small muted" style="flex:1 1 240px"><code class="mono">/api/debug/spv-ledger</code> — JSON snapshot: SPV REST raw bodies, parsed tx rows, <code class="mono">headers.db</code> probe, <code class="mono">state.json</code> tx sample, broadcast txids.</span>
+                  <button type="button" class="btn btn-sm" id="btn-spv-ledger-refresh"><span class="material-symbols-outlined btn-ico">database</span> Fetch ledger snapshot</button>
+                </div>
+                <pre class="dos-screen" id="log-spv-ledger" style="min-height:6rem;margin-top:.45rem">Press Fetch ledger snapshot (wallet must be unlocked).</pre>
               </div>
             </div>
           </div>

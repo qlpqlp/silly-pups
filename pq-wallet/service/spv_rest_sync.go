@@ -117,8 +117,22 @@ func parseSPVRESTRows(raw, direction string) []spvRESTTxRow {
 	var rows []spvRESTTxRow
 	cur := map[string]string{}
 	parseUnixToTime := func(s string) time.Time {
-		n := int64(parseIntDefault(strings.TrimSpace(s), 0))
-		if n <= 0 {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return time.Time{}
+		}
+		// Whole token must be digits (optional leading '-') so we never treat "2026-04-28 …" as Unix.
+		for i := 0; i < len(s); i++ {
+			c := s[i]
+			if i == 0 && c == '-' {
+				continue
+			}
+			if c < '0' || c > '9' {
+				return time.Time{}
+			}
+		}
+		n, err := strconv.ParseInt(s, 10, 64)
+		if err != nil || n <= 0 {
 			return time.Time{}
 		}
 		if n > 1_000_000_000_000 {
@@ -490,6 +504,10 @@ func backfillSeenAtFromTip(txs []TxRecord, tipHeight, tipUnix int64) ([]TxRecord
 func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUnix int64) bool {
 	if st == nil {
 		return false
+	}
+	// Never use mis-parsed "unix" values (e.g. ISO year prefix) for SeenAt backfill.
+	if tipUnix > 0 && tipUnix < 1_000_000_000 {
+		tipUnix = 0
 	}
 	utxoRaw, errU := s.fetchSPVREST("/getUTXOs")
 	txRaw, errT := s.fetchSPVREST("/getTransactions")

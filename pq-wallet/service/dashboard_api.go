@@ -7,10 +7,17 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+)
+
+// Lines from broadcast.log (see logBroadcastDetails): "<RFC3339> broadcast txid=<64hex> …"
+var (
+	reBroadcastLogTxid           = regexp.MustCompile(`(?i)\b(?:broadcast|tx_broadcast)\s+txid=([0-9a-f]{64})\b`)
+	reSendtxBroadcastStartTxid = regexp.MustCompile(`(?i)start\s+broadcasting\s+transaction:\s*([0-9a-f]{64})\b`)
 )
 
 // txListRow is one row for /api/transactions (SPV + MemeTracker).
@@ -126,24 +133,8 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	logTail, _ := spv["log_tail"].(string)
 	hdr := parseSPVLogHeaderInfo(logTail)
 	applySPVStatusHeaderInfo(&hdr, spv)
-	tipHeight := int64(0)
-	switch v := spv["header_height"].(type) {
-	case int64:
-		tipHeight = v
-	case int:
-		tipHeight = int64(v)
-	case float64:
-		tipHeight = int64(v)
-	}
-	tipUnix := int64(0)
-	switch v := spv["header_unix_time"].(type) {
-	case int64:
-		tipUnix = v
-	case int:
-		tipUnix = int64(v)
-	case float64:
-		tipUnix = int64(v)
-	}
+	tipHeight := spvHeaderHeightFromMap(spv)
+	tipUnix := spvHeaderUnixFromMap(spv)
 
 	var st *WalletState
 	var pendingMeme float64
@@ -167,13 +158,15 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		confirmChanged = s.applySPVConfirmations(st, logTail)
 	}
 	restChanged := s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
+	bcChanged := s.mergeTransactionsFromBroadcastLog(st)
+	bcRawChanged := s.mergeRawHexFromBroadcastLog(st)
 	dbChanged := s.mergeTransactionsFromSPVWalletDB(wf, st)
 	suchChanged := false
 	if s.shouldRunSuchMerge(20 * time.Second) {
 		suchChanged = s.mergeTransactionsFromSuchListUnspent(wf, st)
 	}
 	enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
-	if seenChanged || rawChanged || confirmChanged || enrichedChanged || restChanged || dbChanged || suchChanged {
+	if seenChanged || rawChanged || confirmChanged || enrichedChanged || restChanged || bcChanged || bcRawChanged || dbChanged || suchChanged {
 		_ = s.saveState(st)
 	}
 
@@ -323,35 +316,118 @@ func round2(f float64) float64 {
 	return math.Round(f*100) / 100
 }
 
+func spvHeaderHeightFromMap(spv map[string]any) int64 {
+	if spv == nil {
+		return 0
+	}
+	switch v := spv["header_height"].(type) {
+	case int64:
+		return v
+	case int:
+		return int64(v)
+	case float64:
+		return int64(v)
+	default:
+		return 0
+	}
+}
+
+func spvHeaderUnixFromMap(spv map[string]any) int64 {
+	if spv == nil {
+		return 0
+	}
+	switch v := spv["header_unix_time"].(type) {
+	case int64:
+		return v
+	case int:
+		return int64(v)
+	case float64:
+		return int64(v)
+	default:
+		return 0
+	}
+}
+
+// applySPVStatusHeaderInfo overlays REST-derived chain tip onto log-parsed header info.
+// Log pipe lines can mis-parse timestamps (e.g. year prefix as "unix"); REST values win when plausible.
 func applySPVStatusHeaderInfo(hdr *SPVHeaderInfo, spv map[string]any) {
 	if hdr == nil || spv == nil {
 		return
 	}
-	if hdr.HeaderHeight == 0 {
-		switch v := spv["header_height"].(type) {
-		case int64:
-			hdr.HeaderHeight = v
-		case int:
-			hdr.HeaderHeight = int64(v)
-		case float64:
-			hdr.HeaderHeight = int64(v)
+	if sh := spvHeaderHeightFromMap(spv); sh > 0 {
+		hdr.HeaderHeight = sh
+	}
+	if v, ok := spv["best_block_hash"].(string); ok {
+		v = strings.TrimSpace(v)
+		if id := normalizeTxid(v); len(id) == 64 {
+			hdr.BestBlockHash = id
 		}
 	}
-	if hdr.BestBlockHash == "" {
-		if v, ok := spv["best_block_hash"].(string); ok {
-			hdr.BestBlockHash = strings.TrimSpace(v)
+	if su := spvHeaderUnixFromMap(spv); su > 1231006505 {
+		hdr.HeaderUnixTime = su
+	}
+}
+
+// mergeTransactionsFromBroadcastLog tags txids we attempted to broadcast as outgoing spends.
+func (s *Server) mergeTransactionsFromBroadcastLog(st *WalletState) bool {
+	if st == nil {
+		return false
+	}
+	tail, err := readFileTail(s.broadcastLogPath(), 2<<20)
+	if err != nil || strings.TrimSpace(tail) == "" {
+		return false
+	}
+	var incoming []TxRecord
+	seen := map[string]struct{}{}
+	add := func(id string) {
+		id = normalizeTxid(id)
+		if id == "" {
+			return
+		}
+		if _, dup := seen[id]; dup {
+			return
+		}
+		seen[id] = struct{}{}
+		incoming = append(incoming, TxRecord{Txid: id, Direction: "out", Source: "spv"})
+	}
+	for _, m := range reBroadcastLogTxid.FindAllStringSubmatch(tail, -1) {
+		if len(m) >= 2 {
+			add(m[1])
 		}
 	}
-	if hdr.HeaderUnixTime == 0 {
-		switch v := spv["header_unix_time"].(type) {
-		case int64:
-			hdr.HeaderUnixTime = v
-		case int:
-			hdr.HeaderUnixTime = int64(v)
-		case float64:
-			hdr.HeaderUnixTime = int64(v)
+	for _, m := range reSendtxBroadcastStartTxid.FindAllStringSubmatch(tail, -1) {
+		if len(m) >= 2 {
+			add(m[1])
 		}
 	}
+	if len(incoming) == 0 {
+		return false
+	}
+	merged := mergeTxRecords(st.Transactions, incoming)
+	before := len(st.Transactions)
+	changed := len(merged) != before
+	if !changed {
+		oldByID := map[string]TxRecord{}
+		for _, t := range st.Transactions {
+			id := normalizeTxid(t.Txid)
+			if id != "" {
+				oldByID[id] = t
+			}
+		}
+		for _, t := range merged {
+			id := normalizeTxid(t.Txid)
+			o, ok := oldByID[id]
+			if !ok || t.Direction != o.Direction || t.AmountDOGE != o.AmountDOGE || t.Address != o.Address ||
+				t.Confirmations != o.Confirmations || !t.SeenAt.Equal(o.SeenAt) {
+				changed = true
+				break
+			}
+		}
+	}
+	if changed {
+		st.Transactions = merged
+	}
+	return changed
 }
 
 // handleMetrics returns metric history for charts.
@@ -398,24 +474,8 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 	engTx, engTxErr := s.ensureMempoolEngine(wf)
 
 	spv := s.readSPVStatus()
-	tipHeight := int64(0)
-	switch v := spv["header_height"].(type) {
-	case int64:
-		tipHeight = v
-	case int:
-		tipHeight = int64(v)
-	case float64:
-		tipHeight = int64(v)
-	}
-	tipUnix := int64(0)
-	switch v := spv["header_unix_time"].(type) {
-	case int64:
-		tipUnix = v
-	case int:
-		tipUnix = int64(v)
-	case float64:
-		tipUnix = int64(v)
-	}
+	tipHeight := spvHeaderHeightFromMap(spv)
+	tipUnix := spvHeaderUnixFromMap(spv)
 
 	s.stateMergeMu.Lock()
 	st, err := s.loadState()
@@ -440,13 +500,15 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 		confirmChanged = s.applySPVConfirmations(st, logTail)
 	}
 	restChanged := s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
+	bcChanged := s.mergeTransactionsFromBroadcastLog(st)
+	bcRawChanged := s.mergeRawHexFromBroadcastLog(st)
 	dbChanged := s.mergeTransactionsFromSPVWalletDB(wf, st)
 	suchChanged := false
 	if s.shouldRunSuchMerge(20 * time.Second) {
 		suchChanged = s.mergeTransactionsFromSuchListUnspent(wf, st)
 	}
 	enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
-	if changed || rawChanged || confirmChanged || enrichedChanged || restChanged || dbChanged || suchChanged {
+	if changed || rawChanged || confirmChanged || enrichedChanged || restChanged || bcChanged || bcRawChanged || dbChanged || suchChanged {
 		_ = s.saveState(st)
 	}
 	s.stateMergeMu.Unlock()
@@ -464,7 +526,9 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 }
 
 func syncLagSeconds(headerUnix int64) int64 {
-	if headerUnix <= 0 {
+	// Dogecoin chain tips are 2013+ wall times. Tiny values are almost always mis-parsed log tokens
+	// (same numeric floor as spv_* “plausible on-chain unix” checks elsewhere in this service).
+	if headerUnix <= 1231006505 {
 		return -1
 	}
 	lag := time.Now().UTC().Unix() - headerUnix
@@ -604,6 +668,35 @@ func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any
 	return changed
 }
 
+// txIsLikelyWalletChangeEcho suppresses list rows that look like pure wallet-side credits whose
+// first input spends an output from a transaction we already treat as OUT (typical change-back
+// after a send). This mirrors Dogecoin Wallet / bitcoinj hiding internal change from RECEIVED.
+func txIsLikelyWalletChangeEcho(t TxRecord, wf *WalletFile, testnet bool, walletH160 map[string]string, outTxids map[string]struct{}) bool {
+	if wf == nil || len(walletH160) == 0 {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(t.Source), "memetracker") {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(t.Direction), "in") {
+		return false
+	}
+	raw := strings.TrimSpace(t.RawHex)
+	if raw == "" {
+		return false
+	}
+	fl, err := decodeSPVRawTxFlow(raw, walletH160, testnet)
+	if err != nil || fl.ExternalSats != 0 || fl.WalletSats <= 0 {
+		return false
+	}
+	prev := firstInputPrevTxidFromRawHex(raw)
+	if prev == "" {
+		return false
+	}
+	_, ok := outTxids[prev]
+	return ok
+}
+
 func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []txListRow {
 	mtrOverlay := map[string]bool{}
 	walletAddrSet := map[string]struct{}{}
@@ -616,6 +709,16 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 			walletAddrSet[a] = struct{}{}
 		}
 	}
+	outTxids := map[string]struct{}{}
+	for _, t := range st.Transactions {
+		if strings.EqualFold(strings.TrimSpace(t.Direction), "out") {
+			if id := normalizeTxid(t.Txid); id != "" {
+				outTxids[id] = struct{}{}
+			}
+		}
+	}
+	testnet := wf != nil && strings.EqualFold(wf.Network, "testnet")
+	walletH160 := walletP2PKHHash160Map(wf)
 	eng, engErr := s.ensureMempoolEngine(wf)
 	if eng != nil && engErr == nil {
 		_, mtrLive, _, _ := eng.DashboardSnapshot()
@@ -632,7 +735,22 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 	}
 	out := make([]txListRow, 0, len(st.Transactions))
 	for _, t := range st.Transactions {
+		if txIsLikelyWalletChangeEcho(t, wf, testnet, walletH160, outTxids) {
+			continue
+		}
 		tr := txListRow{TxRecord: t, Pending: t.Confirmations == 0}
+		if len(walletH160) > 0 && strings.TrimSpace(tr.RawHex) != "" {
+			if fl, err := decodeSPVRawTxFlow(tr.RawHex, walletH160, testnet); err == nil && fl.ExternalSats > 0 {
+				tr.Direction = "out"
+				if fl.ExternalAddr != "" && strings.TrimSpace(tr.Address) == "" {
+					tr.Address = fl.ExternalAddr
+				}
+				amt := round2(float64(fl.ExternalSats) / 1e8)
+				if amt > 0 && (tr.AmountDOGE == 0 || amt > tr.AmountDOGE) {
+					tr.AmountDOGE = amt
+				}
+			}
+		}
 		// Last-mile guardrail for API output:
 		// only force OUT when address is explicitly non-wallet.
 		// Do not force IN for wallet-address rows (can be spend tx change rows).
@@ -825,24 +943,8 @@ func (s *Server) backgroundMetricsLoop() {
 		hdr := parseSPVLogHeaderInfo(logTail)
 		applySPVStatusHeaderInfo(&hdr, spv)
 		running, _ := spv["running"].(bool)
-		tipHeight := int64(0)
-		switch v := spv["header_height"].(type) {
-		case int64:
-			tipHeight = v
-		case int:
-			tipHeight = int64(v)
-		case float64:
-			tipHeight = int64(v)
-		}
-		tipUnix := int64(0)
-		switch v := spv["header_unix_time"].(type) {
-		case int64:
-			tipUnix = v
-		case int:
-			tipUnix = int64(v)
-		case float64:
-			tipUnix = int64(v)
-		}
+		tipHeight := spvHeaderHeightFromMap(spv)
+		tipUnix := spvHeaderUnixFromMap(spv)
 
 		s.stateMergeMu.Lock()
 		st, err := s.loadState()
@@ -855,6 +957,8 @@ func (s *Server) backgroundMetricsLoop() {
 		_ = s.applySPVConfirmations(st, logTail)
 		_ = s.applySPVRawHex(st, logTail)
 		_ = s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
+		_ = s.mergeTransactionsFromBroadcastLog(st)
+		_ = s.mergeRawHexFromBroadcastLog(st)
 		_ = s.mergeTransactionsFromSPVWalletDB(wf, st)
 		_ = s.mergeTransactionsFromSuchListUnspent(wf, st)
 		_ = s.enrichSPVTxFromRawHex(st, wf)

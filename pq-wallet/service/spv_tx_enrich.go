@@ -7,6 +7,40 @@ import (
 	"strings"
 )
 
+// firstInputPrevTxidFromRawHex returns the canonical prevout txid for the first non-coinbase input
+// (wire hash byte-reversed to match explorer / normalizeTxid form). Empty if not parseable.
+func firstInputPrevTxidFromRawHex(rawHex string) string {
+	rawHex = strings.TrimSpace(strings.ToLower(rawHex))
+	if rawHex == "" {
+		return ""
+	}
+	raw, err := hex.DecodeString(rawHex)
+	if err != nil || len(raw) < 10 {
+		return ""
+	}
+	off := 0
+	if off+4 > len(raw) {
+		return ""
+	}
+	off += 4
+	if off+2 <= len(raw) && raw[off] == 0x00 && raw[off+1] == 0x01 {
+		off += 2
+	}
+	nin, err := readCompactSize(raw, &off)
+	if err != nil || nin == 0 {
+		return ""
+	}
+	if off+32 > len(raw) {
+		return ""
+	}
+	prev := raw[off : off+32]
+	rev := make([]byte, 32)
+	for i := 0; i < 32; i++ {
+		rev[i] = prev[31-i]
+	}
+	return normalizeTxid(hex.EncodeToString(rev))
+}
+
 func walletP2PKHHash160Map(wf *WalletFile) map[string]string {
 	out := make(map[string]string)
 	if wf == nil {

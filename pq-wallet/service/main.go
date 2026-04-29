@@ -209,6 +209,7 @@ func main() {
 	mux.HandleFunc("/api/spv/status", srv.handleSPVStatus)
 	mux.HandleFunc("/api/spv/rescan", srv.handleSPVRescan)
 	mux.HandleFunc("/api/debug/spv-wallet-db", srv.handleDebugSPVWalletDB)
+	mux.HandleFunc("/api/debug/spv-ledger", srv.handleDebugSPVLedger)
 	mux.HandleFunc("/api/services/control", srv.handleServicesControl)
 	mux.HandleFunc("/api/logs/spv", srv.handleLogsSPV)
 	mux.HandleFunc("/api/logs/spv-deep", srv.handleLogsSPVDeep)

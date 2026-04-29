@@ -172,6 +172,7 @@ body {
   width: 36px;
   height: 36px;
   animation-duration: 4.8s;
+  flex-shrink: 0;
 }
 
 @keyframes logo-flip-spin {
@@ -2231,7 +2232,7 @@ a {
   overflow-y: auto;
 }
 
-/* Mobile bottom tab bar */
+/* Mobile bottom tab bar — 3-column grid so center logo shares true center with Receive/Send */
 .mobile-tabbar {
   display: none;
   position: fixed;
@@ -2239,38 +2240,43 @@ a {
   left: 0;
   right: 0;
   z-index: 50;
-  justify-content: space-around;
-  align-items: stretch;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  justify-items: center;
+  column-gap: 0.4rem;
+  row-gap: 0.25rem;
+  padding: 0.55rem 0.65rem calc(0.55rem + env(safe-area-inset-bottom, 0px));
   background: linear-gradient(180deg, rgba(18, 25, 36, 0.92) 0%, #0d1218 100%);
   border-top: 1px solid var(--border);
   box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(12px);
 }
 
+/* Match .sidebar-logo-frame: 44px ring, 36px flip — same visual inset as desktop */
 .mobile-tabbar-logo-btn {
-  position: absolute;
-  left: 50%;
-  top: -18px;
-  transform: translateX(-50%);
-  width: 54px;
-  height: 54px;
+  position: relative;
+  width: 44px;
+  height: 44px;
   border-radius: 999px;
   border: 1px solid rgba(242, 203, 44, 0.45);
-  background: radial-gradient(circle at 30% 30%, rgba(242, 203, 44, 0.24), rgba(11, 15, 20, 0.97));
+  background: radial-gradient(circle at 30% 30%, rgba(242, 203, 44, 0.24), rgba(11, 15, 20, 0.95));
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+  padding: 0;
+  line-height: 0;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.04), 0 10px 24px rgba(0, 0, 0, 0.4);
   cursor: pointer;
   z-index: 2;
 }
 
 .mobile-tabbar-logo-img {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border-radius: 999px;
+  flex-shrink: 0;
 }
 
 .doge-wow-layer {
@@ -2297,14 +2303,16 @@ a {
 }
 
 .mobile-tabbar-btn {
-  flex: 1;
+  width: 100%;
+  max-width: 100%;
+  justify-self: stretch;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 0.2rem;
   min-height: 3.25rem;
-  padding: 0.35rem 0.5rem;
+  padding: 0.35rem 0.45rem;
   border: none;
   border-radius: 12px;
   background: transparent;
@@ -2340,12 +2348,13 @@ a {
 
 @media (max-width: 900px) {
   #app.has-wallet .mobile-tabbar:not(.hidden) {
-    display: flex !important;
+    display: grid !important;
   }
 
   #app.has-wallet .main-wrap {
     min-height: 100dvh;
-    padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+    /* Logo sits in-row (no negative overlap); slightly less bottom inset than old floating badge */
+    padding-bottom: calc(4.15rem + env(safe-area-inset-bottom, 0px));
   }
 
   /* Tagline hidden on phone so Send/Receive can stay above the fold */

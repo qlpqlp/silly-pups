@@ -166,6 +166,8 @@ func (s *Server) readSPVWalletDBTable(ctx context.Context, dbPath, table string,
 	}
 	addrCol := pickCol(cols, "address", "addr", "p2pkh", "pubkey_address")
 	amountCol := pickCol(cols, "amount", "value", "delta", "credit", "debit", "koinu", "satoshis")
+	creditCol := pickCol(cols, "credit", "received", "recv_amount", "amount_in")
+	debitCol := pickCol(cols, "debit", "sent", "spent", "send_amount", "amount_out")
 	dirCol := pickCol(cols, "direction", "dir", "type", "inout")
 	confCol := pickCol(cols, "confirmations", "confirmation", "depth", "conf")
 	heightCol := pickCol(cols, "block_height", "height")
@@ -181,6 +183,16 @@ func (s *Server) readSPVWalletDBTable(ctx context.Context, dbPath, table string,
 		sel = append(sel, sqliteIdent(amountCol)+" AS amount")
 	} else {
 		sel = append(sel, "'' AS amount")
+	}
+	if creditCol != "" {
+		sel = append(sel, sqliteIdent(creditCol)+" AS credit")
+	} else {
+		sel = append(sel, "'' AS credit")
+	}
+	if debitCol != "" {
+		sel = append(sel, sqliteIdent(debitCol)+" AS debit")
+	} else {
+		sel = append(sel, "'' AS debit")
 	}
 	if dirCol != "" {
 		sel = append(sel, sqliteIdent(dirCol)+" AS dir")
@@ -218,7 +230,7 @@ func (s *Server) readSPVWalletDBTable(ctx context.Context, dbPath, table string,
 	out := make([]spvDBTxRow, 0, len(rows))
 	for _, r := range rows {
 		parts := strings.Split(r, "\t")
-		if len(parts) < 7 {
+		if len(parts) < 9 {
 			continue
 		}
 		txid := normalizeTxid(parts[0])
@@ -234,14 +246,30 @@ func (s *Server) readSPVWalletDBTable(ctx context.Context, dbPath, table string,
 			}
 		}
 		amountDOGE := parseDBMoneyToDOGE(parts[2])
-		dir := normalizeDirection(parts[3], amountDOGE)
-		conf := parseIntDefault(parts[4], 0)
-		height := int64(parseIntDefault(parts[5], 0))
-		seen := parseDBTime(parts[6])
+		creditDOGE := parseDBMoneyToDOGE(parts[3])
+		debitDOGE := parseDBMoneyToDOGE(parts[4])
+		netDOGE := amountDOGE
+		if netDOGE == 0 && (creditDOGE != 0 || debitDOGE != 0) {
+			netDOGE = creditDOGE - debitDOGE
+		}
+		dir := normalizeDirection(parts[5], netDOGE)
+		// If direction column is missing/opaque, infer from debit/credit legs.
+		if dir == "unknown" {
+			if debitDOGE > 0 && creditDOGE == 0 {
+				dir = "out"
+			} else if creditDOGE > 0 && debitDOGE == 0 {
+				dir = "in"
+			} else if netDOGE < 0 {
+				dir = "out"
+			}
+		}
+		conf := parseIntDefault(parts[6], 0)
+		height := int64(parseIntDefault(parts[7], 0))
+		seen := parseDBTime(parts[8])
 		out = append(out, spvDBTxRow{
 			Txid:          txid,
 			Address:       addr,
-			AmountDOGE:    absFloat(amountDOGE),
+			AmountDOGE:    absFloat(netDOGE),
 			Direction:     dir,
 			Confirmations: conf,
 			BlockHeight:   height,

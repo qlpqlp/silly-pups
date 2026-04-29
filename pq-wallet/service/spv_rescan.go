@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -220,6 +222,193 @@ func (s *Server) sqliteHeaderHashAtHeight(height int64) string {
 		}
 	}
 	return ""
+}
+
+func hash256dLEHex(header80 []byte) string {
+	if len(header80) < 80 {
+		return ""
+	}
+	first := sha256.Sum256(header80[:80])
+	second := sha256.Sum256(first[:])
+	// Bitcoin/Dogecoin block hash is SHA256d interpreted as little-endian 32-byte word.
+	out := make([]byte, 32)
+	for i := 0; i < 32; i++ {
+		out[i] = second[31-i]
+	}
+	return hex.EncodeToString(out)
+}
+
+func sqlite3MaxInt64(ctx context.Context, sqlite3Bin, dbPath, q string) int64 {
+	cmd := exec.CommandContext(ctx, sqlite3Bin, "-noheader", "-batch", dbPath, q)
+	b, err := cmd.Output()
+	if err != nil {
+		return 0
+	}
+	v := strings.TrimSpace(string(b))
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
+}
+
+func sqlite3PickBlobHeaderColumn(ctx context.Context, sqlite3Bin, dbPath, table string) string {
+	q := fmt.Sprintf(`PRAGMA table_info(%s);`, sqlite3QuoteIdent(table))
+	cmd := exec.CommandContext(ctx, sqlite3Bin, "-bail", "-batch", dbPath, q)
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	type cand struct {
+		name string
+		typ  string
+	}
+	var cands []cand
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "|")
+		if len(parts) < 3 {
+			continue
+		}
+		name := strings.TrimSpace(parts[1])
+		typ := strings.ToLower(strings.TrimSpace(parts[2]))
+		if name == "" {
+			continue
+		}
+		cands = append(cands, cand{name: name, typ: typ})
+	}
+	score := func(name, typ string) int {
+		low := strings.ToLower(name)
+		// Prefer obvious header-ish columns.
+		switch {
+		case strings.Contains(low, "header") && strings.Contains(low, "raw"):
+			return 100
+		case low == "header" || strings.HasSuffix(low, "_header"):
+			return 90
+		case strings.Contains(low, "serialized") || strings.Contains(low, "block_header"):
+			return 85
+		case strings.Contains(low, "header"):
+			return 70
+		default:
+			return 0
+		}
+	}
+	best := ""
+	bestScore := -1
+	for _, c := range cands {
+		lowTyp := strings.ToLower(c.typ)
+		if !strings.Contains(lowTyp, "blob") && !strings.Contains(lowTyp, "binary") {
+			continue
+		}
+		sc := score(c.name, c.typ)
+		if sc > bestScore {
+			bestScore = sc
+			best = c.name
+		}
+	}
+	if best != "" {
+		return best
+	}
+	// Fallback: any BLOB-ish column on a table that also has a height column.
+	for _, c := range cands {
+		lowTyp := strings.ToLower(c.typ)
+		if strings.Contains(lowTyp, "blob") || strings.Contains(lowTyp, "binary") {
+			return c.name
+		}
+	}
+	return ""
+}
+
+// sqliteHeaderBlobHexAtHeight returns lowercase hex for a likely 80-byte header blob at height, if discoverable.
+func (s *Server) sqliteHeaderBlobHexAtHeight(height int64) (hexLower string, meta map[string]any) {
+	meta = map[string]any{}
+	if height <= 0 || s == nil || strings.TrimSpace(s.storageDir) == "" {
+		return "", meta
+	}
+	dbPath := filepath.Join(s.storageDir, "headers.db")
+	meta["headers_db"] = dbPath
+	if !isSQLiteDBFile(dbPath) {
+		meta["note"] = "headers.db missing or not SQLite"
+		return "", meta
+	}
+	sqlite3Bin, err := exec.LookPath("sqlite3")
+	if err != nil {
+		meta["note"] = "sqlite3 binary not found in PATH"
+		return "", meta
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	tables, err := sqlite3ListTables(ctx, sqlite3Bin, dbPath)
+	if err != nil || len(tables) == 0 {
+		meta["note"] = fmt.Sprintf("list tables: %v", err)
+		return "", meta
+	}
+	for _, tbl := range tables {
+		hcol := sqlite3PickHeightColumn(ctx, sqlite3Bin, dbPath, tbl)
+		if hcol == "" {
+			continue
+		}
+		bcol := sqlite3PickBlobHeaderColumn(ctx, sqlite3Bin, dbPath, tbl)
+		if bcol == "" {
+			continue
+		}
+		q := fmt.Sprintf(`SELECT lower(hex(%s)) FROM %s WHERE %s = %d LIMIT 1;`, sqlite3QuoteIdent(bcol), sqlite3QuoteIdent(tbl), sqlite3QuoteIdent(hcol), height)
+		cmd := exec.CommandContext(ctx, sqlite3Bin, "-noheader", "-batch", dbPath, q)
+		out, err := cmd.Output()
+		if err != nil {
+			continue
+		}
+		hx := strings.ToLower(strings.TrimSpace(string(out)))
+		if hx == "" {
+			continue
+		}
+		meta["table"] = tbl
+		meta["height_column"] = hcol
+		meta["blob_column"] = bcol
+		meta["blob_hex_len"] = len(hx)
+		return hx, meta
+	}
+	meta["note"] = "no BLOB header column found in headers.db (layout differs)"
+	return "", meta
+}
+
+// sqliteHeadersDBMaxHeight returns the largest height value found in any table with a height-like column.
+func (s *Server) sqliteHeadersDBMaxHeight() int64 {
+	if s == nil || strings.TrimSpace(s.storageDir) == "" {
+		return 0
+	}
+	dbPath := filepath.Join(s.storageDir, "headers.db")
+	if !isSQLiteDBFile(dbPath) {
+		return 0
+	}
+	sqlite3Bin, err := exec.LookPath("sqlite3")
+	if err != nil {
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	tables, err := sqlite3ListTables(ctx, sqlite3Bin, dbPath)
+	if err != nil {
+		return 0
+	}
+	var best int64
+	for _, tbl := range tables {
+		hcol := sqlite3PickHeightColumn(ctx, sqlite3Bin, dbPath, tbl)
+		if hcol == "" {
+			continue
+		}
+		q := fmt.Sprintf(`SELECT MAX(%s) FROM %s;`, sqlite3QuoteIdent(hcol), sqlite3QuoteIdent(tbl))
+		if v := sqlite3MaxInt64(ctx, sqlite3Bin, dbPath, q); v > best {
+			best = v
+		}
+	}
+	return best
 }
 
 // sqlite3DeleteHeadersAbove removes rows with height > keepHeight from every table that has a height-like column.

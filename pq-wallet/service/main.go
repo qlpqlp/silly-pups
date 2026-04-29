@@ -32,23 +32,23 @@ const pqWalletAppVersion = "0.0.44"
 const pqWalletBuildHash = "f2d5b36a0b15476fc72e3b6d8e3ffd74c48810f3ca252e8c0512b184920a3bd0"
 
 type Server struct {
-	mu            sync.Mutex
-	stateMergeMu  sync.Mutex // serializes loadState + SPV/mempool merges + saveState (do not hold s.mu across slow I/O)
-	spvStartMu    sync.Mutex
-	suchMergeMu   sync.Mutex
-	suchProbeMu   sync.Mutex
-	suchProbeAt   time.Time
-	suchProbeData map[string]any
-	storageDir    string
-	walletPath    string
-	watchPath     string
-	mempoolMu     sync.Mutex
-	mempoolEngine *mempooltracker.Engine
-	walletKey     []byte
-	sealSalt      []byte
-	memWallet     *WalletFile
-	unlockUntil   time.Time
-	lastSuchMerge time.Time
+	mu                    sync.Mutex
+	stateMergeMu          sync.Mutex // serializes loadState + SPV/mempool merges + saveState (do not hold s.mu across slow I/O)
+	spvStartMu            sync.Mutex
+	suchMergeMu           sync.Mutex
+	suchProbeMu           sync.Mutex
+	suchProbeAt           time.Time
+	suchProbeData         map[string]any
+	storageDir            string
+	walletPath            string
+	watchPath             string
+	mempoolMu             sync.Mutex
+	mempoolEngine         *mempooltracker.Engine
+	walletKey             []byte
+	sealSalt              []byte
+	memWallet             *WalletFile
+	unlockUntil           time.Time
+	lastSuchMerge         time.Time
 	lastSuchSpendableDOGE float64
 	lastSuchSpendableAt   time.Time
 }
@@ -211,6 +211,7 @@ func main() {
 	mux.HandleFunc("/api/debug/spv-wallet-db", srv.handleDebugSPVWalletDB)
 	mux.HandleFunc("/api/services/control", srv.handleServicesControl)
 	mux.HandleFunc("/api/logs/spv", srv.handleLogsSPV)
+	mux.HandleFunc("/api/logs/spv-deep", srv.handleLogsSPVDeep)
 	mux.HandleFunc("/api/logs/mempooltracker", srv.handleLogsMempoolTracker)
 	mux.HandleFunc("/api/logs/broadcast", srv.handleLogsBroadcast)
 	mux.HandleFunc("/api/tx/sign", srv.handleTxSign)
@@ -239,4 +240,3 @@ func main() {
 	log.Printf("[pq-wallet] storage=%s listen=%s", storage, addr)
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
-

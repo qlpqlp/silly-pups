@@ -67,6 +67,7 @@ const state = {
   pollFast: null,
   pollTx: null,
   pollLogs: null,
+  pollSpvDeep: null,
   qrScanner: null,
   receiveQrAddr: null,
   receiveQrBucket: "",
@@ -75,6 +76,7 @@ const state = {
   inFlightDashboard: false,
   inFlightTx: false,
   inFlightLogs: false,
+  inFlightSpvDeep: false,
   lastDashboard: null,
   spvHeaderFeed: [],
   pqSendMode: "txc_txr",
@@ -269,6 +271,10 @@ function showView(name) {
     clearInterval(state.pollLogs);
     state.pollLogs = null;
   }
+  if (state.pollSpvDeep) {
+    clearInterval(state.pollSpvDeep);
+    state.pollSpvDeep = null;
+  }
 
   document.querySelectorAll(".content .view").forEach((v) => v.classList.add("hidden"));
   const el = $("view-" + name);
@@ -279,6 +285,8 @@ function showView(name) {
   if (name === "settings") {
     refreshLogs();
     state.pollLogs = setInterval(refreshLogs, 4000);
+    refreshSpvDeepLog();
+    state.pollSpvDeep = setInterval(refreshSpvDeepLog, 8000);
     refreshDashboard().catch(() => {});
   }
   if (isNarrowViewport()) {
@@ -318,6 +326,73 @@ async function refreshLogs() {
     /* ignore */
   } finally {
     state.inFlightLogs = false;
+  }
+}
+
+function spvDeepDebugEnabled() {
+  const merkle = $("spv-deep-merkle");
+  const hex = $("spv-deep-hex");
+  const addr = $("spv-deep-addr");
+  const raw = $("spv-deep-rawhdr");
+  const tail = $("spv-deep-tail");
+  return Boolean(
+    (merkle && merkle.checked) ||
+      (hex && hex.checked) ||
+      (addr && addr.checked) ||
+      (raw && raw.checked) ||
+      (tail && tail.checked)
+  );
+}
+
+function buildSpvDeepQuery() {
+  const params = new URLSearchParams();
+  params.set("lines", "1200");
+  const merkle = $("spv-deep-merkle");
+  const hex = $("spv-deep-hex");
+  const addr = $("spv-deep-addr");
+  const raw = $("spv-deep-rawhdr");
+  const tail = $("spv-deep-tail");
+  const hInp = $("spv-deep-height");
+  if (merkle && merkle.checked) params.set("merkle", "1");
+  if (hex && hex.checked) params.set("hex", "1");
+  if (addr && addr.checked) params.set("addr", "1");
+  if (raw && raw.checked) params.set("raw_header", "1");
+  if (tail && tail.checked) params.set("tail", "1");
+  if (hInp && String(hInp.value || "").trim()) {
+    params.set("height", String(hInp.value || "").trim());
+  }
+  return params.toString();
+}
+
+async function refreshSpvDeepLog() {
+  if (state.view !== "settings") return;
+  if (!spvDeepDebugEnabled()) return;
+  if (state.inFlightSpvDeep) return;
+  state.inFlightSpvDeep = true;
+  const el = $("log-spv-deep");
+  try {
+    const mkSignal = (ms) => {
+      if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+        return AbortSignal.timeout(ms);
+      }
+      if (typeof AbortController === "undefined") return undefined;
+      const c = new AbortController();
+      setTimeout(() => {
+        try {
+          c.abort();
+        } catch {
+          /* ignore */
+        }
+      }, ms);
+      return c.signal;
+    };
+    const qs = buildSpvDeepQuery();
+    const txt = await fetch(`/api/logs/spv-deep?${qs}`, { signal: mkSignal(20000) }).then((r) => r.text());
+    if (el) el.textContent = txt;
+  } catch {
+    if (el) el.textContent = "(spv deep digest unavailable — try Refresh deep)";
+  } finally {
+    state.inFlightSpvDeep = false;
   }
 }
 
@@ -603,10 +678,16 @@ function triggerDogeWowWords() {
     const x = Math.round(8 + Math.random() * 84);
     const y = Math.round(16 + Math.random() * 70);
     const rot = Math.round(-22 + Math.random() * 44);
+    const sizeRem = (0.95 + Math.random() * 1.5).toFixed(2);
+    const s0 = (0.82 + Math.random() * 0.28).toFixed(2);
+    const s1 = (1.02 + Math.random() * 0.35).toFixed(2);
     const delay = Math.round(Math.random() * 280);
     el.style.left = `${(vw * x) / 100}px`;
     el.style.top = `${(vh * y) / 100}px`;
-    el.style.transform = `rotate(${rot}deg)`;
+    el.style.setProperty("--wow-rot", `${rot}deg`);
+    el.style.setProperty("--wow-size", `${sizeRem}rem`);
+    el.style.setProperty("--wow-scale-start", s0);
+    el.style.setProperty("--wow-scale-end", s1);
     el.style.animationDelay = `${delay}ms`;
     layer.appendChild(el);
     setTimeout(() => {
@@ -1663,7 +1744,10 @@ document.querySelectorAll(".mobile-tabbar-btn").forEach((btn) => {
 });
 const wowBtn = $("tabbar-doge-wow");
 if (wowBtn) {
-  wowBtn.addEventListener("click", () => triggerDogeWowWords());
+  wowBtn.addEventListener("click", () => {
+    triggerDogeWowWords();
+    showView("dashboard");
+  });
 }
 
 const btnScan = $("btn-scan-qr");
@@ -1910,7 +1994,10 @@ if (btnMtrExpand) {
 
 const logoHome = $("btn-logo-home");
 if (logoHome) {
-  logoHome.addEventListener("click", () => showView("dashboard"));
+  logoHome.addEventListener("click", () => {
+    triggerDogeWowWords();
+    showView("dashboard");
+  });
 }
 
 state.pqSendMode = getPqSendMode();
@@ -1938,6 +2025,17 @@ const btnPqModeBoth = $("btn-pq-mode-txc-txr");
 if (btnPqModeBoth) {
   btnPqModeBoth.addEventListener("click", () => setPqSendMode("txc_txr"));
 }
+
+const btnSpvDeep = $("btn-spv-deep-refresh");
+if (btnSpvDeep) btnSpvDeep.addEventListener("click", () => refreshSpvDeepLog());
+["spv-deep-merkle", "spv-deep-hex", "spv-deep-addr", "spv-deep-rawhdr", "spv-deep-tail"].forEach((id) => {
+  const el = $(id);
+  if (!el) return;
+  el.addEventListener("change", () => {
+    if (state.view !== "settings") return;
+    refreshSpvDeepLog();
+  });
+});
 
 document.getElementById("btn-send-pq-safe").addEventListener("click", async () => {
   const btn = document.getElementById("btn-send-pq-safe");

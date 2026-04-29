@@ -22,16 +22,16 @@ var (
 	reSuchFalconSec = regexp.MustCompile(`(?i)secret key:\s*([0-9a-f]+)`)
 	reSuchSignedTx  = regexp.MustCompile(`(?i)signed TX:\s*([0-9a-f]+)`)
 
-	reSuchPrivWIF     = regexp.MustCompile(`(?i)private key wif:\s*(\S+)`)
-	reSuchPubKeyHex   = regexp.MustCompile(`(?i)public key hex:\s*([0-9a-f]+)`)
-	reSuchP2PKHAddr   = regexp.MustCompile(`(?i)p2pkh address:\s*(\S+)`)
-	reSuchAnyHexValue = regexp.MustCompile(`(?i)\b([0-9a-f]{64,})\b`)
-	reSuchUTXOLine    = regexp.MustCompile(`(?i)\btxid[=: ]+([a-f0-9]{64})\b.*?\bvout[=: ]+(\d+)\b.*?\b(?:value|amount|koinu|satoshis)[=: ]+(-?\d+(?:\.\d+)?)`)
-	reSendtxStartTxid = regexp.MustCompile(`(?i)start broadcasting transaction:\s*([a-f0-9]{64})`)
+	reSuchPrivWIF       = regexp.MustCompile(`(?i)private key wif:\s*(\S+)`)
+	reSuchPubKeyHex     = regexp.MustCompile(`(?i)public key hex:\s*([0-9a-f]+)`)
+	reSuchP2PKHAddr     = regexp.MustCompile(`(?i)p2pkh address:\s*(\S+)`)
+	reSuchAnyHexValue   = regexp.MustCompile(`(?i)\b([0-9a-f]{64,})\b`)
+	reSuchUTXOLine      = regexp.MustCompile(`(?i)\btxid[=: ]+([a-f0-9]{64})\b.*?\bvout[=: ]+(\d+)\b.*?\b(?:value|amount|koinu|satoshis)[=: ]+(-?\d+(?:\.\d+)?)`)
+	reSendtxStartTxid   = regexp.MustCompile(`(?i)start broadcasting transaction:\s*([a-f0-9]{64})`)
 	reSuchFlexibleTxHex = regexp.MustCompile(`(?i)(?:signed|unsigned|modified)\s+TX\s*:\s*([0-9a-f]+)`)
-	reSuchCarrierSPK   = regexp.MustCompile(`(?i)carrier_p2sh_scriptpubkey:\s*([0-9a-f]+)`)
-	reSuchCarrierMkSig = regexp.MustCompile(`(?i)carrier_part_scriptsig\[(\d+)\]\s*:\s*([0-9a-f]+)`)
-	reSuchLongHex      = regexp.MustCompile(`\b([0-9a-f]{200,})\b`)
+	reSuchCarrierSPK    = regexp.MustCompile(`(?i)carrier_p2sh_scriptpubkey:\s*([0-9a-f]+)`)
+	reSuchCarrierMkSig  = regexp.MustCompile(`(?i)carrier_part_scriptsig\[(\d+)\]\s*:\s*([0-9a-f]+)`)
+	reSuchLongHex       = regexp.MustCompile(`\b([0-9a-f]{200,})\b`)
 )
 
 // runSuchP2PKHWallet runs `such -c generate_private_key` then `such -c generate_public_key -p <WIF>` (libdogecoin ECC + base58).
@@ -765,17 +765,17 @@ func relayHeuristicErrorLine(diagnosticLines []string) string {
 }
 
 type sendtxOutputSummary struct {
-	BroadcastTxID          string   `json:"broadcast_txid,omitempty"`
-	ConnectedNodes         int      `json:"connected_nodes"`
-	InformedNodes          int      `json:"informed_nodes"`
-	RequestedFromNodes     int      `json:"requested_from_nodes"`
-	SeenOnOtherNodes       int      `json:"seen_on_other_nodes"`
-	RelayBackReceived      bool     `json:"relay_back_received"`
-	LikelyBroadcasted      bool     `json:"likely_broadcasted"`
-	Status                 string   `json:"status"` // success | warning | unknown
-	HumanNote              string   `json:"human_note"`
-	SendtxDiagnosticLines  []string `json:"sendtx_diagnostic_lines,omitempty"`
-	RelayHeuristicError    string   `json:"relay_heuristic_error,omitempty"`
+	BroadcastTxID         string   `json:"broadcast_txid,omitempty"`
+	ConnectedNodes        int      `json:"connected_nodes"`
+	InformedNodes         int      `json:"informed_nodes"`
+	RequestedFromNodes    int      `json:"requested_from_nodes"`
+	SeenOnOtherNodes      int      `json:"seen_on_other_nodes"`
+	RelayBackReceived     bool     `json:"relay_back_received"`
+	LikelyBroadcasted     bool     `json:"likely_broadcasted"`
+	Status                string   `json:"status"` // success | warning | unknown
+	HumanNote             string   `json:"human_note"`
+	SendtxDiagnosticLines []string `json:"sendtx_diagnostic_lines,omitempty"`
+	RelayHeuristicError   string   `json:"relay_heuristic_error,omitempty"`
 	SendtxDiagnosticsNote string   `json:"sendtx_diagnostics_note,omitempty"`
 }
 

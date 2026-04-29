@@ -34,7 +34,10 @@
     <aside class="sidebar" id="sidebar" aria-label="Main navigation">
       <div class="sidebar-brand">
         <button type="button" class="sidebar-logo-frame" id="btn-logo-home" aria-label="Go to dashboard">
-          <img src="/static/logo.png" alt="" width="40" height="40" class="sidebar-logo" />
+          <span class="logo-flip-3d" aria-hidden="true">
+            <img src="/static/logo.png" alt="" width="36" height="36" class="sidebar-logo logo-face logo-face-front" />
+            <img src="/static/dogecoin.png" alt="" width="36" height="36" class="sidebar-logo logo-face logo-face-back" />
+          </span>
         </button>
         <div class="sidebar-titles">
           <span class="sidebar-name">PQ Doge Wallet</span>
@@ -332,8 +335,26 @@
                 <pre class="dos-screen" id="log-bc">…</pre>
               </div>
               <div class="card dos-panel">
-                <h3>SPV headers (debug)</h3>
+                <h3>SPV live tip (dashboard)</h3>
+                <p class="small muted" style="margin:.35rem 0 .5rem">Header height / best hash from <code class="mono">/api/dashboard</code> (refreshes with the dashboard).</p>
                 <pre class="dos-screen" id="log-spv-headers">…</pre>
+                <div class="toolbar toolbar-actions" style="margin-top:.65rem;flex-wrap:wrap;gap:.5rem">
+                  <span class="small muted" style="flex:1 1 220px"><code class="mono">/api/logs/spv-deep</code> — classify spv.log + optional <code class="mono">headers.db</code> raw header bytes.</span>
+                  <button type="button" class="btn btn-sm" id="btn-spv-deep-refresh">Refresh deep</button>
+                </div>
+                <div class="dos-spv-deep-toggles" style="margin:.45rem 0 .35rem;display:flex;flex-wrap:wrap;gap:.65rem 1rem;align-items:center">
+                  <label class="small"><input type="checkbox" id="spv-deep-merkle" checked /> Merkle / filter / confirm lines</label>
+                  <label class="small"><input type="checkbox" id="spv-deep-hex" checked /> Long hex dumps</label>
+                  <label class="small"><input type="checkbox" id="spv-deep-addr" checked /> Wallet address substring hits</label>
+                  <label class="small"><input type="checkbox" id="spv-deep-rawhdr" /> Raw header from <code class="mono">headers.db</code></label>
+                  <label class="small"><input type="checkbox" id="spv-deep-tail" /> Append full augmented tail</label>
+                </div>
+                <label class="small" style="display:flex;gap:.5rem;align-items:center;margin:.25rem 0 .5rem">
+                  <span>Height override (raw header)</span>
+                  <input type="text" class="input-modern" id="spv-deep-height" placeholder="e.g. 5912345" inputmode="numeric" style="max-width:11rem" spellcheck="false" autocomplete="off" />
+                </label>
+                <h3 class="chart-sub" style="margin-top:.25rem">SPV deep digest</h3>
+                <pre class="dos-screen" id="log-spv-deep" style="min-height:9rem">Enable options above and press Refresh deep (or open Settings — it auto-refreshes).</pre>
               </div>
             </div>
           </div>
@@ -389,7 +410,10 @@
           <span class="mobile-tabbar-label">Receive</span>
         </button>
         <button type="button" class="mobile-tabbar-logo-btn" id="tabbar-doge-wow" aria-label="Doge wow">
-          <img src="/static/logo.png" alt="" class="mobile-tabbar-logo-img" />
+          <span class="logo-flip-3d logo-flip-mobile" aria-hidden="true">
+            <img src="/static/logo.png" alt="" class="mobile-tabbar-logo-img logo-face logo-face-front" />
+            <img src="/static/dogecoin.png" alt="" class="mobile-tabbar-logo-img logo-face logo-face-back" />
+          </span>
         </button>
         <button type="button" class="mobile-tabbar-btn" id="tabbar-send" data-tabbar="tools">
           <span class="material-symbols-outlined mobile-tabbar-ico">north_east</span>

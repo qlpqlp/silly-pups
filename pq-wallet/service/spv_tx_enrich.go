@@ -45,6 +45,10 @@ type rawTxFlow struct {
 	ExternalAddr string
 }
 
+func isOpReturnScript(script []byte) bool {
+	return len(script) >= 1 && script[0] == 0x6a
+}
+
 func decodeSPVRawTxFlow(rawHex string, walletByHash160 map[string]string, testnet bool) (rawTxFlow, error) {
 	var out rawTxFlow
 	rawHex = strings.TrimSpace(strings.ToLower(rawHex))
@@ -92,6 +96,7 @@ func decodeSPVRawTxFlow(rawHex string, walletByHash160 map[string]string, testne
 		return out, err
 	}
 	var bestWalletVal, bestExtVal int64
+	var extNonP2PKH int64
 	for i := 0; i < int(nout); i++ {
 		if off+8 > len(raw) {
 			return out, errors.New("truncated output value")
@@ -106,8 +111,20 @@ func decodeSPVRawTxFlow(rawHex string, walletByHash160 map[string]string, testne
 			return out, errors.New("truncated scriptPubKey")
 		}
 		script := raw[off-int(slen) : off]
+		if isOpReturnScript(script) {
+			continue
+		}
 		h160, ok := p2pkhHash160FromScript(script)
 		if !ok {
+			// Non-standard scripts (P2SH, witness-ish payloads, PQ carrier outputs, etc.) still represent
+			// value leaving the wallet when this tx spends wallet inputs. Treat them as external for
+			// direction classification even if we cannot derive a human-readable address string.
+			if valueSats > 0 {
+				extNonP2PKH += valueSats
+				if valueSats >= bestExtVal {
+					bestExtVal = valueSats
+				}
+			}
 			continue
 		}
 		hh := hex.EncodeToString(h160)
@@ -128,6 +145,11 @@ func decodeSPVRawTxFlow(rawHex string, walletByHash160 map[string]string, testne
 			bestExtVal = valueSats
 			out.ExternalAddr = extAddr
 		}
+	}
+	// If we saw external-looking value in non-P2PKH outputs, fold it into ExternalSats for spend detection.
+	// Keep ExternalAddr if we already found a readable P2PKH counterparty; otherwise leave blank.
+	if extNonP2PKH > 0 {
+		out.ExternalSats += extNonP2PKH
 	}
 	return out, nil
 }

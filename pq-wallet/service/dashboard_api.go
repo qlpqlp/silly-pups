@@ -606,6 +606,16 @@ func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any
 
 func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []txListRow {
 	mtrOverlay := map[string]bool{}
+	walletAddrSet := map[string]struct{}{}
+	if wf != nil {
+		for _, a := range wf.AllDistinctP2PKHAddresses() {
+			a = strings.ToLower(strings.TrimSpace(a))
+			if a == "" {
+				continue
+			}
+			walletAddrSet[a] = struct{}{}
+		}
+	}
 	eng, engErr := s.ensureMempoolEngine(wf)
 	if eng != nil && engErr == nil {
 		_, mtrLive, _, _ := eng.DashboardSnapshot()
@@ -623,6 +633,20 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 	out := make([]txListRow, 0, len(st.Transactions))
 	for _, t := range st.Transactions {
 		tr := txListRow{TxRecord: t, Pending: t.Confirmations == 0}
+		// Last-mile guardrail for API output: never leave direction as unknown when we can infer it.
+		// This avoids sticky "unknown" rows in UI details while upstream sources catch up.
+		if strings.EqualFold(strings.TrimSpace(tr.Direction), "unknown") || strings.TrimSpace(tr.Direction) == "" {
+			addr := strings.ToLower(strings.TrimSpace(tr.Address))
+			if addr != "" {
+				if _, ok := walletAddrSet[addr]; ok {
+					tr.Direction = "in"
+				} else {
+					tr.Direction = "out"
+				}
+			} else if tr.AmountDOGE > 0 && strings.EqualFold(strings.TrimSpace(tr.Source), "memetracker") {
+				tr.Direction = "in"
+			}
+		}
 		if mtrOverlay[normalizeTxid(t.Txid)] && t.Confirmations == 0 {
 			tr.Pending = true
 			tr.Source = "memetracker"

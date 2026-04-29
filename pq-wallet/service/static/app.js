@@ -982,7 +982,7 @@ function updateSendFeeHint() {
     inp.value = v;
   }
   if (hint) {
-    hint.textContent = `Economic fee: ${v} DOGE/kB (Dogecoin Core recommends 0.01 DOGE/kB)`;
+    hint.textContent = `fee: ${v} DOGE/kB`;
   }
 }
 
@@ -996,15 +996,15 @@ function updatePqCommitmentSwitchLabel() {
   if (el) el.textContent = PQ_COMMIT_LABEL_DEFAULT;
   if (badge) {
     if (mode === "txc_only") {
-      badge.textContent = "Will send: TX_C only (commitment)";
+      badge.textContent = "Will send: commitment only";
       badge.className = "pq-plan-badge txc-only";
     } else {
-      badge.textContent = "Will send: TX_C + TX_R (commitment + reveal)";
+      badge.textContent = "Will send: commitment + reveal";
       badge.className = "pq-plan-badge txc-txr";
     }
   }
   if (note) {
-    note.textContent = mode === "txc_only" ? "Current mode: TX_C only" : "Current mode: TX_C + TX_R";
+    note.textContent = mode === "txc_only" ? "Current mode: commitment only" : "Current mode: commitment + reveal";
   }
   if (bOnly) {
     bOnly.classList.toggle("primary", mode === "txc_only");
@@ -1096,7 +1096,7 @@ function applyDashboardSnapshot(dashboard) {
   const balUnit = $("wallet-balance-unit");
   const txDerived = recalcBalanceFromTransactions();
   const shown = spendStr !== "—" ? spendStr : (txDerived != null ? txDerived.toFixed(2) : "—");
-  if (balBig) balBig.textContent = `Ð ${shown}`;
+  if (balBig) balBig.textContent = `Ð${shown}`;
   if (balBig) requestAnimationFrame(() => fitWalletHeroBalance());
   if (balUnit) balUnit.textContent = "";
   const pendRaw = t.pending_mempool_doge;
@@ -1170,6 +1170,7 @@ function applyDashboardSnapshot(dashboard) {
   if (spvDbg) {
     const h = Number(spv.header_height || 0);
     const hh = Number.isFinite(h) && h > 0 ? String(h) : "—";
+    const bestHash = String(spv.best_block_hash || "").trim();
     const ts = Number(spv.header_unix_time || 0);
     const tsText = Number.isFinite(ts) && ts > 0 ? new Date(ts * 1000).toISOString() : "—";
     const lag = spv.sync_lag_label || "Unknown";
@@ -1177,6 +1178,7 @@ function applyDashboardSnapshot(dashboard) {
     const lines = [
       `running: ${running}`,
       `header_height: ${hh}`,
+      `best_block_hash: ${bestHash || "—"}`,
       `sync: ${lag}`,
       `header_unix_time: ${ts > 0 ? String(ts) : "—"}`,
       `header_time_iso: ${tsText}`
@@ -1186,8 +1188,8 @@ function applyDashboardSnapshot(dashboard) {
       lines.push("", "header_feed_live:");
       for (const row of feed) {
         const iso = row.ts > 0 ? new Date(row.ts * 1000).toISOString() : "—";
-        const hashShort = row.hash ? row.hash.slice(0, 12) + "…" : "";
-        lines.push(`  h=${row.height} t=${iso}${hashShort ? " hash=" + hashShort : ""}`);
+        const hash = row.hash ? String(row.hash).trim() : "";
+        lines.push(`  h=${row.height} t=${iso}${hash ? " hash=" + hash : ""}`);
       }
     }
     spvDbg.textContent = lines.join("\n");
@@ -1207,7 +1209,7 @@ function applyTxSnapshot(txs, refresh) {
   const spendHint = dashTotals && dashTotals.spendable_hint_doge != null ? Number(dashTotals.spendable_hint_doge) : NaN;
   if ((!Number.isFinite(spendHint) || spendHint <= 0) && balBig) {
     const derived = recalcBalanceFromTransactions();
-    if (derived != null && derived > 0) balBig.textContent = `Ð ${derived.toFixed(2)}`;
+    if (derived != null && derived > 0) balBig.textContent = `Ð${derived.toFixed(2)}`;
   }
   if (balBig) requestAnimationFrame(() => fitWalletHeroBalance());
   const hint = $("tx-sync-hint");
@@ -1919,8 +1921,7 @@ document.getElementById("btn-send-pq-safe").addEventListener("click", async () =
       typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
         ? AbortSignal.timeout(120000)
         : undefined;
-    // Always use the wallet default fee (0.01 DOGE/kB); server also ignores any client override.
-    const fee_doge_per_kb = DEFAULT_FEE_PER_KB_DOGE;
+    const fee_doge_per_kb = getSendFeeDogePerKb();
     const res = await api("/api/send/pq-safe", {
       method: "POST",
       body: JSON.stringify({ to_address, amount_doge, include_pq_commitment, include_pq_reveal, fee_doge_per_kb }),

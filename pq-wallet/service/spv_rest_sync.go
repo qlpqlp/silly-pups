@@ -488,15 +488,14 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 	if st == nil {
 		return false
 	}
-	utxoRaw, errU := s.fetchSPVREST("/getUTXOs")
 	txRaw, errT := s.fetchSPVREST("/getTransactions")
-	if errU != nil && errT != nil {
+	if errT != nil {
 		return false
 	}
-	// UTXO rows alone do not reliably encode tx direction (change outputs can look like "in").
-	// Keep them as unknown unless the REST row includes an explicit direction hint.
-	rows := parseSPVRESTRows(utxoRaw, "unknown")
-	rows = append(rows, parseSPVRESTRows(txRaw, "unknown")...)
+	// Build tx history from /getTransactions only.
+	// /getUTXOs is a current unspent snapshot and can inject change outputs into history,
+	// which corrupts direction and amount for sent transactions.
+	rows := parseSPVRESTRows(txRaw, "unknown")
 	if len(rows) == 0 {
 		return false
 	}

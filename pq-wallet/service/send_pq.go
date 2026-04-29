@@ -105,9 +105,15 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	if body.IncludePQReveal != nil {
 		includePQReveal = *body.IncludePQReveal
 	}
-	// Always use the default Dogecoin recommendation fee rate (0.01 DOGE/kB).
-	// The client may send a fee_doge_per_kb value, but it is intentionally ignored.
 	feePerKbKoinu := dogeDefaultFeePerKbKoinu
+	if s := strings.TrimSpace(body.FeeDogePerKB); s != "" {
+		if f, err := strconv.ParseFloat(s, 64); err == nil && f > 0 {
+			koinu := int64(f * 1e8)
+			if koinu > 0 {
+				feePerKbKoinu = clampFeePerKbKoinu(koinu)
+			}
+		}
+	}
 	if to == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "to_address required"})
 		return

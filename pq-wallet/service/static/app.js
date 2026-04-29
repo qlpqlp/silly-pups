@@ -295,7 +295,7 @@ function showView(name) {
     receive: ["Receive Dogecoin", "QR and address for your primary receiving address"],
     addresses: ["Addresses", "Generate keys and choose which address SPV watches"],
     transactions: ["Transactions", "Local SPV/P2P transaction history"],
-    tools: ["Send Doge", "Destination & amount, or paste a signed raw hex for P2P broadcast"],
+    tools: ["Send Doge", "PQ-safe send or expand Manual PQ TX for raw hex broadcast"],
     learn: ["Help", "ECDSA vs PQ · send · verify · broadcast"],
     settings: ["Settings", "Encryption, logs, backup and wallet controls"],
   };
@@ -517,12 +517,12 @@ function syncToolsTopBarFromSendTab(n) {
   if (n === 0) {
     if (titleText) titleText.textContent = "Send Doge";
     if (titleIco) titleIco.textContent = "send";
-    if (subEl) subEl.textContent = "Destination, amount, and PQ-safe send — or open Manual PQ TX.";
+    if (subEl) subEl.textContent = "PQ-safe send — tap Manual PQ TX below for raw hex.";
     if (titleEl) titleEl.setAttribute("title", subEl ? subEl.textContent : "");
   } else {
     if (titleText) titleText.textContent = "Manual PQ TX";
     if (titleIco) titleIco.textContent = "terminal";
-    if (subEl) subEl.textContent = "Paste signed raw hex and P2P broadcast — or return to Send Doge.";
+    if (subEl) subEl.textContent = "Paste signed raw hex and broadcast — tap Send Doge above to return.";
     if (titleEl) titleEl.setAttribute("title", subEl ? subEl.textContent : "");
   }
 }
@@ -530,26 +530,26 @@ function syncToolsTopBarFromSendTab(n) {
 function setSendTab(n) {
   if (n !== 0 && n !== 1) n = 0;
   state.sendTabIndex = n;
-  document.querySelectorAll("[data-send-panel]").forEach((p) => {
-    p.classList.toggle("hidden", parseInt(p.getAttribute("data-send-panel"), 10) !== n);
-  });
-  const heading = $("send-mode-heading");
-  const sub = $("send-mode-sub");
-  const ico = $("btn-send-mode-switch-ico");
-  const txt = $("btn-send-mode-switch-txt");
-  const btn = $("btn-send-mode-switch");
+  const secNorm = $("send-acc-section-normal");
+  const secMan = $("send-acc-section-manual");
+  const bodyNorm = $("send-acc-body-normal");
+  const bodyMan = $("send-acc-body-manual");
+  const trNorm = $("send-acc-trigger-normal");
+  const trMan = $("send-acc-trigger-manual");
   if (n === 0) {
-    if (heading) heading.textContent = "Send Doge";
-    if (sub) sub.textContent = "Pay with post-quantum-safe flow (TX_C + optional TX_R).";
-    if (ico) ico.textContent = "terminal";
-    if (txt) txt.textContent = "Manual PQ TX";
-    if (btn) btn.setAttribute("aria-label", "Switch to manual PQ transaction");
+    secNorm?.classList.add("send-acc-section--open");
+    secMan?.classList.remove("send-acc-section--open");
+    bodyNorm?.classList.remove("hidden");
+    bodyMan?.classList.add("hidden");
+    trNorm?.setAttribute("aria-expanded", "true");
+    trMan?.setAttribute("aria-expanded", "false");
   } else {
-    if (heading) heading.textContent = "Manual PQ TX";
-    if (sub) sub.textContent = "Paste a fully signed raw hex and broadcast via libdogecoin P2P (sendtx).";
-    if (ico) ico.textContent = "send";
-    if (txt) txt.textContent = "Send Doge";
-    if (btn) btn.setAttribute("aria-label", "Switch to Send Doge");
+    secNorm?.classList.remove("send-acc-section--open");
+    secMan?.classList.add("send-acc-section--open");
+    bodyNorm?.classList.add("hidden");
+    bodyMan?.classList.remove("hidden");
+    trNorm?.setAttribute("aria-expanded", "false");
+    trMan?.setAttribute("aria-expanded", "true");
   }
   if (state.view === "tools") {
     syncToolsTopBarFromSendTab(n);
@@ -1955,11 +1955,13 @@ if (btnMob) {
   });
 }
 
-const btnSendModeSwitch = $("btn-send-mode-switch");
-if (btnSendModeSwitch) {
-  btnSendModeSwitch.addEventListener("click", () => {
-    setSendTab(state.sendTabIndex === 0 ? 1 : 0);
-  });
+const sendAccTriggerNormal = $("send-acc-trigger-normal");
+const sendAccTriggerManual = $("send-acc-trigger-manual");
+if (sendAccTriggerNormal) {
+  sendAccTriggerNormal.addEventListener("click", () => setSendTab(0));
+}
+if (sendAccTriggerManual) {
+  sendAccTriggerManual.addEventListener("click", () => setSendTab(1));
 }
 setSendTab(0);
 

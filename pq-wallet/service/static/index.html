@@ -210,63 +210,74 @@
         </section>
 
         <section id="view-tools" class="view hidden">
-          <div class="send-panel" data-send-panel="0">
-            <div class="card">
-              <h3>Destination &amp; amount</h3>
-              <label class="field"><span>Destination Dogecoin address</span></label>
-              <div class="send-to-row">
-                <input type="text" class="input-modern send-to-input" id="send-to" placeholder="D…" autocomplete="off" />
-                <button type="button" class="btn" id="btn-scan-qr" title="Scan QR code">
-                  <span class="material-symbols-outlined btn-ico">qr_code_scanner</span> Scan
+          <div class="send-panel send-tools-wrap">
+            <div class="card send-tools-card">
+              <div class="send-acc-section send-acc-section--open" id="send-acc-section-normal">
+                <button type="button" class="send-acc-trigger" id="send-acc-trigger-normal" aria-expanded="true" aria-controls="send-acc-body-normal">
+                  <span class="material-symbols-outlined send-acc-trigger-ico" aria-hidden="true">payments</span>
+                  <span class="send-acc-trigger-text">
+                    <span class="send-acc-trigger-title">Send Doge</span>
+                    <span class="small muted send-acc-trigger-sub">Post-quantum-safe flow (TX_C + optional TX_R)</span>
+                  </span>
+                  <span class="material-symbols-outlined send-acc-chevron" aria-hidden="true">expand_more</span>
                 </button>
-              </div>
-              <label class="field"><span>Amount in Doge</span>
-                <input type="text" class="input-modern" id="send-amt" placeholder="0.001" inputmode="decimal" autocomplete="off" spellcheck="false" />
-              </label>
-              <div class="field">
-                <span id="send-pq-commitment-label">Post-quantum payload mode</span>
-                <div id="send-pq-mode-badge" class="pq-plan-badge">commitment + reveal</div>
-                <p class="small muted" id="send-fee-hint"></p>
-              </div>
-              <button type="button" class="btn primary" id="btn-send-pq-safe"><span class="material-symbols-outlined btn-ico">lock</span> Send post-quantum safe transaction</button>
-              <div class="card send-mode-card send-mode-card-below-send">
-                <div class="send-mode-bar">
-                  <div class="send-mode-titles">
-                    <h2 class="send-mode-heading" id="send-mode-heading">Send Doge</h2>
-                    <p class="small muted send-mode-sub" id="send-mode-sub">Pay with post-quantum-safe flow (TX_C + optional TX_R).</p>
+                <div class="send-acc-body" id="send-acc-body-normal" role="region" aria-labelledby="send-acc-trigger-normal">
+                  <label class="field"><span>Destination Dogecoin address</span></label>
+                  <div class="send-to-row">
+                    <input type="text" class="input-modern send-to-input" id="send-to" placeholder="D…" autocomplete="off" />
+                    <button type="button" class="btn" id="btn-scan-qr" title="Scan QR code">
+                      <span class="material-symbols-outlined btn-ico">qr_code_scanner</span> Scan
+                    </button>
                   </div>
-                  <button type="button" class="btn primary" id="btn-send-mode-switch" aria-label="Switch to manual PQ transaction">
-                    <span class="material-symbols-outlined btn-ico" id="btn-send-mode-switch-ico" aria-hidden="true">terminal</span>
-                    <span id="btn-send-mode-switch-txt">Manual PQ TX</span>
-                  </button>
+                  <label class="field"><span>Amount in Doge</span>
+                    <input type="text" class="input-modern" id="send-amt" placeholder="0.001" inputmode="decimal" autocomplete="off" spellcheck="false" />
+                  </label>
+                  <div class="field">
+                    <span id="send-pq-commitment-label">Post-quantum payload mode</span>
+                    <div id="send-pq-mode-badge" class="pq-plan-badge">commitment + reveal</div>
+                    <p class="small muted" id="send-fee-hint"></p>
+                  </div>
+                  <button type="button" class="btn primary" id="btn-send-pq-safe"><span class="material-symbols-outlined btn-ico">lock</span> Send post-quantum safe transaction</button>
+                  <pre id="send-pq-out" class="mono small out"></pre>
                 </div>
               </div>
-              <pre id="send-pq-out" class="mono small out"></pre>
-            </div>
-          </div>
 
-          <div class="send-panel hidden" data-send-panel="1">
-            <div class="card">
-              <h3>Manually send post-quantum secure signed transaction</h3>
-              <p class="small muted">Paste a <strong>fully signed</strong> raw transaction hex (including any PQ-related outputs your tooling produced). This calls <code>sendtx</code> only.</p>
-              <label class="field"><span>Raw post-quantum secure signed transaction (hex)</span>
-                <textarea id="manual-signed-hex" class="input-modern mono" rows="6" placeholder="01000000…"></textarea>
-              </label>
-              <label class="field"><span>Peers (optional)</span>
-                <input type="text" class="input-modern" id="manual-peers" placeholder="empty = DNS seeds" />
-              </label>
-              <button type="button" class="btn primary" id="btn-manual-broadcast"><span class="material-symbols-outlined btn-ico">send</span> Broadcast via P2P</button>
-              <pre id="manual-bc-out" class="mono small out"></pre>
-            </div>
-            <div class="card">
-              <h3>Advanced: ECDSA sign (unsigned hex)</h3>
-              <p class="small muted">If you have an <strong>unsigned</strong> raw tx, sign the selected input with your primary P2PKH key via <code>such -c sign</code>.</p>
-              <textarea id="raw-hex" class="input-modern mono" rows="4" placeholder="unsigned hex"></textarea>
-              <label class="field"><span>Input index</span>
-                <input type="number" class="input-modern" id="vin-idx" value="0" min="0" />
-              </label>
-              <button type="button" class="btn" id="btn-sign"><span class="material-symbols-outlined btn-ico">draw</span> Sign with primary key</button>
-              <pre id="sign-out" class="mono small out"></pre>
+              <div class="send-acc-section" id="send-acc-section-manual">
+                <button type="button" class="send-acc-trigger" id="send-acc-trigger-manual" aria-expanded="false" aria-controls="send-acc-body-manual">
+                  <span class="material-symbols-outlined send-acc-trigger-ico" aria-hidden="true">terminal</span>
+                  <span class="send-acc-trigger-text">
+                    <span class="send-acc-trigger-title">Manual PQ TX</span>
+                    <span class="small muted send-acc-trigger-sub">Signed raw hex · P2P broadcast only</span>
+                  </span>
+                  <span class="material-symbols-outlined send-acc-chevron" aria-hidden="true">expand_more</span>
+                </button>
+                <div class="send-acc-body hidden" id="send-acc-body-manual" role="region" aria-labelledby="send-acc-trigger-manual">
+                  <div class="send-manual-blocks">
+                    <div class="card send-manual-card">
+                      <h3 class="send-manual-card-title">Broadcast signed transaction</h3>
+                      <p class="small muted">Paste a <strong>fully signed</strong> raw transaction hex (including any PQ-related outputs your tooling produced). This calls <code>sendtx</code> only.</p>
+                      <label class="field"><span>Raw post-quantum secure signed transaction (hex)</span>
+                        <textarea id="manual-signed-hex" class="input-modern mono" rows="6" placeholder="01000000…"></textarea>
+                      </label>
+                      <label class="field"><span>Peers (optional)</span>
+                        <input type="text" class="input-modern" id="manual-peers" placeholder="empty = DNS seeds" />
+                      </label>
+                      <button type="button" class="btn primary" id="btn-manual-broadcast"><span class="material-symbols-outlined btn-ico">send</span> Broadcast via P2P</button>
+                      <pre id="manual-bc-out" class="mono small out"></pre>
+                    </div>
+                    <div class="card send-manual-card">
+                      <h3 class="send-manual-card-title">Advanced: ECDSA sign (unsigned hex)</h3>
+                      <p class="small muted">If you have an <strong>unsigned</strong> raw tx, sign the selected input with your primary P2PKH key via <code>such -c sign</code>.</p>
+                      <textarea id="raw-hex" class="input-modern mono" rows="4" placeholder="unsigned hex"></textarea>
+                      <label class="field"><span>Input index</span>
+                        <input type="number" class="input-modern" id="vin-idx" value="0" min="0" />
+                      </label>
+                      <button type="button" class="btn" id="btn-sign"><span class="material-symbols-outlined btn-ico">draw</span> Sign with primary key</button>
+                      <pre id="sign-out" class="mono small out"></pre>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </section>

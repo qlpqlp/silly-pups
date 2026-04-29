@@ -1396,6 +1396,120 @@ body {
   margin-bottom: 0.75rem;
 }
 
+/* Send tools: accordion — one panel open; Manual PQ expands below Send Doge header */
+.send-tools-wrap {
+  width: 100%;
+}
+
+.card.send-tools-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0.85rem 1rem 1rem;
+  margin-bottom: 0;
+}
+
+.send-acc-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.send-acc-section:last-child {
+  border-bottom: none;
+}
+
+.send-acc-section--open {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.send-acc-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.55rem 0.15rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.send-acc-trigger:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.send-acc-trigger:focus-visible {
+  outline: 2px solid rgba(250, 204, 21, 0.45);
+  outline-offset: 2px;
+}
+
+.send-acc-trigger-ico {
+  flex-shrink: 0;
+  font-size: 1.35rem;
+  opacity: 0.9;
+}
+
+.send-acc-trigger-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.send-acc-trigger-title {
+  font-size: 1.08rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.send-acc-trigger-sub {
+  line-height: 1.3;
+}
+
+.send-acc-chevron {
+  flex-shrink: 0;
+  font-size: 1.35rem;
+  opacity: 0.75;
+  transition: transform 0.2s ease;
+}
+
+.send-acc-section--open .send-acc-chevron {
+  transform: rotate(180deg);
+}
+
+.send-acc-body {
+  padding: 0 0 0.35rem;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.send-manual-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-bottom: 0.25rem;
+}
+
+.send-manual-card {
+  margin: 0;
+}
+
+.send-manual-card-title {
+  font-size: 1rem;
+  margin: 0 0 0.35rem;
+}
+
 .send-mode-card {
   margin-bottom: 0.75rem;
   padding: 0.85rem 1rem;
@@ -1733,6 +1847,7 @@ textarea {
   color: #1a1408;
   border: none;
   font-weight: 600;
+  width: 100%;
 }
 
 .btn.danger {
@@ -2574,14 +2689,26 @@ a {
     word-break: break-all;
   }
 
-  #view-tools .send-mode-bar {
-    flex-direction: column;
-    align-items: stretch;
+  #view-tools .send-acc-trigger {
+    padding: 0.42rem 0.1rem;
+    gap: 0.45rem;
   }
 
-  #view-tools #btn-send-mode-switch {
-    width: 100%;
-    justify-content: center;
+  #view-tools .send-acc-trigger-title {
+    font-size: 0.92rem;
+  }
+
+  #view-tools .send-acc-trigger-sub {
+    font-size: 0.66rem;
+    line-height: 1.25;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  #view-tools .send-acc-chevron {
+    font-size: 1.1rem;
   }
 
   #view-tools .send-to-row {
@@ -2618,33 +2745,13 @@ a {
     overflow: hidden;
   }
 
-  #view-tools .send-mode-card-below-send {
-    flex: 0 0 auto !important;
-    min-height: 0 !important;
-    overflow: visible !important;
-    padding: 0.38rem 0.5rem !important;
-    margin-top: 0.3rem !important;
-    margin-bottom: 0.2rem !important;
+  #view-tools .send-tools-card {
+    padding: 0.45rem 0.55rem 0.55rem;
+    gap: 0;
   }
 
-  #view-tools .send-mode-card-below-send .send-mode-heading {
-    font-size: 0.82rem;
-    margin: 0 0 0.08rem;
-    line-height: 1.2;
-  }
-
-  #view-tools .send-mode-card-below-send .send-mode-sub {
-    font-size: 0.66rem;
-    line-height: 1.2;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-
-  #view-tools .send-mode-card-below-send #btn-send-mode-switch {
-    padding: 0.35rem 0.5rem;
-    font-size: 0.78rem;
+  #view-tools .send-acc-body {
+    -webkit-overflow-scrolling: touch;
   }
 
   #view-settings .spv-deep-height-row {
@@ -2664,21 +2771,13 @@ a {
     font-size: 0.76rem !important;
   }
 
-  /* Manual PQ hex: two stacked cards — scroll the panel instead of clipping */
-  #view-tools .send-panel[data-send-panel="1"] {
-    overflow-y: auto;
-    overflow-x: hidden;
-    -webkit-overflow-scrolling: touch;
-    gap: 0.65rem;
-    padding-bottom: 0.35rem;
-  }
-
-  #view-tools .send-panel[data-send-panel="1"] .card {
+  #view-tools .send-manual-card {
     flex: 0 0 auto;
     overflow: visible;
   }
 
-  #view-tools .send-panel .card h3 {
+  #view-tools .send-panel .card h3,
+  #view-tools .send-manual-card-title {
     font-size: 0.92rem;
     margin: 0 0 0.35rem;
     flex-shrink: 0;

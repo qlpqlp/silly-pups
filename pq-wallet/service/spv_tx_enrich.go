@@ -72,6 +72,10 @@ func dogeP2PKHAddrFromH160(h160 []byte, testnet bool) string {
 }
 
 // rawTxFlow classifies legacy P2PKH outputs between this wallet and external counterparties.
+// Counterparty and "your" address choices follow Dogecoin Wallet (bitcoinj) list semantics:
+//   - sent row address: first output that is not to the wallet (WalletUtils.getToAddressOfSent)
+//   - received row address: first output to the wallet (getWalletAddressOfReceived)
+// Sats totals still sum all matching outputs for amount classification.
 type rawTxFlow struct {
 	WalletSats   int64
 	ExternalSats int64
@@ -129,8 +133,9 @@ func decodeSPVRawTxFlow(rawHex string, walletByHash160 map[string]string, testne
 	if err != nil {
 		return out, err
 	}
-	var bestWalletVal, bestExtVal int64
 	var extNonP2PKH int64
+	walletAddrDone := false
+	externalAddrDone := false
 	for i := 0; i < int(nout); i++ {
 		if off+8 > len(raw) {
 			return out, errors.New("truncated output value")
@@ -155,18 +160,15 @@ func decodeSPVRawTxFlow(rawHex string, walletByHash160 map[string]string, testne
 			// direction classification even if we cannot derive a human-readable address string.
 			if valueSats > 0 {
 				extNonP2PKH += valueSats
-				if valueSats >= bestExtVal {
-					bestExtVal = valueSats
-				}
 			}
 			continue
 		}
 		hh := hex.EncodeToString(h160)
 		if addr, ok := walletByHash160[hh]; ok {
 			out.WalletSats += valueSats
-			if valueSats >= bestWalletVal {
-				bestWalletVal = valueSats
+			if !walletAddrDone && addr != "" {
 				out.WalletAddr = addr
+				walletAddrDone = true
 			}
 			continue
 		}
@@ -175,9 +177,9 @@ func decodeSPVRawTxFlow(rawHex string, walletByHash160 map[string]string, testne
 			continue
 		}
 		out.ExternalSats += valueSats
-		if valueSats >= bestExtVal {
-			bestExtVal = valueSats
+		if !externalAddrDone {
 			out.ExternalAddr = extAddr
+			externalAddrDone = true
 		}
 	}
 	// If we saw external-looking value in non-P2PKH outputs, fold it into ExternalSats for spend detection.
@@ -255,6 +257,10 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 		return false
 	}
 	testnet := strings.EqualFold(wf.Network, "testnet")
+	logBlob := ""
+	if lb, err := readFileTail(s.spvLogPath(), 16<<20); err == nil {
+		logBlob = lb
+	}
 	// Backfill RawHex from spv.log for any row that is still missing it. SPV REST often labels spends as
 	// "in" (UTXO/credit view); skipping backfill when direction+address were already filled prevented
 	// decodeSPVRawTxFlow from ever correcting those rows.
@@ -273,26 +279,26 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 		needByTxid[id] = struct{}{}
 	}
 	changed := false
-	if needRawBackfill && len(needByTxid) > 0 {
-		// Larger tail than the dashboard scan. This is still bounded and only happens when needed.
-		if lb, err := readFileTail(s.spvLogPath(), 16<<20); err == nil && strings.TrimSpace(lb) != "" {
-			byTxid := parseSPVRawTxHexByTxid(lb)
-			for i := range st.Transactions {
-				tx := &st.Transactions[i]
-				if strings.TrimSpace(tx.RawHex) != "" {
-					continue
-				}
-				id := normalizeTxid(tx.Txid)
-				if id == "" {
-					continue
-				}
-				if raw := strings.TrimSpace(byTxid[id]); raw != "" {
-					tx.RawHex = raw
-					changed = true
-				}
+	if needRawBackfill && len(needByTxid) > 0 && strings.TrimSpace(logBlob) != "" {
+		byTxid := parseSPVRawTxHexByTxid(logBlob)
+		for i := range st.Transactions {
+			tx := &st.Transactions[i]
+			if strings.TrimSpace(tx.RawHex) != "" {
+				continue
+			}
+			id := normalizeTxid(tx.Txid)
+			if id == "" {
+				continue
+			}
+			if raw := strings.TrimSpace(byTxid[id]); raw != "" {
+				tx.RawHex = raw
+				changed = true
 			}
 		}
 	}
+	// Prevouts indexed only from raw txs already stored (state + spv.log). Net matches bitcoinj-style getValue
+	// when inputs spending our UTXOs are fully resolved; sends with unknown funding txs fall back to output-side totals.
+	prevIdx := buildPrevoutWalletIndex(collectUniqueRawHexes(st, logBlob), walletByHash160)
 	cache := make(map[string]rawTxFlow)
 	walletAddrLo := map[string]struct{}{}
 	for _, a := range wf.AllDistinctP2PKHAddresses() {
@@ -315,6 +321,64 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 			}
 			cache[raw] = v
 			fl = v
+		}
+		net, _, _, netOk := walletNetFromPrevoutIndex(raw, walletByHash160, testnet, prevIdx)
+		if netOk && net != 0 {
+			var netAbs int64 = net
+			if netAbs < 0 {
+				netAbs = -netAbs
+			}
+			amt := round2(float64(netAbs) / 1e8)
+			if net < 0 {
+				if !strings.EqualFold(strings.TrimSpace(tx.Direction), "out") {
+					tx.Direction = "out"
+					changed = true
+				}
+				if tx.AmountDOGE != amt {
+					tx.AmountDOGE = amt
+					changed = true
+				}
+				if fl.ExternalAddr != "" {
+					cur := strings.ToLower(strings.TrimSpace(tx.Address))
+					if cur == "" {
+						if tx.Address != fl.ExternalAddr {
+							tx.Address = fl.ExternalAddr
+							changed = true
+						}
+					} else if _, mine := walletAddrLo[cur]; mine {
+						if !strings.EqualFold(strings.TrimSpace(tx.Address), strings.TrimSpace(fl.ExternalAddr)) {
+							tx.Address = fl.ExternalAddr
+							changed = true
+						}
+					}
+				}
+				if tx.FeeDOGE != 0 {
+					tx.FeeDOGE = 0
+					changed = true
+				}
+			} else {
+				if !strings.EqualFold(strings.TrimSpace(tx.Direction), "in") {
+					tx.Direction = "in"
+					changed = true
+				}
+				if tx.AmountDOGE != amt {
+					tx.AmountDOGE = amt
+					changed = true
+				}
+				if tx.Address == "" && fl.WalletAddr != "" {
+					tx.Address = fl.WalletAddr
+					changed = true
+				}
+				if tx.FeeDOGE != 0 {
+					tx.FeeDOGE = 0
+					changed = true
+				}
+			}
+			if tx.Source == "" {
+				tx.Source = "spv"
+				changed = true
+			}
+			continue
 		}
 		if fl.WalletSats == 0 && fl.ExternalSats == 0 {
 			continue

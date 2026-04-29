@@ -620,7 +620,11 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 			txOrder = append(txOrder, id)
 			continue
 		}
-		prev.AmountDOGE += r.AmountDOGE
+		// bitcoinj lists one Transaction per txid (Dogecoin Wallet transaction screen). libdogecoin REST may
+		// emit multiple lines per txid (one per spent output / vout). Do not sum those amounts.
+		if prev.AmountDOGE == 0 && r.AmountDOGE != 0 {
+			prev.AmountDOGE = r.AmountDOGE
+		}
 		if prev.Address == "" && r.Address != "" {
 			prev.Address = r.Address
 		}

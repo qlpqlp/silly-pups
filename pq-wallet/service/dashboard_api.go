@@ -694,6 +694,14 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 	}
 	testnet := wf != nil && strings.EqualFold(wf.Network, "testnet")
 	walletH160 := walletP2PKHHash160Map(wf)
+	var prevIdx map[string]prevoutWalletMeta
+	if len(walletH160) > 0 {
+		logBlob := ""
+		if lb, err := readFileTail(s.spvLogPath(), 16<<20); err == nil {
+			logBlob = lb
+		}
+		prevIdx = buildPrevoutWalletIndex(collectUniqueRawHexes(st, logBlob), walletH160)
+	}
 	eng, engErr := s.ensureMempoolEngine(wf)
 	if eng != nil && engErr == nil {
 		_, mtrLive, _, _ := eng.DashboardSnapshot()
@@ -714,20 +722,52 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 			continue
 		}
 		tr := txListRow{TxRecord: t, Pending: t.Confirmations == 0}
-		if len(walletH160) > 0 && strings.TrimSpace(tr.RawHex) != "" {
-			if fl, err := decodeSPVRawTxFlow(tr.RawHex, walletH160, testnet); err == nil && fl.ExternalSats > 0 {
-				tr.Direction = "out"
-				amt := round2(float64(fl.ExternalSats) / 1e8)
-				if amt > 0 {
-					tr.AmountDOGE = amt
-				}
-				// SPV REST spend rows often carry our own address (spent output); list sends as counterparty + net out.
-				if fl.ExternalAddr != "" {
-					al := strings.ToLower(strings.TrimSpace(tr.Address))
-					if al == "" {
-						tr.Address = fl.ExternalAddr
-					} else if _, mine := walletAddrSet[al]; mine {
-						tr.Address = fl.ExternalAddr
+		if len(walletH160) > 0 && strings.TrimSpace(tr.RawHex) != "" && prevIdx != nil {
+			fl, err := decodeSPVRawTxFlow(tr.RawHex, walletH160, testnet)
+			if err == nil {
+				net, _, _, netOk := walletNetFromPrevoutIndex(tr.RawHex, walletH160, testnet, prevIdx)
+				if netOk && net != 0 {
+					var netAbs int64 = net
+					if netAbs < 0 {
+						netAbs = -netAbs
+					}
+					amt := round2(float64(netAbs) / 1e8)
+					if net < 0 {
+						tr.Direction = "out"
+						if amt > 0 {
+							tr.AmountDOGE = amt
+						}
+						if fl.ExternalAddr != "" {
+							al := strings.ToLower(strings.TrimSpace(tr.Address))
+							if al == "" {
+								tr.Address = fl.ExternalAddr
+							} else if _, mine := walletAddrSet[al]; mine {
+								tr.Address = fl.ExternalAddr
+							}
+						}
+					} else {
+						tr.Direction = "in"
+						if amt > 0 {
+							tr.AmountDOGE = amt
+						}
+						if strings.TrimSpace(tr.Address) == "" && fl.WalletAddr != "" {
+							tr.Address = fl.WalletAddr
+						}
+					}
+				} else if fl.ExternalSats > 0 {
+					tr.Direction = "out"
+					amt := round2(float64(fl.ExternalSats) / 1e8)
+					if amt > 0 {
+						tr.AmountDOGE = amt
+					}
+					// SPV REST spend rows often carry our own address (spent output); list sends as counterparty + net out.
+					if fl.ExternalAddr != "" {
+						al := strings.ToLower(strings.TrimSpace(tr.Address))
+						if al == "" {
+							tr.Address = fl.ExternalAddr
+						} else if _, mine := walletAddrSet[al]; mine {
+							tr.Address = fl.ExternalAddr
+						}
 					}
 				}
 			}

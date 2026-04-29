@@ -11,13 +11,50 @@ import (
 var (
 	// broadcast.log lines are prefixed with RFC3339 time + space (see appendBroadcastLogLine).
 	reBroadcastLogTimePrefix = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\S+\s+`)
-	reBroadcastTxLine      = regexp.MustCompile(`(?i)^(tx_broadcast|broadcast)\s+txid=([0-9a-f]{64})\s+signed_hex_len=(\d+)`)
-	reBroadcastHexChunk    = regexp.MustCompile(`(?i)^(tx_broadcast|broadcast)\s+SIGNED_RAW_HEX\s+off=(\d+)\s+len=(\d+)\s+([0-9a-f]+)\s*$`)
+	// logBroadcastDetails uses arbitrary tags: tx_broadcast, send_pq_safe, send_pq_safe_txr, …
+	reBroadcastTxLine   = regexp.MustCompile(`(?i)^\S+\s+txid=([0-9a-f]{64})\s+signed_hex_len=(\d+)`)
+	reBroadcastHexChunk = regexp.MustCompile(`(?i)^\S+\s+SIGNED_RAW_HEX\s+off=(\d+)\s+len=(\d+)\s+([0-9a-f]+)\s*$`)
+	reBroadcastLineTxid = regexp.MustCompile(`(?i)^\S+\s+txid=([0-9a-f]{64})\b`)
+	// sendtx sometimes logs: "start broadcasting transaction: <64hex>"
+	reSendtxBroadcastStartLine = regexp.MustCompile(`(?i)start\s+broadcasting\s+transaction:\s*([0-9a-f]{64})\b`)
 )
 
 func stripBroadcastLogTimePrefix(line string) string {
 	line = strings.TrimSpace(line)
 	return strings.TrimSpace(reBroadcastLogTimePrefix.ReplaceAllString(line, ""))
+}
+
+// extractBroadcastOutTxidsFromTail returns txids from broadcast.log (any source tag + sendtx hints), first-seen order.
+func extractBroadcastOutTxidsFromTail(tail string) []string {
+	var out []string
+	seen := map[string]struct{}{}
+	add := func(id string) {
+		id = normalizeTxid(id)
+		if id == "" {
+			return
+		}
+		if _, ok := seen[id]; ok {
+			return
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	for _, line := range strings.Split(strings.ReplaceAll(tail, "\r\n", "\n"), "\n") {
+		pl := stripBroadcastLogTimePrefix(strings.TrimSpace(line))
+		if pl == "" {
+			continue
+		}
+		if strings.Contains(strings.ToUpper(pl), "SIGNED_RAW_HEX") {
+			continue
+		}
+		if m := reSendtxBroadcastStartLine.FindStringSubmatch(pl); len(m) >= 2 {
+			add(m[1])
+		}
+		if m := reBroadcastLineTxid.FindStringSubmatch(pl); len(m) >= 2 {
+			add(m[1])
+		}
+	}
+	return out
 }
 
 type broadcastHexChunk struct {
@@ -82,6 +119,7 @@ func (s *Server) mergeRawHexFromBroadcastLog(st *WalletState) bool {
 		if b == nil || b.wantLen <= 0 || len(b.chunks) == 0 {
 			continue
 		}
+		// wantLen is len(hex) ASCII chars (see logBroadcastDetails).
 		full, ok := assembleBroadcastHexChunks(b.chunks, b.wantLen)
 		if !ok || full == "" {
 			continue
@@ -103,25 +141,35 @@ func (s *Server) mergeRawHexFromBroadcastLog(st *WalletState) bool {
 	return changed
 }
 
-func assembleBroadcastHexChunks(chunks []broadcastHexChunk, wantLen int) (string, bool) {
+// assembleBroadcastHexChunks joins SIGNED_RAW_HEX chunks. off/len are byte offsets into the ASCII hex string
+// (same as logBroadcastDetails); wantHexChars is signed_hex_len (= len(hex) in the broadcaster).
+func assembleBroadcastHexChunks(chunks []broadcastHexChunk, wantHexChars int) (string, bool) {
+	if wantHexChars <= 0 || wantHexChars%2 != 0 {
+		return "", false
+	}
 	sort.Slice(chunks, func(i, j int) bool { return chunks[i].off < chunks[j].off })
 	var b strings.Builder
-	expect := 0
+	nextOff := 0
+	totalChars := 0
 	for _, c := range chunks {
-		if c.off != expect {
+		if c.off != nextOff {
 			return "", false
 		}
-		raw, err := hex.DecodeString(c.hex)
-		if err != nil || len(raw) == 0 {
+		if len(c.hex)%2 != 0 {
+			return "", false
+		}
+		if _, err := hex.DecodeString(c.hex); err != nil {
 			return "", false
 		}
 		b.WriteString(strings.ToLower(c.hex))
-		expect += len(raw)
-		if expect > wantLen {
+		n := len(c.hex)
+		nextOff += n
+		totalChars += n
+		if totalChars > wantHexChars {
 			return "", false
 		}
 	}
-	if expect != wantLen {
+	if totalChars != wantHexChars {
 		return "", false
 	}
 	return b.String(), true

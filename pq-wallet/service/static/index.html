@@ -210,19 +210,6 @@
         </section>
 
         <section id="view-tools" class="view hidden">
-          <div class="card send-mode-card">
-            <div class="send-mode-bar">
-              <div class="send-mode-titles">
-                <h2 class="send-mode-heading" id="send-mode-heading">Send Doge</h2>
-                <p class="small muted send-mode-sub" id="send-mode-sub">Pay with post-quantum-safe flow (TX_C + optional TX_R).</p>
-              </div>
-              <button type="button" class="btn primary" id="btn-send-mode-switch" aria-label="Switch to manual PQ transaction">
-                <span class="material-symbols-outlined btn-ico" id="btn-send-mode-switch-ico" aria-hidden="true">terminal</span>
-                <span id="btn-send-mode-switch-txt">Manual PQ TX</span>
-              </button>
-            </div>
-          </div>
-
           <div class="send-panel" data-send-panel="0">
             <div class="card">
               <h3>Destination &amp; amount</h3>
@@ -242,6 +229,18 @@
                 <p class="small muted" id="send-fee-hint"></p>
               </div>
               <button type="button" class="btn primary" id="btn-send-pq-safe"><span class="material-symbols-outlined btn-ico">lock</span> Send post-quantum safe transaction</button>
+              <div class="card send-mode-card send-mode-card-below-send">
+                <div class="send-mode-bar">
+                  <div class="send-mode-titles">
+                    <h2 class="send-mode-heading" id="send-mode-heading">Send Doge</h2>
+                    <p class="small muted send-mode-sub" id="send-mode-sub">Pay with post-quantum-safe flow (TX_C + optional TX_R).</p>
+                  </div>
+                  <button type="button" class="btn primary" id="btn-send-mode-switch" aria-label="Switch to manual PQ transaction">
+                    <span class="material-symbols-outlined btn-ico" id="btn-send-mode-switch-ico" aria-hidden="true">terminal</span>
+                    <span id="btn-send-mode-switch-txt">Manual PQ TX</span>
+                  </button>
+                </div>
+              </div>
               <pre id="send-pq-out" class="mono small out"></pre>
             </div>
           </div>
@@ -278,8 +277,9 @@
         </section>
 
         <section id="view-settings" class="view hidden">
-          <div class="card">
-            <h2><span class="material-symbols-outlined icon-inline">encrypted</span> Wallet encryption</h2>
+          <details class="card settings-details">
+            <summary class="settings-details-summary"><h2 class="settings-details-h2"><span class="material-symbols-outlined icon-inline">encrypted</span> Wallet encryption</h2></summary>
+            <div class="settings-details-body">
             <p class="small muted">Encrypts wallet data on disk. SPV address watching still runs in the background from a public watch-state file.</p>
             <label class="field"><span>PIN (min 6 characters)</span>
               <input type="password" class="input-modern" id="seal-pin-input" autocomplete="new-password" />
@@ -290,18 +290,22 @@
             </div>
             <p class="small muted" id="seal-msg"></p>
             <button type="button" class="btn" id="btn-lock-session"><span class="material-symbols-outlined btn-ico">logout</span> Lock session</button>
-          </div>
-          <div class="card">
-            <h2><span class="material-symbols-outlined icon-inline">shield_lock</span> Post-quantum send mode</h2>
+            </div>
+          </details>
+          <details class="card settings-details">
+            <summary class="settings-details-summary"><h2 class="settings-details-h2"><span class="material-symbols-outlined icon-inline">shield_lock</span> Post-quantum send mode</h2></summary>
+            <div class="settings-details-body">
             <p class="small muted">Pick one mode for normal sends. Default is commitment + reveal.</p>
             <div class="pq-mode-segment" role="tablist" aria-label="PQ send mode">
               <button type="button" class="btn btn-sm" id="btn-pq-mode-txc-only"><span class="material-symbols-outlined btn-ico">lock</span> Send commitment only</button>
               <button type="button" class="btn btn-sm primary" id="btn-pq-mode-txc-txr"><span class="material-symbols-outlined btn-ico">enhanced_encryption</span> Send commitment + reveal</button>
             </div>
             <p class="small muted" id="pq-mode-settings-note">Current mode: commitment + reveal</p>
-          </div>
-          <div class="card">
-            <h2><span class="material-symbols-outlined icon-inline">paid</span> Transaction fee</h2>
+            </div>
+          </details>
+          <details class="card settings-details">
+            <summary class="settings-details-summary"><h2 class="settings-details-h2"><span class="material-symbols-outlined icon-inline">paid</span> Transaction fee</h2></summary>
+            <div class="settings-details-body">
             <p class="small muted">Fee rate in <strong>DOGE/kB</strong> for TX_C and TX_R. Default is <strong>0.01</strong>.</p>
             <label class="field"><span>Fee (DOGE/kB)</span>
               <input type="text" class="input-modern" id="settings-fee-doge-per-kb" placeholder="0.01" inputmode="decimal" autocomplete="off" spellcheck="false" />
@@ -310,14 +314,18 @@
               <button type="button" class="btn btn-sm" id="btn-save-fee-per-kb"><span class="material-symbols-outlined btn-ico">save</span> Save fee</button>
             </div>
             <p class="small muted" id="settings-fee-msg"></p>
-          </div>
-          <div class="card">
-            <h2>Backup</h2>
+            </div>
+          </details>
+          <details class="card settings-details">
+            <summary class="settings-details-summary"><h2 class="settings-details-h2">Backup</h2></summary>
+            <div class="settings-details-body">
             <p class="small muted">Downloads wallet JSON (only while not sealed, or export after unlock).</p>
             <button type="button" class="btn primary" id="btn-backup"><span class="material-symbols-outlined btn-ico">payments</span> Download backup</button>
-          </div>
-          <div class="card">
-            <h2><span class="material-symbols-outlined icon-inline">terminal</span> Logs</h2>
+            </div>
+          </details>
+          <details class="card settings-details">
+            <summary class="settings-details-summary"><h2 class="settings-details-h2"><span class="material-symbols-outlined icon-inline">terminal</span> Logs</h2></summary>
+            <div class="settings-details-body">
             <p class="small muted toolbar">Broadcast: latest ~420 lines. MemeTracker: live P2P snapshot. Refreshes while this view is open.</p>
             <div class="charts charts-fullwidth">
               <div class="card chart-card chart-card-wide">
@@ -387,9 +395,9 @@
                     </label>
                   </div>
                 </div>
-                <label class="small" style="display:flex;gap:.5rem;align-items:center;margin:.25rem 0 .5rem">
-                  <span>Height override (raw header)</span>
-                  <input type="text" class="input-modern" id="spv-deep-height" placeholder="e.g. 5912345" inputmode="numeric" style="max-width:11rem" spellcheck="false" autocomplete="off" />
+                <label class="small spv-deep-height-row">
+                  <span class="spv-deep-height-label">Height override</span>
+                  <input type="text" class="input-modern spv-deep-height-input" id="spv-deep-height" placeholder="5912345" inputmode="numeric" spellcheck="false" autocomplete="off" />
                 </label>
                 <h3 class="chart-sub" style="margin-top:.25rem">SPV deep digest</h3>
                 <pre class="dos-screen" id="log-spv-deep" style="min-height:9rem">Enable options above and press Refresh deep (or open Settings — it auto-refreshes).</pre>
@@ -400,13 +408,17 @@
                 <pre class="dos-screen" id="log-spv-ledger" style="min-height:6rem;margin-top:.45rem">Press Fetch ledger snapshot (wallet must be unlocked).</pre>
               </div>
             </div>
-          </div>
-          <div class="card">
-            <h2><span class="material-symbols-outlined icon-inline">settings_backup_restore</span> SPV repair &amp; rescan</h2>
+            </div>
+          </details>
+          <details class="card settings-details">
+            <summary class="settings-details-summary"><h2 class="settings-details-h2"><span class="material-symbols-outlined icon-inline">settings_backup_restore</span> SPV repair &amp; rescan</h2></summary>
+            <div class="settings-details-body">
             <button type="button" class="btn" id="btn-open-spv-repair"><span class="material-symbols-outlined btn-ico">settings_backup_restore</span> Rollback to checkpoint (libdogecoin bundled)</button>
-          </div>
-          <div class="card svc-control-card hidden" id="svc-control-card" aria-labelledby="svc-control-title">
-            <h2 id="svc-control-title"><span class="material-symbols-outlined icon-inline">tune</span> Background services</h2>
+            </div>
+          </details>
+          <details class="card settings-details svc-control-card hidden" id="svc-control-card" aria-labelledby="svc-control-title">
+            <summary class="settings-details-summary"><h2 class="settings-details-h2" id="svc-control-title"><span class="material-symbols-outlined icon-inline">tune</span> Background services</h2></summary>
+            <div class="settings-details-body">
             <p class="small muted" style="margin-top:.25rem">Stop or start <code class="mono">spvnode</code> (SPV) and the embedded MemeTracker (mempool P2P). Settings are saved as <code class="mono">service_prefs.json</code> in your pup storage.</p>
             <div class="svc-row">
               <div class="svc-row-main">
@@ -428,22 +440,27 @@
                 <button type="button" class="btn btn-sm primary" id="btn-svc-mtr-start"><span class="material-symbols-outlined btn-ico">play_arrow</span> Start</button>
               </div>
             </div>
-          </div>
-          <div class="card">
-            <h2><span class="material-symbols-outlined icon-inline">install_mobile</span> Install app</h2>
+            </div>
+          </details>
+          <details class="card settings-details">
+            <summary class="settings-details-summary"><h2 class="settings-details-h2"><span class="material-symbols-outlined icon-inline">install_mobile</span> Install app</h2></summary>
+            <div class="settings-details-body">
             <p class="small muted">Install this wallet UI on your phone or desktop. It uses the same origin you open in the browser for API calls.</p>
             <button type="button" class="btn primary hidden" id="btn-install-app"><span class="material-symbols-outlined btn-ico">download</span> Install app</button>
             <p class="small muted hidden" id="install-app-hint">On iPhone/iPad: Share → Add to Home Screen.</p>
-          </div>
-          <div class="card danger-zone">
-            <h2>Remove wallet</h2>
+            </div>
+          </details>
+          <details class="card settings-details danger-zone">
+            <summary class="settings-details-summary"><h2 class="settings-details-h2">Remove wallet</h2></summary>
+            <div class="settings-details-body">
             <p class="small danger-zone-desc">Deletes wallet, SPV DBs, and cached state.</p>
             <div class="danger-confirm-block">
               <label class="danger-label" for="delete-confirm">Type <strong>DELETE</strong> to confirm</label>
               <input type="text" class="input-modern danger-input" id="delete-confirm" placeholder="DELETE" autocomplete="off" spellcheck="false" />
               <button type="button" class="btn danger danger-remove-btn" id="btn-delete" disabled><span class="material-symbols-outlined btn-ico">delete_forever</span> Remove wallet</button>
             </div>
-          </div>
+            </div>
+          </details>
         </section>
       </main>
 

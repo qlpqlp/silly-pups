@@ -152,8 +152,11 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 				prev.Source = t.Source
 			}
 			// Prefer confirmed-chain timestamp once available, instead of keeping a mempool seen time forever.
+			// Also replace placeholder wall times (e.g. log-seeded rows with no block height) when SPV supplies
+			// height-derived SeenAt.
 			if (prev.SeenAt.IsZero() && !t.SeenAt.IsZero()) ||
-				(t.Confirmations > prev.Confirmations && !t.SeenAt.IsZero()) {
+				(t.Confirmations > prev.Confirmations && !t.SeenAt.IsZero()) ||
+				(t.BlockHeight > 0 && !t.SeenAt.IsZero() && prev.BlockHeight == 0) {
 				prev.SeenAt = t.SeenAt
 			}
 			byID[id] = prev

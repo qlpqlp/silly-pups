@@ -21,6 +21,7 @@ type spvRESTTxRow struct {
 	AmountDOGE    float64
 	Direction     string
 	Confirmations int
+	BlockHeight   int64
 	SeenAt        time.Time
 }
 
@@ -247,6 +248,13 @@ func parseSPVRESTRows(raw, direction string) []spvRESTTxRow {
 			seen = parseAnyToTime(cur["block_timestamp"])
 		}
 		rowDir := directionFromRESTCur(cur, direction)
+		blkH := int64(parseIntDefault(cur["height"], 0))
+		// spvnode /getTransactions marks wallet-owned spent outputs with spendable: 0 (no timestamp field).
+		if sk := strings.TrimSpace(cur["spendable"]); sk != "" {
+			if parseIntDefault(sk, -1) == 0 && (rowDir == "" || strings.EqualFold(rowDir, "unknown")) {
+				rowDir = "out"
+			}
+		}
 		rows = append(rows, spvRESTTxRow{
 			Txid:          txid,
 			Vout:          uint32(vout),
@@ -254,6 +262,7 @@ func parseSPVRESTRows(raw, direction string) []spvRESTTxRow {
 			AmountDOGE:    absFloat(amt),
 			Direction:     rowDir,
 			Confirmations: conf,
+			BlockHeight:   blkH,
 			SeenAt:        seen,
 		})
 		cur = map[string]string{}
@@ -466,6 +475,26 @@ func parseSPVRESTTimestamp(raw string) int64 {
 	return 0
 }
 
+// seenAtApproxFromBlockHeight maps a confirmed block height to an approximate UTC time using
+// tip height/time and a fixed mean block interval (Dogecoin ~1 min). Used when REST omits timestamps
+// but includes height: lines.
+func seenAtApproxFromBlockHeight(txHeight, tipHeight, tipUnix int64) time.Time {
+	if txHeight <= 0 || tipHeight <= 0 || tipUnix <= 0 || tipUnix < 1_000_000_000 {
+		return time.Time{}
+	}
+	depth := tipHeight - txHeight
+	if depth < 0 {
+		return time.Time{}
+	}
+	const avgBlockSec int64 = 60
+	sec := depth * avgBlockSec
+	approx := tipUnix - sec
+	if approx < 1231006505 {
+		return time.Time{}
+	}
+	return time.Unix(approx, 0).UTC()
+}
+
 // backfillSeenAtFromTip sets SeenAt from chain tip time + confirmations when SPV rows omit timestamps
 // (Dogecoin Wallet-style: show approximate block time from header tip and depth).
 func backfillSeenAtFromTip(txs []TxRecord, tipHeight, tipUnix int64) ([]TxRecord, bool) {
@@ -540,6 +569,13 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 		}
 		rows = append(rows, r)
 	}
+	for i := range rows {
+		if rows[i].SeenAt.IsZero() && rows[i].BlockHeight > 0 && tipHeight > 0 && tipUnix > 0 {
+			if ts := seenAtApproxFromBlockHeight(rows[i].BlockHeight, tipHeight, tipUnix); !ts.IsZero() {
+				rows[i].SeenAt = ts
+			}
+		}
+	}
 	if len(rows) == 0 {
 		return false
 	}
@@ -557,7 +593,8 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 	if maxChainTimestampLookups > 8 {
 		maxChainTimestampLookups = 8
 	}
-	for _, r := range rows {
+	for i := range rows {
+		r := &rows[i]
 		id := normalizeTxid(r.Txid)
 		if id == "" {
 			continue
@@ -576,6 +613,7 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 				AmountDOGE:    r.AmountDOGE,
 				Address:       r.Address,
 				Confirmations: r.Confirmations,
+				BlockHeight:   r.BlockHeight,
 				Source:        "spv",
 				SeenAt:        r.SeenAt,
 			}
@@ -599,6 +637,9 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 		}
 		if r.Confirmations > prev.Confirmations {
 			prev.Confirmations = r.Confirmations
+		}
+		if r.BlockHeight > prev.BlockHeight {
+			prev.BlockHeight = r.BlockHeight
 		}
 		if prev.SeenAt.IsZero() && !r.SeenAt.IsZero() {
 			prev.SeenAt = r.SeenAt
@@ -631,7 +672,7 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 		for _, t := range merged {
 			id := normalizeTxid(t.Txid)
 			o, ok := oldByID[id]
-			if !ok || t.AmountDOGE != o.AmountDOGE || t.Direction != o.Direction || t.Address != o.Address || t.Confirmations != o.Confirmations || !t.SeenAt.Equal(o.SeenAt) {
+			if !ok || t.AmountDOGE != o.AmountDOGE || t.Direction != o.Direction || t.Address != o.Address || t.Confirmations != o.Confirmations || t.BlockHeight != o.BlockHeight || !t.SeenAt.Equal(o.SeenAt) {
 				changed = true
 				break
 			}

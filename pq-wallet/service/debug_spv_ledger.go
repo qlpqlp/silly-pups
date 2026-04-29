@@ -169,24 +169,10 @@ func (s *Server) handleDebugSPVLedger(w http.ResponseWriter, r *http.Request) {
 		"transactions_sample": txSample,
 	}
 
-	bcTail, bcErr := readFileTail(s.broadcastLogPath(), 512*1024)
+	bcTail, bcErr := readFileTail(s.broadcastLogPath(), 2<<20)
 	bcIDs := []string{}
 	if bcErr == nil {
-		seen := map[string]struct{}{}
-		for _, m := range reBroadcastLogTxid.FindAllStringSubmatch(bcTail, -1) {
-			if len(m) < 2 {
-				continue
-			}
-			id := normalizeTxid(m[1])
-			if id == "" {
-				continue
-			}
-			if _, ok := seen[id]; ok {
-				continue
-			}
-			seen[id] = struct{}{}
-			bcIDs = append(bcIDs, id)
-		}
+		bcIDs = extractBroadcastOutTxidsFromTail(bcTail)
 	}
 	out["broadcast_log"] = map[string]any{
 		"path":              s.broadcastLogPath(),

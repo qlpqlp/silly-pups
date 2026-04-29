@@ -57,6 +57,59 @@ async function api(path, opts) {
   }
 }
 
+/** Non-secure origins (HTTP): Async Clipboard is unavailable; use legacy copy. */
+function unsecuredCopyToClipboard(text) {
+  const s = String(text ?? "");
+  if (!s) return false;
+  const ta = document.createElement("textarea");
+  ta.value = s;
+  ta.setAttribute("readonly", "");
+  ta.style.cssText = "position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try {
+    ta.setSelectionRange(0, s.length);
+  } catch {
+    /* ignore */
+  }
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch {
+    ok = false;
+  }
+  try {
+    document.body.removeChild(ta);
+  } catch {
+    /* ignore */
+  }
+  return ok;
+}
+
+/**
+ * Clipboard write for both HTTPS and HTTP: secure context uses
+ * `navigator.clipboard.writeText`; otherwise falls back to `execCommand('copy')`.
+ */
+async function copyTextToClipboard(text) {
+  const s = String(text ?? "");
+  if (!s) return false;
+  if (
+    typeof navigator !== "undefined" &&
+    navigator.clipboard &&
+    typeof navigator.clipboard.writeText === "function" &&
+    window.isSecureContext
+  ) {
+    try {
+      await navigator.clipboard.writeText(s);
+      return true;
+    } catch {
+      /* fall through */
+    }
+  }
+  return unsecuredCopyToClipboard(s);
+}
+
 const state = {
   wallet: null,
   walletLocked: false,
@@ -1536,9 +1589,9 @@ function renderAddresses(w) {
     bCopy.className = "btn";
     bCopy.innerHTML =
       '<span class="material-symbols-outlined btn-ico" aria-hidden="true">content_copy</span>Copy';
-    bCopy.addEventListener("click", (e) => {
+    bCopy.addEventListener("click", async (e) => {
       e.stopPropagation();
-      navigator.clipboard.writeText(a.p2pkh_address || "");
+      await copyTextToClipboard(a.p2pkh_address || "");
     });
     actions.appendChild(bCopy);
     if (!a.primary) {
@@ -1852,15 +1905,15 @@ if (btnCopyRecv) {
   btnCopyRecv.addEventListener("click", async () => {
     const addr = getPrimaryAddress(state.wallet);
     if (!addr) return;
-    try {
-      await navigator.clipboard.writeText(addr);
-      const lbl = $("copy-receive-label");
-      const prev = lbl ? lbl.textContent : "";
+    const ok = await copyTextToClipboard(addr);
+    const lbl = $("copy-receive-label");
+    const prev = lbl ? lbl.textContent : "";
+    if (ok) {
       if (lbl) lbl.textContent = "Copied";
       setTimeout(() => {
         if (lbl) lbl.textContent = prev;
       }, 1600);
-    } catch {
+    } else {
       alert("Could not copy. Copy the address manually.");
     }
   });
@@ -2434,23 +2487,15 @@ if (txDetailClose) txDetailClose.addEventListener("click", closeTxDetailModal);
 if (btnTxCopyTxid) {
   btnTxCopyTxid.addEventListener("click", async () => {
     const id = state.txDetailTxid || "";
-    if (!id || !navigator.clipboard) return;
-    try {
-      await navigator.clipboard.writeText(id);
-    } catch {
-      /* ignore */
-    }
+    if (!id) return;
+    await copyTextToClipboard(id);
   });
 }
 if (btnTxCopyRaw) {
   btnTxCopyRaw.addEventListener("click", async () => {
     const h = state.txDetailHex || "";
-    if (!h || !navigator.clipboard) return;
-    try {
-      await navigator.clipboard.writeText(h);
-    } catch {
-      /* ignore */
-    }
+    if (!h) return;
+    await copyTextToClipboard(h);
   });
 }
 

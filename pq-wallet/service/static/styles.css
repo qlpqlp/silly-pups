@@ -1401,6 +1401,27 @@ body {
   padding: 0.85rem 1rem;
 }
 
+/* Nested under main Send card: lighter frame, less vertical weight */
+.send-mode-card-below-send {
+  margin-top: 0.55rem;
+  margin-bottom: 0.45rem;
+  padding: 0.65rem 0.85rem;
+  background: rgba(0, 0, 0, 0.12);
+  border-style: dashed;
+}
+
+.spv-deep-height-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.5rem;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.spv-deep-height-input {
+  max-width: 11rem;
+}
+
 .send-mode-bar {
   display: flex;
   flex-wrap: wrap;
@@ -1470,7 +1491,59 @@ body {
   margin-bottom: 0.75rem;
 }
 
+/* Settings: collapsible sections (native <details>, closed by default) */
+#view-settings .settings-details {
+  margin-bottom: 0.85rem;
+}
+
+#view-settings .settings-details > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  user-select: none;
+}
+
+#view-settings .settings-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+#view-settings .settings-details > summary::before {
+  content: "";
+  display: block;
+  width: 0.42rem;
+  height: 0.42rem;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(-45deg);
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+#view-settings .settings-details[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+#view-settings .settings-details-h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 1;
+  min-width: 0;
+}
+
+#view-settings .settings-details-body {
+  padding-top: 0.55rem;
+  margin-top: 0.35rem;
+  border-top: 1px solid var(--border);
+}
+
 /* Wallet file: touch-friendly full-width actions */
+#view-settings details.card .btn,
 #view-settings .card .btn {
   width: 100%;
   justify-content: center;
@@ -2534,7 +2607,8 @@ a {
     overflow: hidden;
   }
 
-  #view-tools .send-panel .card {
+  /* Only the outer Send form card flexes; nested send-mode card stays compact */
+  #view-tools .send-panel > .card {
     flex: 1;
     min-height: 0;
     display: flex;
@@ -2542,6 +2616,52 @@ a {
     padding: 0.55rem 0.7rem;
     margin-bottom: 0;
     overflow: hidden;
+  }
+
+  #view-tools .send-mode-card-below-send {
+    flex: 0 0 auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    padding: 0.38rem 0.5rem !important;
+    margin-top: 0.3rem !important;
+    margin-bottom: 0.2rem !important;
+  }
+
+  #view-tools .send-mode-card-below-send .send-mode-heading {
+    font-size: 0.82rem;
+    margin: 0 0 0.08rem;
+    line-height: 1.2;
+  }
+
+  #view-tools .send-mode-card-below-send .send-mode-sub {
+    font-size: 0.66rem;
+    line-height: 1.2;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  #view-tools .send-mode-card-below-send #btn-send-mode-switch {
+    padding: 0.35rem 0.5rem;
+    font-size: 0.78rem;
+  }
+
+  #view-settings .spv-deep-height-row {
+    gap: 0.2rem 0.35rem !important;
+    margin: 0.12rem 0 0.3rem !important;
+  }
+
+  #view-settings .spv-deep-height-label {
+    font-size: 0.7rem;
+    line-height: 1.2;
+    flex: 1 1 100%;
+  }
+
+  #view-settings .spv-deep-height-input {
+    max-width: 6.25rem !important;
+    padding: 0.28rem 0.4rem !important;
+    font-size: 0.76rem !important;
   }
 
   /* Manual PQ hex: two stacked cards — scroll the panel instead of clipping */

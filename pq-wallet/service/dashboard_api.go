@@ -7,17 +7,10 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
-)
-
-// Lines from broadcast.log (see logBroadcastDetails): "<RFC3339> broadcast txid=<64hex> …"
-var (
-	reBroadcastLogTxid           = regexp.MustCompile(`(?i)\b(?:broadcast|tx_broadcast)\s+txid=([0-9a-f]{64})\b`)
-	reSendtxBroadcastStartTxid = regexp.MustCompile(`(?i)start\s+broadcasting\s+transaction:\s*([0-9a-f]{64})\b`)
 )
 
 // txListRow is one row for /api/transactions (SPV + MemeTracker).
@@ -377,31 +370,13 @@ func (s *Server) mergeTransactionsFromBroadcastLog(st *WalletState) bool {
 	if err != nil || strings.TrimSpace(tail) == "" {
 		return false
 	}
-	var incoming []TxRecord
-	seen := map[string]struct{}{}
-	add := func(id string) {
-		id = normalizeTxid(id)
-		if id == "" {
-			return
-		}
-		if _, dup := seen[id]; dup {
-			return
-		}
-		seen[id] = struct{}{}
-		incoming = append(incoming, TxRecord{Txid: id, Direction: "out", Source: "spv"})
-	}
-	for _, m := range reBroadcastLogTxid.FindAllStringSubmatch(tail, -1) {
-		if len(m) >= 2 {
-			add(m[1])
-		}
-	}
-	for _, m := range reSendtxBroadcastStartTxid.FindAllStringSubmatch(tail, -1) {
-		if len(m) >= 2 {
-			add(m[1])
-		}
-	}
-	if len(incoming) == 0 {
+	ids := extractBroadcastOutTxidsFromTail(tail)
+	if len(ids) == 0 {
 		return false
+	}
+	incoming := make([]TxRecord, 0, len(ids))
+	for _, id := range ids {
+		incoming = append(incoming, TxRecord{Txid: id, Direction: "out", Source: "spv"})
 	}
 	merged := mergeTxRecords(st.Transactions, incoming)
 	before := len(st.Transactions)
@@ -838,7 +813,6 @@ func (s *Server) applySPVRawHex(st *WalletState, logTail string) bool {
 			changed = true
 		}
 	}
-	now := time.Now().UTC()
 	for id, raw := range byTxid {
 		if id == "" || raw == "" {
 			continue
@@ -853,7 +827,7 @@ func (s *Server) applySPVRawHex(st *WalletState, logTail string) bool {
 			RawHex:        raw,
 			Confirmations: 0,
 			Source:        "spv",
-			SeenAt:        now,
+			SeenAt:        time.Time{},
 		})
 		existing[id] = struct{}{}
 		changed = true
@@ -876,7 +850,6 @@ func (s *Server) applySPVSeenTxids(st *WalletState, logTail string) bool {
 		}
 		existing[id] = struct{}{}
 	}
-	now := time.Now().UTC()
 	added := false
 	for id := range seen {
 		if _, ok := existing[id]; ok {
@@ -888,7 +861,7 @@ func (s *Server) applySPVSeenTxids(st *WalletState, logTail string) bool {
 			AmountDOGE:    0,
 			Confirmations: 0,
 			Source:        "spv",
-			SeenAt:        now,
+			SeenAt:        time.Time{},
 		})
 		existing[id] = struct{}{}
 		added = true

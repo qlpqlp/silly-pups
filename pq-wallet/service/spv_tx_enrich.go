@@ -294,6 +294,13 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 		}
 	}
 	cache := make(map[string]rawTxFlow)
+	walletAddrLo := map[string]struct{}{}
+	for _, a := range wf.AllDistinctP2PKHAddresses() {
+		al := strings.ToLower(strings.TrimSpace(a))
+		if al != "" {
+			walletAddrLo[al] = struct{}{}
+		}
+	}
 	for i := range st.Transactions {
 		tx := &st.Transactions[i]
 		raw := strings.TrimSpace(tx.RawHex)
@@ -345,9 +352,20 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 				tx.AmountDOGE = amt
 				changed = true
 			}
-			if tx.Address == "" && fl.ExternalAddr != "" {
-				tx.Address = fl.ExternalAddr
-				changed = true
+			// REST / merge often attach our P2PKH on spent outputs; replace with counterparty when known.
+			if fl.ExternalAddr != "" {
+				cur := strings.ToLower(strings.TrimSpace(tx.Address))
+				if cur == "" {
+					if tx.Address != fl.ExternalAddr {
+						tx.Address = fl.ExternalAddr
+						changed = true
+					}
+				} else if _, mine := walletAddrLo[cur]; mine {
+					if !strings.EqualFold(strings.TrimSpace(tx.Address), strings.TrimSpace(fl.ExternalAddr)) {
+						tx.Address = fl.ExternalAddr
+						changed = true
+					}
+				}
 			}
 		}
 		if tx.Source == "" {

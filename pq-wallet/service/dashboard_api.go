@@ -717,12 +717,18 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 		if len(walletH160) > 0 && strings.TrimSpace(tr.RawHex) != "" {
 			if fl, err := decodeSPVRawTxFlow(tr.RawHex, walletH160, testnet); err == nil && fl.ExternalSats > 0 {
 				tr.Direction = "out"
-				if fl.ExternalAddr != "" && strings.TrimSpace(tr.Address) == "" {
-					tr.Address = fl.ExternalAddr
-				}
 				amt := round2(float64(fl.ExternalSats) / 1e8)
-				if amt > 0 && (tr.AmountDOGE == 0 || amt > tr.AmountDOGE) {
+				if amt > 0 {
 					tr.AmountDOGE = amt
+				}
+				// SPV REST spend rows often carry our own address (spent output); list sends as counterparty + net out.
+				if fl.ExternalAddr != "" {
+					al := strings.ToLower(strings.TrimSpace(tr.Address))
+					if al == "" {
+						tr.Address = fl.ExternalAddr
+					} else if _, mine := walletAddrSet[al]; mine {
+						tr.Address = fl.ExternalAddr
+					}
 				}
 			}
 		}

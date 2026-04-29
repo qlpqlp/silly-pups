@@ -55,8 +55,10 @@ func parseSPVLogHeaderInfo(log string) SPVHeaderInfo {
 		return out
 	}
 	tail := log
-	if len(tail) > 512*1024 {
-		tail = tail[len(tail)-512*1024:]
+	// Keep a larger tail window so we can still recover best block hashes
+	// even if the header feed lines are older.
+	if len(tail) > 2*1024*1024 {
+		tail = tail[len(tail)-2*1024*1024:]
 	}
 
 	out.HeaderCountHint = parseLeadingCountHint(tail)
@@ -522,18 +524,20 @@ func parseSPVRawTxHexByTxid(log string) map[string]string {
 			continue
 		}
 		low := strings.ToLower(line)
-		if !strings.Contains(low, "pq_spv_tx_raw") {
+		// Some libdogecoin/SPV builds may emit either "PQ_SPV_TX_RAW" or just "SPV_TX_RAW".
+		// We accept both so RawHex enrichment keeps working across versions.
+		start := strings.Index(low, "pq_spv_tx_raw")
+		if start < 0 {
+			start = strings.Index(low, "spv_tx_raw")
+		}
+		if start < 0 {
 			continue
 		}
-		pq := strings.Index(low, "pq_spv_tx_raw")
-		if pq < 0 {
-			continue
-		}
-		ti := strings.Index(low[pq:], "txid=")
+		ti := strings.Index(low[start:], "txid=")
 		if ti < 0 {
 			continue
 		}
-		ti += pq + len("txid=")
+		ti += start + len("txid=")
 		if ti+64 > len(line) {
 			continue
 		}

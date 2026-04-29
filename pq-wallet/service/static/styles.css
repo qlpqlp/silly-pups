@@ -1807,6 +1807,10 @@ a {
   margin: 0.5rem 0 0;
 }
 
+#view-dashboard .wallet-hero-balance-row {
+  justify-content: center;
+}
+
 .wallet-hero-balance {
   margin: 0;
   font-size: clamp(2.25rem, 8vw, 3.35rem);
@@ -1815,7 +1819,10 @@ a {
   color: var(--doge);
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
-  word-break: break-all;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: normal;
 }
 
 .wallet-hero-unit {
@@ -1835,6 +1842,7 @@ a {
   margin: 0.5rem 0 0;
   color: #9fd6ff;
   font-weight: 600;
+  text-align: center;
 }
 
 .wallet-hero-pending:empty {

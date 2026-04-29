@@ -118,7 +118,7 @@
                   <div class="field switch-row">
                     <span>Generate Falcon-512 PQ keys</span>
                     <label class="switch">
-                      <input type="checkbox" id="pq-keys" />
+                      <input type="checkbox" id="pq-keys" checked />
                       <span class="slider" aria-hidden="true"></span>
                     </label>
                   </div>
@@ -291,12 +291,7 @@
           </div>
           <div class="card">
             <h2><span class="material-symbols-outlined icon-inline">paid</span> Transaction fee</h2>
-            <p class="small muted">Economic fee rate in <strong>DOGE per kilobyte</strong> for TX_C (and TX_R sizing). Default <strong>0.01</strong> matches the <a href="https://github.com/dogecoin/dogecoin/blob/master/doc/fee-recommendation.md" target="_blank" rel="noopener noreferrer">Dogecoin Core wallet recommendation</a>. The server clamps between <strong>0.001</strong> and <strong>1.0</strong> DOGE/kB.</p>
-            <label class="field"><span>Economic fee (DOGE per kB)</span>
-              <input type="text" class="input-modern" id="settings-fee-doge-per-kb" value="0.01" inputmode="decimal" autocomplete="off" spellcheck="false" />
-            </label>
-            <button type="button" class="btn primary" id="btn-save-fee-per-kb"><span class="material-symbols-outlined btn-ico">save</span> Save fee setting</button>
-            <p class="small muted" id="settings-fee-msg"></p>
+            <p class="small muted">Economic fee rate in <strong>DOGE per kilobyte</strong> for TX_C (and TX_R sizing). Default <strong>0.01</strong> matches the Dogecoin recommendation.</p>
           </div>
           <div class="card">
             <h2>Backup</h2>

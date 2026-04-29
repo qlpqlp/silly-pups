@@ -1030,7 +1030,9 @@ func (s *Server) readSPVStatus() map[string]any {
 		"storage_dir":         s.storageDir,
 		"spv_http_url":        s.spvHTTPBaseURL(),
 	}
-	if tail, err := readFileTail(logPath, 384*1024); err == nil && strings.TrimSpace(tail) != "" {
+	// Use a larger tail window so we can parse structured raw tx hex for older spends
+	// and keep direction/amount enrichment stable across refreshes.
+	if tail, err := readFileTail(logPath, 2*1024*1024); err == nil && strings.TrimSpace(tail) != "" {
 		out["log_tail"] = tail
 	}
 	hdb := filepath.Join(s.storageDir, "headers.db")

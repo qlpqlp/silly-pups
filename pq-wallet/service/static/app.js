@@ -610,7 +610,7 @@ function buildTxExpandableCard(tx, includeSource) {
   if (dir === "out") sign = "-";
   else if (dir === "in") sign = "+";
   else if (nAmt != null && nAmt > 0) sign = "+";
-  const amount = nAmt != null ? `${sign}${nAmt.toFixed(2)} DOGE` : "—";
+  const amount = nAmt != null ? `${sign}${nAmt.toFixed(2)}` : "—";
   const seen = tx.seen_at ? fmtTime(tx.seen_at) : "—";
   const isConfirmed = conf > 0;
   const short = txidFull ? txidFull.slice(0, 18) + (txidFull.length > 18 ? "…" : "") : "—";
@@ -728,28 +728,16 @@ function buildTxExpandableCard(tx, includeSource) {
 function upsertTxList(container, txs, includeSource, emptyEl) {
   if (!container) return;
   const arr = Array.isArray(txs) ? txs : [];
-  const old = new Map();
-  container.querySelectorAll("details.tx-card-modern[data-txid]").forEach((el) => {
-    const id = String(el.dataset.txid || "").trim();
-    if (id) old.set(id, el);
-  });
-  const keep = new Set();
+  // Rebuild the list to keep DOM order consistent with tx sort order.
+  // Otherwise, the existing cards keep their old positions and the user needs a full page refresh.
+  const open = collectOpenTxids(container);
+  container.innerHTML = "";
   arr.forEach((tx) => {
     const txid = String((tx && tx.txid) || "").trim();
     if (!txid) return;
-    keep.add(txid);
     const next = buildTxExpandableCard(tx, includeSource);
-    const prev = old.get(txid);
-    if (prev) {
-      if (prev.open) next.open = true;
-      prev.replaceWith(next);
-      old.delete(txid);
-    } else {
-      container.appendChild(next);
-    }
-  });
-  old.forEach((el, txid) => {
-    if (!keep.has(txid)) el.remove();
+    if (open.has(txid)) next.open = true;
+    container.appendChild(next);
   });
   if (emptyEl) emptyEl.classList.toggle("hidden", arr.length > 0);
 }
@@ -1901,7 +1889,8 @@ document.getElementById("btn-send-pq-safe").addEventListener("click", async () =
       typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
         ? AbortSignal.timeout(120000)
         : undefined;
-    const fee_doge_per_kb = getSendFeeDogePerKb();
+    // Always use the wallet default fee (0.01 DOGE/kB); server also ignores any client override.
+    const fee_doge_per_kb = DEFAULT_FEE_PER_KB_DOGE;
     const res = await api("/api/send/pq-safe", {
       method: "POST",
       body: JSON.stringify({ to_address, amount_doge, include_pq_commitment, include_pq_reveal, fee_doge_per_kb }),

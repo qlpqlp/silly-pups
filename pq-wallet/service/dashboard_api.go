@@ -633,14 +633,13 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 	out := make([]txListRow, 0, len(st.Transactions))
 	for _, t := range st.Transactions {
 		tr := txListRow{TxRecord: t, Pending: t.Confirmations == 0}
-		// Last-mile guardrail for API output: never leave direction as unknown when we can infer it.
-		// This avoids sticky "unknown" rows in UI details while upstream sources catch up.
+		// Last-mile guardrail for API output:
+		// only force OUT when address is explicitly non-wallet.
+		// Do not force IN for wallet-address rows (can be spend tx change rows).
 		if strings.EqualFold(strings.TrimSpace(tr.Direction), "unknown") || strings.TrimSpace(tr.Direction) == "" {
 			addr := strings.ToLower(strings.TrimSpace(tr.Address))
 			if addr != "" {
-				if _, ok := walletAddrSet[addr]; ok {
-					tr.Direction = "in"
-				} else {
+				if _, ok := walletAddrSet[addr]; !ok {
 					tr.Direction = "out"
 				}
 			} else if tr.AmountDOGE > 0 && strings.EqualFold(strings.TrimSpace(tr.Source), "memetracker") {

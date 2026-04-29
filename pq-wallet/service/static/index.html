@@ -33,7 +33,9 @@
   <div class="app" id="app">
     <aside class="sidebar" id="sidebar" aria-label="Main navigation">
       <div class="sidebar-brand">
-        <img src="/static/logo.png" alt="" width="40" height="40" class="sidebar-logo" id="btn-logo-home" style="cursor:pointer" />
+        <button type="button" class="sidebar-logo-frame" id="btn-logo-home" aria-label="Go to dashboard">
+          <img src="/static/logo.png" alt="" width="40" height="40" class="sidebar-logo" />
+        </button>
         <div class="sidebar-titles">
           <span class="sidebar-name">PQ Doge Wallet</span>
           <span class="sidebar-sub">Quantum Secure</span>
@@ -152,7 +154,6 @@
 
         <section id="view-dashboard" class="view hidden">
           <div class="wallet-hero">
-            <p class="wallet-hero-label">Available balance</p>
             <div class="wallet-hero-balance-row">
               <span class="wallet-hero-balance" id="wallet-balance-big">—</span>
               <span class="wallet-hero-unit" id="wallet-balance-unit"></span>
@@ -163,7 +164,6 @@
             </div>
           </div>
           <div class="card tx-list-card dash-latest-tx-card">
-            <h3><span class="material-symbols-outlined icon-inline">receipt_long</span> Latest transactions</h3>
             <div class="tx-list" id="dash-tx-list" role="list" aria-label="Latest transactions"></div>
           </div>
         </section>
@@ -388,11 +388,15 @@
           <span class="material-symbols-outlined mobile-tabbar-ico">south_west</span>
           <span class="mobile-tabbar-label">Receive</span>
         </button>
+        <button type="button" class="mobile-tabbar-logo-btn" id="tabbar-doge-wow" aria-label="Doge wow">
+          <img src="/static/logo.png" alt="" class="mobile-tabbar-logo-img" />
+        </button>
         <button type="button" class="mobile-tabbar-btn" id="tabbar-send" data-tabbar="tools">
           <span class="material-symbols-outlined mobile-tabbar-ico">north_east</span>
           <span class="mobile-tabbar-label">Send</span>
         </button>
       </nav>
+      <div id="doge-wow-layer" class="doge-wow-layer" aria-hidden="true"></div>
 
       <footer class="footer footer-with-version">
         <span>Coded with love to all Dogecoin Community</span>

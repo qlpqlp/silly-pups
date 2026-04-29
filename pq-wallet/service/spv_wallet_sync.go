@@ -122,6 +122,18 @@ func (s *Server) readSPVWalletDBTxRows(ctx context.Context, dbPath string, walle
 				byTxid[id] = r
 				continue
 			}
+			// Merge duplicate txid rows from wallet DB tables.
+			// Keep OUT when any row for this txid is debit-side so spends are not lost.
+			if strings.EqualFold(r.Direction, "out") && !strings.EqualFold(prev.Direction, "out") {
+				prev.Direction = "out"
+				if r.AmountDOGE > 0 {
+					prev.AmountDOGE = r.AmountDOGE
+				}
+			}
+			// If both rows are OUT, keep the larger amount as a best-effort spend value.
+			if strings.EqualFold(r.Direction, "out") && strings.EqualFold(prev.Direction, "out") && r.AmountDOGE > prev.AmountDOGE {
+				prev.AmountDOGE = r.AmountDOGE
+			}
 			// enrich previous row with any missing fields.
 			if prev.Address == "" && r.Address != "" {
 				prev.Address = r.Address

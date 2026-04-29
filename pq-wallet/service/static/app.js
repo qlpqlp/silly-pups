@@ -576,6 +576,43 @@ function updateSyncChipVisual(label) {
   chip.classList.remove("syncing", "synced");
   if (txt === "Synced") chip.classList.add("synced");
   else chip.classList.add("syncing");
+  // On mobile, hide the sync badge once fully synced.
+  if (isNarrowViewport() && txt === "Synced") {
+    chip.classList.add("hidden");
+  } else {
+    chip.classList.remove("hidden");
+  }
+}
+
+function triggerDogeWowWords() {
+  const layer = $("doge-wow-layer");
+  if (!layer) return;
+  const words = [
+    "Much Wow", "Such Quantum", "Very Doge", "So Secure", "Many Commitments",
+    "Wow Ledger", "Such Reveal", "Very Shibe", "So Fast", "Much Chain",
+  ];
+  const colors = ["#ef4444", "#f59e0b", "#3b82f6", "#10b981", "#eab308", "#f97316", "#a855f7"];
+  const vw = Math.max(window.innerWidth || 0, 320);
+  const vh = Math.max(window.innerHeight || 0, 480);
+  const count = 12;
+  for (let i = 0; i < count; i++) {
+    const el = document.createElement("span");
+    el.className = "doge-wow-word";
+    el.textContent = words[Math.floor(Math.random() * words.length)];
+    el.style.color = colors[Math.floor(Math.random() * colors.length)];
+    const x = Math.round(8 + Math.random() * 84);
+    const y = Math.round(16 + Math.random() * 70);
+    const rot = Math.round(-22 + Math.random() * 44);
+    const delay = Math.round(Math.random() * 280);
+    el.style.left = `${(vw * x) / 100}px`;
+    el.style.top = `${(vh * y) / 100}px`;
+    el.style.transform = `rotate(${rot}deg)`;
+    el.style.animationDelay = `${delay}ms`;
+    layer.appendChild(el);
+    setTimeout(() => {
+      try { el.remove(); } catch { /* ignore */ }
+    }, 1500 + delay);
+  }
 }
 
 function fmtTime(iso) {
@@ -1624,6 +1661,10 @@ document.querySelectorAll(".mobile-tabbar-btn").forEach((btn) => {
     if (v) showView(v);
   });
 });
+const wowBtn = $("tabbar-doge-wow");
+if (wowBtn) {
+  wowBtn.addEventListener("click", () => triggerDogeWowWords());
+}
 
 const btnScan = $("btn-scan-qr");
 if (btnScan) btnScan.addEventListener("click", () => openQrScanner());

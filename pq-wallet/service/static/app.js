@@ -600,6 +600,34 @@ function humanizeSyncEta(sec) {
   return `Sync ${Math.ceil(n / (86400 * 30))} months`;
 }
 
+function fitWalletHeroBalance() {
+  const el = $("wallet-balance-big");
+  if (!el) return;
+  const row = el.closest(".wallet-hero-balance-row") || el.parentElement;
+  if (!row) return;
+
+  // Reset inline font-size to allow the CSS clamp to re-apply.
+  el.style.fontSize = "";
+
+  const maxW = row.clientWidth;
+  if (!Number.isFinite(maxW) || maxW <= 0) return;
+
+  const cs = window.getComputedStyle(el);
+  let fs = parseFloat(cs.fontSize);
+  if (!Number.isFinite(fs) || fs <= 0) return;
+
+  // Reduce font size until the value fits. Keep a reasonable floor.
+  const floorPx = 14;
+  const maxIter = 18;
+  for (let i = 0; i < maxIter; i++) {
+    // scrollWidth includes content, independent of clipping from overflow.
+    if (el.scrollWidth <= maxW - 10) break;
+    fs = Math.max(floorPx, fs * 0.93);
+    el.style.fontSize = fs.toFixed(2) + "px";
+    if (fs <= floorPx + 0.01) break;
+  }
+}
+
 function buildTxExpandableCard(tx, includeSource) {
   const txidFull = String(tx.txid || "").trim();
   const conf = Number(tx.confirmations || 0);
@@ -1069,6 +1097,7 @@ function applyDashboardSnapshot(dashboard) {
   const txDerived = recalcBalanceFromTransactions();
   const shown = spendStr !== "—" ? spendStr : (txDerived != null ? txDerived.toFixed(2) : "—");
   if (balBig) balBig.textContent = `Ð ${shown}`;
+  if (balBig) requestAnimationFrame(() => fitWalletHeroBalance());
   if (balUnit) balUnit.textContent = "";
   const pendRaw = t.pending_mempool_doge;
   const pendNum = Number(pendRaw);
@@ -1180,6 +1209,7 @@ function applyTxSnapshot(txs, refresh) {
     const derived = recalcBalanceFromTransactions();
     if (derived != null && derived > 0) balBig.textContent = `Ð ${derived.toFixed(2)}`;
   }
+  if (balBig) requestAnimationFrame(() => fitWalletHeroBalance());
   const hint = $("tx-sync-hint");
   if (hint) hint.textContent = refresh ? "Refreshed" : "";
   const list = $("tx-list");
@@ -2059,6 +2089,11 @@ function startPollers() {
     }
   }, 12000);
 }
+
+window.addEventListener("resize", () => {
+  // Let layout settle.
+  setTimeout(() => fitWalletHeroBalance(), 0);
+});
 
 function wireImportFileUI() {
   const input = document.getElementById("import-file");

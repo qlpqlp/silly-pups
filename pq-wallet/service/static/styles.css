@@ -1800,10 +1800,11 @@ a {
 
 .wallet-hero-balance-row {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
+  flex-wrap: nowrap;
+  align-items: center;
   justify-content: center;
   gap: 0.5rem 0.75rem;
+  width: 100%;
   margin: 0.5rem 0 0;
 }
 
@@ -1813,7 +1814,8 @@ a {
 
 .wallet-hero-balance {
   margin: 0;
-  font-size: clamp(2.25rem, 8vw, 3.35rem);
+  /* Bigger default, but we also do a JS “fit-to-row-width” adjustment. */
+  font-size: clamp(3.75rem, 10vw, 6.6rem);
   font-weight: 800;
   letter-spacing: -0.04em;
   color: var(--doge);
@@ -1823,6 +1825,7 @@ a {
   overflow: hidden;
   text-overflow: ellipsis;
   word-break: normal;
+  max-width: 100%;
 }
 
 .wallet-hero-unit {

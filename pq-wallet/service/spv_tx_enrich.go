@@ -199,7 +199,48 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 		return false
 	}
 	testnet := strings.EqualFold(wf.Network, "testnet")
+	// If older state entries were created while `RawHex` parsing was failing, they may still be missing
+	// `RawHex` even though the txid is present in `spvnode` logs. Backfill those txs once per call
+	// so direction/amount doesn't get stuck at "unknown".
+	needRawBackfill := false
+	needByTxid := make(map[string]struct{})
+	for i := range st.Transactions {
+		tx := &st.Transactions[i]
+		if strings.TrimSpace(tx.RawHex) != "" {
+			continue
+		}
+		if !(strings.EqualFold(tx.Direction, "unknown") || strings.EqualFold(tx.Direction, "") || tx.Direction == "") && tx.Address != "" {
+			// Not strictly needed: if direction isn't unknown and we already have an address, we skip.
+			continue
+		}
+		id := normalizeTxid(tx.Txid)
+		if id == "" {
+			continue
+		}
+		needRawBackfill = true
+		needByTxid[id] = struct{}{}
+	}
 	changed := false
+	if needRawBackfill && len(needByTxid) > 0 {
+		// Larger tail than the dashboard scan. This is still bounded and only happens when needed.
+		if lb, err := readFileTail(s.spvLogPath(), 16<<20); err == nil && strings.TrimSpace(lb) != "" {
+			byTxid := parseSPVRawTxHexByTxid(lb)
+			for i := range st.Transactions {
+				tx := &st.Transactions[i]
+				if strings.TrimSpace(tx.RawHex) != "" {
+					continue
+				}
+				id := normalizeTxid(tx.Txid)
+				if id == "" {
+					continue
+				}
+				if raw := strings.TrimSpace(byTxid[id]); raw != "" {
+					tx.RawHex = raw
+					changed = true
+				}
+			}
+		}
+	}
 	cache := make(map[string]rawTxFlow)
 	for i := range st.Transactions {
 		tx := &st.Transactions[i]

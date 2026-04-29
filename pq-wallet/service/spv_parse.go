@@ -12,6 +12,9 @@ var (
 	reLooseHeight      = regexp.MustCompile(`(?i)\bheight[:\s=#]+(\d{4,9})\b`)
 	reBlockAt          = regexp.MustCompile(`(?i)\bblock\s*#?\s*(\d{4,9})\b`)
 	reBlockHash        = regexp.MustCompile(`\b([a-fA-F0-9]{64})\b`)
+	// Some libdogecoin/SPV builds may print a longer token that contains the header hash
+	// (e.g. "best_block_hash=..."). We allow >=64 and then take the last 64 hex chars.
+	reHex64Plus        = regexp.MustCompile(`(?i)([a-f0-9]{64,})`)
 	reContextHeight    = regexp.MustCompile(`(?i)(?:height|headers?|tip|sync|chain|block)[^\n]{0,120}?(\d{5,9})`)
 	rePeerEq           = regexp.MustCompile(`(?i)peers?\s*[:=]\s*(\d+)`)
 	rePeerWord         = regexp.MustCompile(`(?i)(?:^|[^\w])(\d{1,6})\s+(?:peer|peers)\b`)
@@ -101,6 +104,18 @@ func parseSPVLogHeaderInfo(log string) SPVHeaderInfo {
 	if out.BestBlockHash == "" {
 		if m := reBlockHash.FindAllString(tail, -1); len(m) > 0 {
 			out.BestBlockHash = strings.ToLower(m[len(m)-1])
+			return out
+		}
+		// Fallback: if the hash was printed as part of a larger token, extract the last 64 hex chars.
+		if m := reHex64Plus.FindAllStringSubmatch(tail, -1); len(m) > 0 {
+			cand := m[len(m)-1][1]
+			if len(cand) > 64 {
+				cand = cand[len(cand)-64:]
+			}
+			cand = strings.ToLower(strings.TrimSpace(cand))
+			if len(cand) == 64 && isHex64(cand) {
+				out.BestBlockHash = cand
+			}
 		}
 	}
 	return out
@@ -533,29 +548,67 @@ func parseSPVRawTxHexByTxid(log string) map[string]string {
 		if start < 0 {
 			continue
 		}
-		ti := strings.Index(low[start:], "txid=")
-		if ti < 0 {
+
+		// Find txid as the first 64-hex sequence after "txid" within the raw-tx record.
+		rec := low[start:]
+		txidPos := strings.Index(rec, "txid")
+		if txidPos < 0 {
 			continue
 		}
-		ti += start + len("txid=")
-		if ti+64 > len(line) {
+		// First 64-hex sequence after txid marker.
+		hexes := reHex64Plus.FindAllStringSubmatch(rec[txidPos:], -1)
+		if len(hexes) == 0 {
 			continue
 		}
-		txidCandidate := line[ti : ti+64]
+		txidCandidate := hexes[0][1]
+		if len(txidCandidate) > 64 {
+			txidCandidate = txidCandidate[len(txidCandidate)-64:]
+		}
 		if len(txidCandidate) != 64 || !isHex64(txidCandidate) {
 			continue
 		}
-		afterTxid := ti + 64
-		ri := strings.Index(low[afterTxid:], "raw=")
-		if ri < 0 {
+
+		// Find raw hex start after a "raw" marker; accept common key styles:
+		// raw=..., raw:..., raw_hex=..., rawhex=..., hex=...
+		rawStart := -1
+		rawKeys := []string{"raw=", "raw:", "raw_hex=", "rawhex=", "hex="}
+		for _, k := range rawKeys {
+			if p := strings.Index(rec, k); p >= 0 {
+				rawStart = p + len(k)
+				break
+			}
+		}
+		if rawStart < 0 {
 			continue
 		}
-		rawStart := afterTxid + ri + len("raw=")
-		if rawStart > len(line) {
+		if rawStart > len(rec) {
 			continue
 		}
-		raw := strings.TrimSpace(line[rawStart:])
-		raw = strings.ToLower(raw)
+
+		// Extract contiguous hex run after the raw marker.
+		rawPart := strings.TrimSpace(rec[rawStart:])
+		rawPart = strings.ToLower(rawPart)
+		first := -1
+		for i := 0; i < len(rawPart); i++ {
+			c := rawPart[i]
+			if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') {
+				first = i
+				break
+			}
+		}
+		if first < 0 {
+			continue
+		}
+		j := first
+		for j < len(rawPart) {
+			c := rawPart[j]
+			if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') {
+				j++
+				continue
+			}
+			break
+		}
+		raw := rawPart[first:j]
 		if len(raw) < 64 || len(raw)%2 != 0 || !isHex64(raw) {
 			continue
 		}

@@ -124,7 +124,7 @@ func (s *Server) handleDebugSPVLedger(w http.ResponseWriter, r *http.Request) {
 		"utxo_rows":       spvRESTTxRowsSummary(utxoRows, 300),
 		"tx_row_count":    len(txRows),
 		"utxo_row_count":  len(utxoRows),
-		"tx_parse_note":   "Rows are parsed heuristically from plain-text REST; compare raw.*.raw when in doubt.",
+		"tx_parse_note":   "REST rows are per-UTXO hints, not SoChain-style net; spendable:0 does not imply OUT. Wallet UI merges raw-hex enrich into state.json.",
 	}
 
 	hdb := filepath.Join(s.storageDir, "headers.db")

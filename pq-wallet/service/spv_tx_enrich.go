@@ -7,6 +7,9 @@ import (
 	"strings"
 )
 
+// SPV log tail for raw hex backfill + prevout index: older parent txs must be present here for bitcoinj-style net.
+const spvLogTailForEnrich = 64 << 20
+
 // firstInputPrevTxidFromRawHex returns the canonical prevout txid for the first non-coinbase input
 // (wire hash byte-reversed to match explorer / normalizeTxid form). Empty if not parseable.
 func firstInputPrevTxidFromRawHex(rawHex string) string {
@@ -75,12 +78,14 @@ func dogeP2PKHAddrFromH160(h160 []byte, testnet bool) string {
 // Counterparty and "your" address choices follow Dogecoin Wallet (bitcoinj) list semantics:
 //   - sent row address: first output that is not to the wallet (WalletUtils.getToAddressOfSent)
 //   - received row address: first output to the wallet (getWalletAddressOfReceived)
-// Sats totals still sum all matching outputs for amount classification.
+// CounterpartySats is the value of that first non-wallet P2PKH output (the payment line), not fee/change.
+// ExternalSats sums all external-facing value (multiple recipients + non-P2PKH) for spend detection.
 type rawTxFlow struct {
-	WalletSats   int64
-	ExternalSats int64
-	WalletAddr   string
-	ExternalAddr string
+	WalletSats        int64
+	ExternalSats      int64
+	CounterpartySats  int64 // first external P2PKH output value only; 0 if none
+	WalletAddr        string
+	ExternalAddr      string
 }
 
 func isOpReturnScript(script []byte) bool {
@@ -179,6 +184,7 @@ func decodeSPVRawTxFlow(rawHex string, walletByHash160 map[string]string, testne
 		out.ExternalSats += valueSats
 		if !externalAddrDone {
 			out.ExternalAddr = extAddr
+			out.CounterpartySats = valueSats
 			externalAddrDone = true
 		}
 	}
@@ -258,7 +264,7 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 	}
 	testnet := strings.EqualFold(wf.Network, "testnet")
 	logBlob := ""
-	if lb, err := readFileTail(s.spvLogPath(), 16<<20); err == nil {
+	if lb, err := readFileTail(s.spvLogPath(), spvLogTailForEnrich); err == nil {
 		logBlob = lb
 	}
 	// Backfill RawHex from spv.log for any row that is still missing it. SPV REST often labels spends as
@@ -338,19 +344,10 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 					tx.AmountDOGE = amt
 					changed = true
 				}
-				if fl.ExternalAddr != "" {
-					cur := strings.ToLower(strings.TrimSpace(tx.Address))
-					if cur == "" {
-						if tx.Address != fl.ExternalAddr {
-							tx.Address = fl.ExternalAddr
-							changed = true
-						}
-					} else if _, mine := walletAddrLo[cur]; mine {
-						if !strings.EqualFold(strings.TrimSpace(tx.Address), strings.TrimSpace(fl.ExternalAddr)) {
-							tx.Address = fl.ExternalAddr
-							changed = true
-						}
-					}
+				// Dogecoin Wallet: OUT row shows who was paid, not our change address (REST often attaches wallet addr).
+				if fl.ExternalAddr != "" && !strings.EqualFold(strings.TrimSpace(tx.Address), strings.TrimSpace(fl.ExternalAddr)) {
+					tx.Address = fl.ExternalAddr
+					changed = true
 				}
 				if tx.FeeDOGE != 0 {
 					tx.FeeDOGE = 0
@@ -407,7 +404,11 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 				changed = true
 			}
 		} else if isSend {
-			amt := round2(float64(fl.ExternalSats) / 1e8)
+			paySats := fl.CounterpartySats
+			if paySats <= 0 {
+				paySats = fl.ExternalSats
+			}
+			amt := round2(float64(paySats) / 1e8)
 			if !strings.EqualFold(strings.TrimSpace(tx.Direction), "out") {
 				tx.Direction = "out"
 				changed = true
@@ -416,20 +417,9 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 				tx.AmountDOGE = amt
 				changed = true
 			}
-			// REST / merge often attach our P2PKH on spent outputs; replace with counterparty when known.
-			if fl.ExternalAddr != "" {
-				cur := strings.ToLower(strings.TrimSpace(tx.Address))
-				if cur == "" {
-					if tx.Address != fl.ExternalAddr {
-						tx.Address = fl.ExternalAddr
-						changed = true
-					}
-				} else if _, mine := walletAddrLo[cur]; mine {
-					if !strings.EqualFold(strings.TrimSpace(tx.Address), strings.TrimSpace(fl.ExternalAddr)) {
-						tx.Address = fl.ExternalAddr
-						changed = true
-					}
-				}
+			if fl.ExternalAddr != "" && !strings.EqualFold(strings.TrimSpace(tx.Address), strings.TrimSpace(fl.ExternalAddr)) {
+				tx.Address = fl.ExternalAddr
+				changed = true
 			}
 		}
 		if tx.Source == "" {

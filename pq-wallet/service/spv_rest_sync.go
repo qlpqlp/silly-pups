@@ -249,12 +249,9 @@ func parseSPVRESTRows(raw, direction string) []spvRESTTxRow {
 		}
 		rowDir := directionFromRESTCur(cur, direction)
 		blkH := int64(parseIntDefault(cur["height"], 0))
-		// spvnode /getTransactions marks wallet-owned spent outputs with spendable: 0 (no timestamp field).
-		if sk := strings.TrimSpace(cur["spendable"]); sk != "" {
-			if parseIntDefault(sk, -1) == 0 && (rowDir == "" || strings.EqualFold(rowDir, "unknown")) {
-				rowDir = "out"
-			}
-		}
+		// spendable:0 on /getTransactions means "this wallet UTXO was consumed later", NOT that this txid is an
+		// outgoing payment — receives that were later spent still show spendable:0. Net direction comes from
+		// enrichSPVTxFromRawHex + walletNetFromPrevoutIndex, not from this flag.
 		rows = append(rows, spvRESTTxRow{
 			Txid:          txid,
 			Vout:          uint32(vout),
@@ -628,16 +625,11 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 		if prev.Address == "" && r.Address != "" {
 			prev.Address = r.Address
 		}
-		// If the same txid appears in both /getUTXOs (in/change) and /getTransactions (spent),
-		// keep it as OUT so sent txs do not get mislabeled as IN.
-		if strings.EqualFold(r.Direction, "out") {
-			prev.Direction = "out"
-		} else if strings.EqualFold(r.Direction, "in") && !strings.EqualFold(prev.Direction, "out") {
-			if prev.Direction == "" || strings.EqualFold(prev.Direction, "unknown") {
-				prev.Direction = "in"
+		// Duplicate txids: do not force OUT over IN (mislabels receives listed under spent-output history).
+		if prev.Direction == "" || strings.EqualFold(prev.Direction, "unknown") {
+			if r.Direction != "" && !strings.EqualFold(r.Direction, "unknown") {
+				prev.Direction = r.Direction
 			}
-		} else if prev.Direction == "" {
-			prev.Direction = r.Direction
 		}
 		if r.Confirmations > prev.Confirmations {
 			prev.Confirmations = r.Confirmations

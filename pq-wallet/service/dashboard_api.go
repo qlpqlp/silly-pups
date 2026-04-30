@@ -697,7 +697,7 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 	var prevIdx map[string]prevoutWalletMeta
 	if len(walletH160) > 0 {
 		logBlob := ""
-		if lb, err := readFileTail(s.spvLogPath(), 16<<20); err == nil {
+		if lb, err := readFileTail(s.spvLogPath(), spvLogTailForEnrich); err == nil {
 			logBlob = lb
 		}
 		prevIdx = buildPrevoutWalletIndex(collectUniqueRawHexes(st, logBlob), walletH160)
@@ -738,12 +738,7 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 							tr.AmountDOGE = amt
 						}
 						if fl.ExternalAddr != "" {
-							al := strings.ToLower(strings.TrimSpace(tr.Address))
-							if al == "" {
-								tr.Address = fl.ExternalAddr
-							} else if _, mine := walletAddrSet[al]; mine {
-								tr.Address = fl.ExternalAddr
-							}
+							tr.Address = fl.ExternalAddr
 						}
 					} else {
 						tr.Direction = "in"
@@ -756,18 +751,16 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 					}
 				} else if fl.ExternalSats > 0 {
 					tr.Direction = "out"
-					amt := round2(float64(fl.ExternalSats) / 1e8)
+					paySats := fl.CounterpartySats
+					if paySats <= 0 {
+						paySats = fl.ExternalSats
+					}
+					amt := round2(float64(paySats) / 1e8)
 					if amt > 0 {
 						tr.AmountDOGE = amt
 					}
-					// SPV REST spend rows often carry our own address (spent output); list sends as counterparty + net out.
 					if fl.ExternalAddr != "" {
-						al := strings.ToLower(strings.TrimSpace(tr.Address))
-						if al == "" {
-							tr.Address = fl.ExternalAddr
-						} else if _, mine := walletAddrSet[al]; mine {
-							tr.Address = fl.ExternalAddr
-						}
+						tr.Address = fl.ExternalAddr
 					}
 				}
 			}

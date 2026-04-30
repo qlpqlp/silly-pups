@@ -142,9 +142,13 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 				prev.RawHex = t.RawHex
 			}
 			if t.Direction != "" && t.Direction != "unknown" {
-				// Keep stronger direction when sources disagree (OUT > IN > UNKNOWN),
-				// so receive-side merges do not overwrite confirmed sends.
-				if directionRank(t.Direction) >= directionRank(prev.Direction) {
+				restHint := strings.TrimSpace(t.RawHex) == ""
+				enrichedFromRaw := strings.TrimSpace(prev.RawHex) != ""
+				// SPV REST rows are UTXO/spend-centric; enrichSPVTxFromRawHex applies bitcoinj-style net from raw hex.
+				// Never let a REST hint overwrite direction already reconciled from decoded raw tx.
+				if enrichedFromRaw && restHint {
+					// keep prev.Direction
+				} else if directionRank(t.Direction) >= directionRank(prev.Direction) {
 					prev.Direction = t.Direction
 				}
 			}

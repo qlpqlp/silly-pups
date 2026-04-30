@@ -49,6 +49,8 @@ func (s *Server) latestSuchSpendable(maxAge time.Duration) (float64, bool) {
 	return s.lastSuchSpendableDOGE, true
 }
 
+// computeSuchSpendableDOGE sums spendable UTXOs per address via fetchUTXOsFromExplorer
+// (SPV REST /getUTXOs, then such list_unspent, then SQLite when applicable).
 func (s *Server) computeSuchSpendableDOGE(wf *WalletFile) (float64, bool) {
 	if wf == nil {
 		return 0, false
@@ -145,10 +147,12 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	seenChanged := false
 	rawChanged := false
 	confirmChanged := false
+	proofMetaChanged := false
 	if logTail != "" {
 		seenChanged = s.applySPVSeenTxids(st, logTail)
 		rawChanged = s.applySPVRawHex(st, logTail)
 		confirmChanged = s.applySPVConfirmations(st, logTail)
+		proofMetaChanged = s.applySPVProofMeta(st, logTail)
 	}
 	restChanged := s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
 	bcChanged := s.mergeTransactionsFromBroadcastLog(st)
@@ -159,7 +163,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		suchChanged = s.mergeTransactionsFromSuchListUnspent(wf, st)
 	}
 	enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
-	if seenChanged || rawChanged || confirmChanged || enrichedChanged || restChanged || bcChanged || bcRawChanged || dbChanged || suchChanged {
+	if seenChanged || rawChanged || confirmChanged || proofMetaChanged || enrichedChanged || restChanged || bcChanged || bcRawChanged || dbChanged || suchChanged {
 		_ = s.saveState(st)
 	}
 
@@ -173,12 +177,12 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	spendable := math.Max(0, inSum-outSum)
-	// Prefer direct UTXO-derived spendable from such list_unspent when available.
-	// This is the authoritative spendable source for "Available balance".
-	if utxoSpendable, ok := s.computeSuchSpendableDOGE(wf); ok {
+	// Prefer libdogecoin SPV REST /getBalance (or /getUTXOs total); then per-address UTXO sum.
+	if restSpend, ok := s.computeSPVRESTSpendableDOGE(); ok {
+		spendable = math.Max(0, restSpend)
+	} else if utxoSpendable, ok := s.computeSuchSpendableDOGE(wf); ok {
 		spendable = math.Max(0, utxoSpendable)
 	} else if utxoSpendable, ok := s.latestSuchSpendable(10 * time.Minute); ok {
-		// If such is transiently unavailable, keep last known spendable.
 		spendable = math.Max(0, utxoSpendable)
 	}
 
@@ -479,10 +483,12 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 	changed := false
 	rawChanged := false
 	confirmChanged := false
+	proofMetaChanged := false
 	if logTail != "" {
 		changed = s.applySPVSeenTxids(st, logTail)
 		rawChanged = s.applySPVRawHex(st, logTail)
 		confirmChanged = s.applySPVConfirmations(st, logTail)
+		proofMetaChanged = s.applySPVProofMeta(st, logTail)
 	}
 	restChanged := s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
 	bcChanged := s.mergeTransactionsFromBroadcastLog(st)
@@ -493,7 +499,7 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 		suchChanged = s.mergeTransactionsFromSuchListUnspent(wf, st)
 	}
 	enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
-	if changed || rawChanged || confirmChanged || enrichedChanged || restChanged || bcChanged || bcRawChanged || dbChanged || suchChanged {
+	if changed || rawChanged || confirmChanged || proofMetaChanged || enrichedChanged || restChanged || bcChanged || bcRawChanged || dbChanged || suchChanged {
 		_ = s.saveState(st)
 	}
 	s.stateMergeMu.Unlock()
@@ -856,6 +862,48 @@ func (s *Server) applySPVConfirmations(st *WalletState, logTail string) bool {
 	return changed
 }
 
+func (s *Server) applySPVProofMeta(st *WalletState, logTail string) bool {
+	if st == nil || strings.TrimSpace(logTail) == "" {
+		return false
+	}
+	metaByTxid := parseSPVProofMetaByTxid(logTail)
+	if len(metaByTxid) == 0 {
+		return false
+	}
+	changed := false
+	for i := range st.Transactions {
+		id := normalizeTxid(st.Transactions[i].Txid)
+		if id == "" {
+			continue
+		}
+		meta, ok := metaByTxid[id]
+		if !ok {
+			continue
+		}
+		if st.Transactions[i].SPVBlockHash == "" && meta.BlockHash != "" {
+			st.Transactions[i].SPVBlockHash = meta.BlockHash
+			changed = true
+		}
+		if meta.BlockHeight > st.Transactions[i].SPVBlockHeight {
+			st.Transactions[i].SPVBlockHeight = meta.BlockHeight
+			changed = true
+		}
+		if st.Transactions[i].SPVMerkleRaw == "" && meta.MerkleRaw != "" {
+			st.Transactions[i].SPVMerkleRaw = meta.MerkleRaw
+			changed = true
+		}
+		if st.Transactions[i].SPVHeaderRaw == "" && meta.HeaderRaw != "" {
+			st.Transactions[i].SPVHeaderRaw = meta.HeaderRaw
+			changed = true
+		}
+		if st.Transactions[i].SPVProofNote == "" && meta.ProofNote != "" {
+			st.Transactions[i].SPVProofNote = meta.ProofNote
+			changed = true
+		}
+	}
+	return changed
+}
+
 func (s *Server) applySPVRawHex(st *WalletState, logTail string) bool {
 	byTxid := parseSPVRawTxHexByTxid(logTail)
 	if len(byTxid) == 0 {
@@ -993,6 +1041,7 @@ func (s *Server) backgroundMetricsLoop() {
 		spvTxSeen := parseSPVTxSeenCount(logTail)
 		_ = s.applySPVSeenTxids(st, logTail)
 		_ = s.applySPVConfirmations(st, logTail)
+		_ = s.applySPVProofMeta(st, logTail)
 		_ = s.applySPVRawHex(st, logTail)
 		_ = s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
 		_ = s.mergeTransactionsFromBroadcastLog(st)

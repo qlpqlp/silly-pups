@@ -26,11 +26,31 @@ var (
 	reMempoolExplicit2 = regexp.MustCompile(`(?i)(?:^|\s)(\d{1,9})\s+transactions?\s+in\s+mempool`)
 	reMempoolExplicit3 = regexp.MustCompile(`(?i)\[(?:smpv|mempool)\][^\n]{0,120}(\d{1,9})\s*(?:tx|txn|transaction)`)
 	reSpvConfirmedLine = regexp.MustCompile(`(?i)\b(confirm|confirmed|confirmation|confirmations|merkle|inclusion|matched|proof|block|height|depth|chain)\b`)
+	reTxidKeyLine      = regexp.MustCompile(`(?i)\btxid\b[^a-f0-9]{0,16}([a-f0-9]{64})\b`)
+	reTxWordLine       = regexp.MustCompile(`(?i)\btransaction\b[^a-f0-9]{0,16}([a-f0-9]{64})\b`)
+	reSPVMerkleHexKey  = regexp.MustCompile(`(?i)\b(?:merkle(?:_proof)?|proof|partial_merkle|pm)\b[^a-f0-9]{0,8}([a-f0-9]{64,})\b`)
+	reSPVHeaderHexKey  = regexp.MustCompile(`(?i)\b(?:header_raw|raw_header|block_header|header)\b[^a-f0-9]{0,8}([a-f0-9]{160,})\b`)
 	// Long continuous hex tokens (after stripping spaces) — often raw tx / wire payloads in verbose logs.
 	reHexOnly = regexp.MustCompile(`(?i)^[0-9a-f]+$`)
 	// Third column of pipe header lines when it is Unix seconds/ms (not a datetime string).
 	rePipeUnixToken = regexp.MustCompile(`^-?[0-9]{9,16}$`)
 )
+
+type spvTxProofMeta struct {
+	BlockHash   string
+	BlockHeight int64
+	MerkleRaw   string
+	HeaderRaw   string
+	ProofNote   string
+}
+
+func trimProofNoteLine(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= 420 {
+		return s
+	}
+	return s[:420] + "…"
+}
 
 // PeerConnectionInfo is parsed from libdogecoin net.c log lines (current / last handshake in the tail).
 type PeerConnectionInfo struct {
@@ -551,6 +571,81 @@ func parseSPVConfirmedTxids(log string) map[string]struct{} {
 			}
 			out[id] = struct{}{}
 		}
+	}
+	return out
+}
+
+// parseSPVProofMetaByTxid extracts confirmation/proof context lines keyed by txid.
+// This is best-effort because spvnode logs vary by build and verbosity.
+func parseSPVProofMetaByTxid(log string) map[string]spvTxProofMeta {
+	out := make(map[string]spvTxProofMeta)
+	if strings.TrimSpace(log) == "" {
+		return out
+	}
+	for _, line := range strings.Split(log, "\n") {
+		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
+		if line == "" {
+			continue
+		}
+		low := strings.ToLower(line)
+		if !reSpvConfirmedLine.MatchString(low) {
+			continue
+		}
+		txid := ""
+		if m := reTxidKeyLine.FindStringSubmatch(low); len(m) > 1 {
+			txid = normalizeTxid(m[1])
+		}
+		if txid == "" {
+			if m := reTxWordLine.FindStringSubmatch(low); len(m) > 1 {
+				txid = normalizeTxid(m[1])
+			}
+		}
+		if txid == "" {
+			continue
+		}
+		cur := out[txid]
+		if cur.ProofNote == "" {
+			cur.ProofNote = trimProofNoteLine(line)
+		}
+		if cur.BlockHeight == 0 {
+			if m := reLooseHeight.FindStringSubmatch(line); len(m) > 1 {
+				if h, err := strconv.ParseInt(m[1], 10, 64); err == nil && h > 0 {
+					cur.BlockHeight = h
+				}
+			} else if m := reBlockAt.FindStringSubmatch(line); len(m) > 1 {
+				if h, err := strconv.ParseInt(m[1], 10, 64); err == nil && h > 0 {
+					cur.BlockHeight = h
+				}
+			}
+		}
+		if cur.MerkleRaw == "" {
+			if m := reSPVMerkleHexKey.FindStringSubmatch(low); len(m) > 1 {
+				hx := strings.ToLower(strings.TrimSpace(m[1]))
+				if len(hx) >= 64 && len(hx)%2 == 0 {
+					cur.MerkleRaw = hx
+				}
+			}
+		}
+		if cur.HeaderRaw == "" {
+			if m := reSPVHeaderHexKey.FindStringSubmatch(low); len(m) > 1 {
+				hx := strings.ToLower(strings.TrimSpace(m[1]))
+				if len(hx) >= 160 && len(hx)%2 == 0 {
+					cur.HeaderRaw = hx
+				}
+			}
+		}
+		// First non-txid 64hex token on the line is often block hash context.
+		if cur.BlockHash == "" {
+			for _, hx := range reBlockHash.FindAllString(line, -1) {
+				id := normalizeTxid(hx)
+				if id == "" || id == txid {
+					continue
+				}
+				cur.BlockHash = id
+				break
+			}
+		}
+		out[txid] = cur
 	}
 	return out
 }

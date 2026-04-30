@@ -217,6 +217,39 @@ func (s *Server) handleTxLocalDetail(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// Attach SPV proof/header metadata (when present in logs) for transaction detail debugging.
+	if found != nil && (strings.TrimSpace(found.SPVProofNote) == "" || strings.TrimSpace(found.SPVMerkleRaw) == "" || strings.TrimSpace(found.SPVHeaderRaw) == "") {
+		if lb, err := readFileTail(s.spvLogPath(), 8*1024*1024); err == nil && strings.TrimSpace(lb) != "" {
+			if metaByTxid := parseSPVProofMetaByTxid(lb); len(metaByTxid) > 0 {
+				if meta, ok := metaByTxid[txid]; ok {
+					if found.SPVProofNote == "" && meta.ProofNote != "" {
+						found.SPVProofNote = meta.ProofNote
+					}
+					if found.SPVMerkleRaw == "" && meta.MerkleRaw != "" {
+						found.SPVMerkleRaw = meta.MerkleRaw
+					}
+					if found.SPVHeaderRaw == "" && meta.HeaderRaw != "" {
+						found.SPVHeaderRaw = meta.HeaderRaw
+					}
+					if found.SPVBlockHash == "" && meta.BlockHash != "" {
+						found.SPVBlockHash = meta.BlockHash
+					}
+					if meta.BlockHeight > found.SPVBlockHeight {
+						found.SPVBlockHeight = meta.BlockHeight
+					}
+					// Persist newly discovered proof/meta for next reads.
+					for i := range st.Transactions {
+						if normalizeTxid(st.Transactions[i].Txid) != txid {
+							continue
+						}
+						st.Transactions[i] = *found
+						_ = s.saveState(st)
+						break
+					}
+				}
+			}
+		}
+	}
 
 	if found == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "tx not found in local state"})

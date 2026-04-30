@@ -19,8 +19,42 @@ type ExplorerUTXO struct {
 	ScriptPubHex string // hex, optional; if empty caller derives from wallet pubkey
 }
 
-// fetchUTXOsFromExplorer now resolves spendable outputs from libdogecoin's local spv_wallet.db
-// (kept function name for compatibility with existing send flow).
+// utxosFromSPVRESTForAddress converts GET /getUTXOs (libdogecoin SPV REST) into ExplorerUTXO rows
+// for one wallet address. See https://lib.dogecoin.org/docs/rest
+func (s *Server) utxosFromSPVRESTForAddress(address string) []ExplorerUTXO {
+	raw, err := s.fetchSPVREST("/getUTXOs")
+	if err != nil {
+		return nil
+	}
+	rows := parseSPVRESTRows(raw, "in")
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return nil
+	}
+	out := make([]ExplorerUTXO, 0, len(rows))
+	for _, r := range rows {
+		id := normalizeTxid(r.Txid)
+		if id == "" {
+			continue
+		}
+		if r.Address != "" && !strings.EqualFold(strings.TrimSpace(r.Address), address) {
+			continue
+		}
+		val := int64(math.Round(r.AmountDOGE * 1e8))
+		if val <= 0 {
+			continue
+		}
+		out = append(out, ExplorerUTXO{
+			TxID:  id,
+			Vout:  r.Vout,
+			Value: val,
+		})
+	}
+	return out
+}
+
+// fetchUTXOsFromExplorer resolves spendable outputs: SPV REST /getUTXOs first, then such list_unspent,
+// then SQLite on spv_wallet.db when it is a real SQLite file (legacy / dev).
 func (s *Server) fetchUTXOsFromExplorer(ctx context.Context, address string) ([]ExplorerUTXO, error) {
 	dbPath := filepath.Join(s.storageDir, "spv_wallet.db")
 	if _, err := os.Stat(dbPath); err != nil {
@@ -30,42 +64,18 @@ func (s *Server) fetchUTXOsFromExplorer(ctx context.Context, address string) ([]
 	if address == "" {
 		return nil, fmt.Errorf("missing wallet address for local UTXO lookup")
 	}
-	// Preferred path: native libdogecoin/such command, when available in the current build.
 	testnet := false
 	if wf, err := s.loadWallet(); err == nil && wf != nil {
 		testnet = strings.EqualFold(wf.Network, "testnet")
 	}
+	if utxos := s.utxosFromSPVRESTForAddress(address); len(utxos) > 0 {
+		return utxos, nil
+	}
 	if utxos, err := s.runSuchListUnspent(address, testnet); err == nil && len(utxos) > 0 {
 		return utxos, nil
 	}
-	// Fallback for binary libdogecoin wallets: use spvnode REST getUTXOs and convert rows.
-	if raw, err := s.fetchSPVREST("/getUTXOs"); err == nil {
-		rows := parseSPVRESTRows(raw, "in")
-		restUtxos := make([]ExplorerUTXO, 0, len(rows))
-		for _, r := range rows {
-			id := normalizeTxid(r.Txid)
-			if id == "" {
-				continue
-			}
-			if r.Address != "" && !strings.EqualFold(strings.TrimSpace(r.Address), address) {
-				continue
-			}
-			val := int64(math.Round(r.AmountDOGE * 1e8))
-			if val <= 0 {
-				continue
-			}
-			restUtxos = append(restUtxos, ExplorerUTXO{
-				TxID:  id,
-				Vout:  r.Vout,
-				Value: val,
-			})
-		}
-		if len(restUtxos) > 0 {
-			return restUtxos, nil
-		}
-	}
 	if !isSQLiteDatabaseFile(dbPath) {
-		return nil, fmt.Errorf("spv wallet file is not SQLite and such list_unspent returned no UTXOs for this address")
+		return nil, fmt.Errorf("spv wallet file is not SQLite; SPV REST /getUTXOs and such list_unspent returned no UTXOs for this address")
 	}
 
 	tablesRaw, err := s.sqliteRows(ctx, dbPath, "SELECT name FROM sqlite_master WHERE type='table'")

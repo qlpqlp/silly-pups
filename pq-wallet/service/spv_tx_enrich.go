@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"os"
 	"strings"
 )
 
@@ -299,6 +300,52 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 			if raw := strings.TrimSpace(byTxid[id]); raw != "" {
 				tx.RawHex = raw
 				changed = true
+			}
+		}
+	}
+	// Some restores have tx raws outside the current tail window. If still missing,
+	// scan the whole spv.log when reasonably sized so spend rows can resolve recipient/out amount.
+	if needRawBackfill && len(needByTxid) > 0 {
+		stillMissing := make(map[string]struct{})
+		for i := range st.Transactions {
+			tx := &st.Transactions[i]
+			if strings.TrimSpace(tx.RawHex) != "" {
+				continue
+			}
+			id := normalizeTxid(tx.Txid)
+			if id == "" {
+				continue
+			}
+			if _, wanted := needByTxid[id]; wanted {
+				stillMissing[id] = struct{}{}
+			}
+		}
+		if len(stillMissing) > 0 {
+			logPath := s.spvLogPath()
+			const maxFullSPVLogScan = 256 << 20
+			if fi, err := os.Stat(logPath); err == nil && !fi.IsDir() && fi.Size() > 0 && fi.Size() <= maxFullSPVLogScan {
+				if full, err := os.ReadFile(logPath); err == nil && len(full) > 0 {
+					byTxid := parseSPVRawTxHexByTxid(string(full))
+					for i := range st.Transactions {
+						tx := &st.Transactions[i]
+						if strings.TrimSpace(tx.RawHex) != "" {
+							continue
+						}
+						id := normalizeTxid(tx.Txid)
+						if id == "" {
+							continue
+						}
+						if _, wanted := stillMissing[id]; !wanted {
+							continue
+						}
+						if raw := strings.TrimSpace(byTxid[id]); raw != "" {
+							tx.RawHex = raw
+							changed = true
+						}
+					}
+					// Reuse the larger blob for prevout indexing below.
+					logBlob = string(full)
+				}
 			}
 		}
 	}

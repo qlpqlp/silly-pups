@@ -472,6 +472,77 @@ func parseSPVRESTTimestamp(raw string) int64 {
 	return 0
 }
 
+// parseSPVRESTWalletBalance parses GET /getBalance (libdogecoin SPV REST):
+// https://lib.dogecoin.org/docs/rest — body line: Wallet balance: <balance>
+func parseSPVRESTWalletBalance(raw string) (float64, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, false
+	}
+	for _, ln := range strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n") {
+		low := strings.ToLower(strings.TrimSpace(ln))
+		if !strings.HasPrefix(low, "wallet balance") {
+			continue
+		}
+		i := strings.IndexAny(ln, ":=")
+		if i <= 0 {
+			continue
+		}
+		v := strings.TrimSpace(ln[i+1:])
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+			return f, true
+		}
+	}
+	return 0, false
+}
+
+// parseSPVRESTTotalUnspent parses the trailer line from GET /getUTXOs:
+// Total Unspent: <total_unspent_balance>
+func parseSPVRESTTotalUnspent(raw string) (float64, bool) {
+	for _, ln := range strings.Split(strings.ReplaceAll(strings.TrimSpace(raw), "\r\n", "\n"), "\n") {
+		low := strings.ToLower(strings.TrimSpace(ln))
+		if !strings.HasPrefix(low, "total unspent") {
+			continue
+		}
+		i := strings.IndexAny(ln, ":=")
+		if i <= 0 {
+			continue
+		}
+		v := strings.TrimSpace(ln[i+1:])
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+			return f, true
+		}
+	}
+	return 0, false
+}
+
+// computeSPVRESTSpendableDOGE returns total spendable DOGE from SPV REST when the node responds.
+func (s *Server) computeSPVRESTSpendableDOGE() (float64, bool) {
+	if raw, err := s.fetchSPVREST("/getBalance"); err == nil {
+		if f, ok := parseSPVRESTWalletBalance(raw); ok {
+			return round2(f), true
+		}
+	}
+	if raw, err := s.fetchSPVREST("/getUTXOs"); err == nil {
+		if f, ok := parseSPVRESTTotalUnspent(raw); ok {
+			return round2(f), true
+		}
+	}
+	return 0, false
+}
+
+// refreshSpendableCacheFromSPVREST updates lastSuchSpendable* from REST only (no such CLI).
+func (s *Server) refreshSpendableCacheFromSPVREST() {
+	sum, ok := s.computeSPVRESTSpendableDOGE()
+	if !ok {
+		return
+	}
+	s.suchMergeMu.Lock()
+	s.lastSuchSpendableDOGE = sum
+	s.lastSuchSpendableAt = time.Now()
+	s.suchMergeMu.Unlock()
+}
+
 // seenAtApproxFromBlockHeight maps a confirmed block height to an approximate UTC time using
 // tip height/time and a fixed mean block interval (Dogecoin ~1 min). Used when REST omits timestamps
 // but includes height: lines.

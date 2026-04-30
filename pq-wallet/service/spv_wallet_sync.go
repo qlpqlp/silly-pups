@@ -376,9 +376,9 @@ func absFloat(v float64) float64 {
 	return v
 }
 
-// mergeTransactionsFromSuchListUnspent builds receive-side transaction rows from libdogecoin's
-// wallet file via `such list_unspent` (works for the default binary spv_wallet.db). SQLite-only
-// parsers miss this entirely; SPV log raw lines are optional.
+// mergeTransactionsFromSuchListUnspent refreshes the spendable-DOGE cache from `such list_unspent`
+// when the CLI works; otherwise tries SPV REST /getBalance per libdogecoin docs. It does not merge
+// tx rows (those come from SPV REST /getTransactions, logs, and DB pipelines).
 func (s *Server) mergeTransactionsFromSuchListUnspent(wf *WalletFile, st *WalletState) bool {
 	if wf == nil || st == nil {
 		return false
@@ -417,6 +417,9 @@ func (s *Server) mergeTransactionsFromSuchListUnspent(wf *WalletFile, st *Wallet
 		s.lastSuchSpendableDOGE = round2(spendableDOGE)
 		s.lastSuchSpendableAt = time.Now()
 		s.suchMergeMu.Unlock()
+	} else {
+		// When such is unavailable, still refresh cache from documented SPV REST /getBalance.
+		s.refreshSpendableCacheFromSPVREST()
 	}
 	// Keep this function spendable-only. UTXO snapshots do not encode reliable
 	// IN/OUT transaction direction during sync (change outputs can look like IN).

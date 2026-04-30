@@ -16,6 +16,11 @@ type TxRecord struct {
 	Direction     string    `json:"direction"` // in | out | unknown
 	AmountDOGE    float64   `json:"amount_doge"`
 	RawHex        string    `json:"raw_hex,omitempty"`
+	SPVHeaderRaw  string    `json:"spv_header_raw,omitempty"`   // optional block header raw hex (when available from SPV evidence)
+	SPVMerkleRaw  string    `json:"spv_merkle_raw,omitempty"`   // optional merkle/proof raw hex (when available from SPV evidence)
+	SPVProofNote  string    `json:"spv_proof_note,omitempty"`   // concise SPV evidence line for tx detail/debug
+	SPVBlockHash  string    `json:"spv_block_hash,omitempty"`   // block hash associated with confirmation/proof
+	SPVBlockHeight int64    `json:"spv_block_height,omitempty"` // block height associated with confirmation/proof
 	Address       string    `json:"address,omitempty"`
 	FeeDOGE       float64   `json:"fee_doge,omitempty"`
 	Confirmations int       `json:"confirmations"`
@@ -153,6 +158,21 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 			}
 			if prev.RawHex == "" && t.RawHex != "" {
 				prev.RawHex = t.RawHex
+			}
+			if prev.SPVHeaderRaw == "" && t.SPVHeaderRaw != "" {
+				prev.SPVHeaderRaw = t.SPVHeaderRaw
+			}
+			if prev.SPVMerkleRaw == "" && t.SPVMerkleRaw != "" {
+				prev.SPVMerkleRaw = t.SPVMerkleRaw
+			}
+			if prev.SPVProofNote == "" && t.SPVProofNote != "" {
+				prev.SPVProofNote = t.SPVProofNote
+			}
+			if prev.SPVBlockHash == "" && t.SPVBlockHash != "" {
+				prev.SPVBlockHash = t.SPVBlockHash
+			}
+			if t.SPVBlockHeight > prev.SPVBlockHeight {
+				prev.SPVBlockHeight = t.SPVBlockHeight
 			}
 			if t.Direction != "" && t.Direction != "unknown" {
 				restHint := strings.TrimSpace(t.RawHex) == ""

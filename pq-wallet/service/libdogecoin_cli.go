@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -124,8 +125,57 @@ func (s *Server) p2pkhScriptPubKeyHexForSign(wf *WalletFile) (string, error) {
 	return p2pkhScriptPubKeyHexFromCompressedPubKeyHex(pub)
 }
 
+// libdogecoinVendoredToolCandidates returns possible paths for such/sendtx/spvnode shipped next to the
+// service or under pq-wallet/vendors (PQ_LIBDOGECOIN_BIN, vendors/bin, or a local cmake build tree).
+func libdogecoinVendoredToolCandidates(tool string) []string {
+	ext := ""
+	if runtime.GOOS == "windows" {
+		ext = ".exe"
+	}
+	fn := tool + ext
+	var out []string
+	if d := strings.TrimSpace(os.Getenv("PQ_LIBDOGECOIN_BIN")); d != "" {
+		out = append(out, filepath.Join(d, fn))
+	}
+	addRoots := func(root string) {
+		if root == "" {
+			return
+		}
+		out = append(out,
+			filepath.Join(root, "vendors", "bin", fn),
+			filepath.Join(root, "vendors", "libdogecoin", "build", fn),
+			filepath.Join(root, "vendors", "libdogecoin", "build", "Release", fn),
+		)
+	}
+	if ex, err := os.Executable(); err == nil && ex != "" {
+		dir := filepath.Dir(ex)
+		addRoots(dir)
+		addRoots(filepath.Clean(filepath.Join(dir, "..")))
+		addRoots(filepath.Clean(filepath.Join(dir, "..", "..")))
+	}
+	if wd, err := os.Getwd(); err == nil {
+		addRoots(wd)
+		addRoots(filepath.Clean(filepath.Join(wd, "..")))
+		addRoots(filepath.Clean(filepath.Join(wd, "..", "..")))
+	}
+	return out
+}
+
+func firstExistingFile(paths []string) string {
+	for _, p := range paths {
+		p = filepath.Clean(p)
+		if st, err := os.Stat(p); err == nil && !st.IsDir() && st.Size() > 0 {
+			return p
+		}
+	}
+	return ""
+}
+
 func (s *Server) suchPath() string {
 	if p := strings.TrimSpace(os.Getenv("LIBDOGECOIN_SUCH")); p != "" {
+		return p
+	}
+	if p := firstExistingFile(libdogecoinVendoredToolCandidates("such")); p != "" {
 		return p
 	}
 	if p, err := exec.LookPath("such"); err == nil {
@@ -138,6 +188,9 @@ func (s *Server) sendtxPath() string {
 	if p := strings.TrimSpace(os.Getenv("LIBDOGECOIN_SENDTX")); p != "" {
 		return p
 	}
+	if p := firstExistingFile(libdogecoinVendoredToolCandidates("sendtx")); p != "" {
+		return p
+	}
 	if p, err := exec.LookPath("sendtx"); err == nil {
 		return p
 	}
@@ -146,6 +199,9 @@ func (s *Server) sendtxPath() string {
 
 func (s *Server) spvnodePath() string {
 	if p := strings.TrimSpace(os.Getenv("LIBDOGECOIN_SPVNODE")); p != "" {
+		return p
+	}
+	if p := firstExistingFile(libdogecoinVendoredToolCandidates("spvnode")); p != "" {
 		return p
 	}
 	if p, err := exec.LookPath("spvnode"); err == nil {
@@ -1030,6 +1086,9 @@ func (s *Server) readSPVStatus() map[string]any {
 	logPath := s.spvLogPath()
 	out := map[string]any{
 		"libdogecoin_spvnode": s.spvnodePath(),
+		"libdogecoin_such":    s.suchPath(),
+		"libdogecoin_sendtx":  s.sendtxPath(),
+		"pq_libdogecoin_bin":  strings.TrimSpace(os.Getenv("PQ_LIBDOGECOIN_BIN")),
 		"pid_file":            pidPath,
 		"log_file":            logPath,
 		"storage_dir":         s.storageDir,

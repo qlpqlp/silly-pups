@@ -1,16 +1,12 @@
 # libdogecoin with liboqs (Falcon-512 / Dilithium2) + such, sendtx, spvnode CLI tools.
-{ lib, stdenv, fetchFromGitHub, cmake, pkg-config, gmp, liboqs, openssl, ninja }:
+# Source of truth: pq-wallet/vendors/libdogecoin (your PQC-ready tree), not a fixed GitHub tarball.
+{ lib, stdenv, cmake, pkg-config, gmp, liboqs, openssl, ninja }:
 
 stdenv.mkDerivation rec {
   pname = "libdogecoin-with-oqs";
-  version = "0.1.5-git-a120e03";
+  version = "vendor";
 
-  src = fetchFromGitHub {
-    owner = "dogecoinfoundation";
-    repo = "libdogecoin";
-    rev = "a120e0377650f247398b8b76c5d74e5ed89ec437";
-    hash = "sha256-O0Km5jlSFFtXfN6aO2FsPzQfdo7YvI7LwFy4l3ldXkc=";
-  };
+  src = ../vendors/libdogecoin;
 
   patches = [
     ./libdogecoin-oqs.patch

@@ -1,4 +1,5 @@
 # PQ Doge Wallet — Go HTTP service + libdogecoin (such, sendtx, spvnode) on PATH.
+# libdogecoin is built from ./vendors/libdogecoin (see nix/libdogecoin.nix).
 # Service name must match manifest container.services[0].name.
 { pkgs ? import <nixpkgs> {} }:
 

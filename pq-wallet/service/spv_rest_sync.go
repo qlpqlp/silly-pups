@@ -23,6 +23,12 @@ type spvRESTTxRow struct {
 	Confirmations int
 	BlockHeight   int64
 	SeenAt        time.Time
+	// Optional lines from /getTransactions (spent UTXO blocks) — spending tx + Dogecoin Wallet-style payee.
+	SpendTxid            string
+	PayTo                string
+	PayAmountDOGE        float64
+	SpendBlockHeight     int64
+	SpendConfirmations   int
 }
 
 var (
@@ -249,18 +255,34 @@ func parseSPVRESTRows(raw, direction string) []spvRESTTxRow {
 		}
 		rowDir := directionFromRESTCur(cur, direction)
 		blkH := int64(parseIntDefault(cur["height"], 0))
+		spendTx := normalizeTxid(cur["spend_txid"])
+		payTo := strings.TrimSpace(cur["pay_to"])
+		payAmtStr := strings.TrimSpace(cur["pay_amount"])
+		var payAmt float64
+		if payAmtStr != "" {
+			if f, err := strconv.ParseFloat(payAmtStr, 64); err == nil {
+				payAmt = f
+			}
+		}
+		spH := int64(parseIntDefault(cur["spend_height"], 0))
+		spConf := parseIntDefault(cur["spend_confirmations"], 0)
 		// spendable:0 on /getTransactions means "this wallet UTXO was consumed later", NOT that this txid is an
 		// outgoing payment — receives that were later spent still show spendable:0. Net direction comes from
 		// enrichSPVTxFromRawHex + walletNetFromPrevoutIndex, not from this flag.
 		rows = append(rows, spvRESTTxRow{
-			Txid:          txid,
-			Vout:          uint32(vout),
-			Address:       addr,
-			AmountDOGE:    absFloat(amt),
-			Direction:     rowDir,
-			Confirmations: conf,
-			BlockHeight:   blkH,
-			SeenAt:        seen,
+			Txid:               txid,
+			Vout:               uint32(vout),
+			Address:            addr,
+			AmountDOGE:         absFloat(amt),
+			Direction:          rowDir,
+			Confirmations:      conf,
+			BlockHeight:        blkH,
+			SeenAt:             seen,
+			SpendTxid:          spendTx,
+			PayTo:              payTo,
+			PayAmountDOGE:      absFloat(payAmt),
+			SpendBlockHeight:   spH,
+			SpendConfirmations: spConf,
 		})
 		cur = map[string]string{}
 	}
@@ -701,6 +723,71 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 		}
 		byTxid[id] = prev
 	}
+	// Spent-UTXO REST blocks are keyed by the *funding* txid; optional spend_txid + pay_* describe the actual
+	// OUT row (bitcoinj / Dogecoin Wallet semantics). Materialize one TxRecord per spending txid.
+	orderSeen := make(map[string]struct{}, len(txOrder))
+	for _, id := range txOrder {
+		orderSeen[id] = struct{}{}
+	}
+	for i := range rows {
+		r := &rows[i]
+		sid := normalizeTxid(r.SpendTxid)
+		if sid == "" {
+			continue
+		}
+		payTo := strings.TrimSpace(r.PayTo)
+		payAmt := r.PayAmountDOGE
+		if payTo == "" && payAmt <= 0 {
+			continue
+		}
+		spConf := r.SpendConfirmations
+		spBh := r.SpendBlockHeight
+		if spConf <= 0 {
+			spConf = r.Confirmations
+		}
+		if spBh <= 0 {
+			spBh = r.BlockHeight
+		}
+		prev, ok := byTxid[sid]
+		if !ok {
+			byTxid[sid] = TxRecord{
+				Txid:          sid,
+				Direction:     "out",
+				AmountDOGE:    round2(payAmt),
+				Address:       payTo,
+				Confirmations: spConf,
+				BlockHeight:   spBh,
+				Source:        "spv",
+				SeenAt:        r.SeenAt,
+				PQHint:        true,
+			}
+			if _, dup := orderSeen[sid]; !dup {
+				txOrder = append(txOrder, sid)
+				orderSeen[sid] = struct{}{}
+			}
+			continue
+		}
+		if payTo != "" && strings.TrimSpace(prev.Address) == "" {
+			prev.Address = payTo
+		}
+		if payAmt > 0 && prev.AmountDOGE <= 0 {
+			prev.AmountDOGE = round2(payAmt)
+		}
+		if dir := strings.ToLower(strings.TrimSpace(prev.Direction)); dir == "" || dir == "unknown" || dir == "in" {
+			prev.Direction = "out"
+		}
+		if spConf > prev.Confirmations {
+			prev.Confirmations = spConf
+		}
+		if spBh > prev.BlockHeight {
+			prev.BlockHeight = spBh
+		}
+		if prev.SeenAt.IsZero() && !r.SeenAt.IsZero() {
+			prev.SeenAt = r.SeenAt
+		}
+		prev.PQHint = true
+		byTxid[sid] = prev
+	}
 	if len(byTxid) == 0 {
 		return false
 	}
@@ -727,7 +814,7 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 		for _, t := range merged {
 			id := normalizeTxid(t.Txid)
 			o, ok := oldByID[id]
-			if !ok || t.AmountDOGE != o.AmountDOGE || t.Direction != o.Direction || t.Address != o.Address || t.Confirmations != o.Confirmations || t.BlockHeight != o.BlockHeight || !t.SeenAt.Equal(o.SeenAt) {
+			if !ok || t.AmountDOGE != o.AmountDOGE || t.Direction != o.Direction || t.Address != o.Address || t.Confirmations != o.Confirmations || t.BlockHeight != o.BlockHeight || !t.SeenAt.Equal(o.SeenAt) || t.PQHint != o.PQHint {
 				changed = true
 				break
 			}

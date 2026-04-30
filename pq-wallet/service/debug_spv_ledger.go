@@ -48,12 +48,17 @@ func spvRESTTxRowsSummary(rows []spvRESTTxRow, limit int) []map[string]any {
 			break
 		}
 		out = append(out, map[string]any{
-			"txid":          normalizeTxid(r.Txid),
-			"direction":     strings.ToLower(strings.TrimSpace(r.Direction)),
-			"amount_doge":   r.AmountDOGE,
-			"address":       r.Address,
-			"confirmations": r.Confirmations,
-			"vout":          r.Vout,
+			"txid":                 normalizeTxid(r.Txid),
+			"direction":            strings.ToLower(strings.TrimSpace(r.Direction)),
+			"amount_doge":          r.AmountDOGE,
+			"address":              r.Address,
+			"confirmations":        r.Confirmations,
+			"vout":                 r.Vout,
+			"spend_txid":           normalizeTxid(r.SpendTxid),
+			"pay_to":               strings.TrimSpace(r.PayTo),
+			"pay_amount_doge":      r.PayAmountDOGE,
+			"spend_height":         r.SpendBlockHeight,
+			"spend_confirmations":  r.SpendConfirmations,
 			"seen_at_unix": func() int64 {
 				if r.SeenAt.IsZero() {
 					return 0

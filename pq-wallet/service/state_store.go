@@ -119,6 +119,19 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 		}
 		t.Txid = id
 		if prev, ok := byID[id]; ok {
+			manualOutHint := strings.EqualFold(strings.TrimSpace(t.Source), "manual") &&
+				strings.EqualFold(strings.TrimSpace(t.Direction), "out")
+			if manualOutHint {
+				// Wallet-originated send metadata is authoritative for list display:
+				// it carries the exact pay-to destination and amount selected at send time.
+				prev.Direction = "out"
+				if t.AmountDOGE > 0 {
+					prev.AmountDOGE = t.AmountDOGE
+				}
+				if strings.TrimSpace(t.Address) != "" {
+					prev.Address = t.Address
+				}
+			}
 			// merge: prefer higher confirmations, OR pq flags
 			if t.Confirmations > prev.Confirmations {
 				prev.Confirmations = t.Confirmations

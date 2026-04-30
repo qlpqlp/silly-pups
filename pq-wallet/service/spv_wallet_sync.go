@@ -417,9 +417,6 @@ func (s *Server) mergeTransactionsFromSuchListUnspent(wf *WalletFile, st *Wallet
 		s.lastSuchSpendableDOGE = round2(spendableDOGE)
 		s.lastSuchSpendableAt = time.Now()
 		s.suchMergeMu.Unlock()
-	} else {
-		// When such is unavailable, still refresh cache from documented SPV REST /getBalance.
-		s.refreshSpendableCacheFromSPVREST()
 	}
 	// Keep this function spendable-only. UTXO snapshots do not encode reliable
 	// IN/OUT transaction direction during sync (change outputs can look like IN).

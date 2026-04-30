@@ -531,18 +531,6 @@ func (s *Server) computeSPVRESTSpendableDOGE() (float64, bool) {
 	return 0, false
 }
 
-// refreshSpendableCacheFromSPVREST updates lastSuchSpendable* from REST only (no such CLI).
-func (s *Server) refreshSpendableCacheFromSPVREST() {
-	sum, ok := s.computeSPVRESTSpendableDOGE()
-	if !ok {
-		return
-	}
-	s.suchMergeMu.Lock()
-	s.lastSuchSpendableDOGE = sum
-	s.lastSuchSpendableAt = time.Now()
-	s.suchMergeMu.Unlock()
-}
-
 // seenAtApproxFromBlockHeight maps a confirmed block height to an approximate UTC time using
 // tip height/time and a fixed mean block interval (Dogecoin ~1 min). Used when REST omits timestamps
 // but includes height: lines.

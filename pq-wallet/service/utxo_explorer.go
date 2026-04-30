@@ -31,6 +31,14 @@ func (s *Server) utxosFromSPVRESTForAddress(address string) []ExplorerUTXO {
 	if address == "" {
 		return nil
 	}
+	// If REST omits address on rows, attributing every row to each wallet address would multiply balances.
+	allowEmptyRESTAddr := false
+	if wf, err := s.loadWallet(); err == nil && wf != nil {
+		addrs := wf.AllDistinctP2PKHAddresses()
+		if len(addrs) == 1 && strings.EqualFold(strings.TrimSpace(addrs[0]), address) {
+			allowEmptyRESTAddr = true
+		}
+	}
 	out := make([]ExplorerUTXO, 0, len(rows))
 	for _, r := range rows {
 		id := normalizeTxid(r.Txid)
@@ -38,6 +46,9 @@ func (s *Server) utxosFromSPVRESTForAddress(address string) []ExplorerUTXO {
 			continue
 		}
 		if r.Address != "" && !strings.EqualFold(strings.TrimSpace(r.Address), address) {
+			continue
+		}
+		if strings.TrimSpace(r.Address) == "" && !allowEmptyRESTAddr {
 			continue
 		}
 		val := int64(math.Round(r.AmountDOGE * 1e8))
@@ -53,7 +64,7 @@ func (s *Server) utxosFromSPVRESTForAddress(address string) []ExplorerUTXO {
 	return out
 }
 
-// fetchUTXOsFromExplorer resolves spendable outputs: SPV REST /getUTXOs first, then such list_unspent,
+// fetchUTXOsFromExplorer resolves spendable outputs: such list_unspent, then SPV REST /getUTXOs,
 // then SQLite on spv_wallet.db when it is a real SQLite file (legacy / dev).
 func (s *Server) fetchUTXOsFromExplorer(ctx context.Context, address string) ([]ExplorerUTXO, error) {
 	dbPath := filepath.Join(s.storageDir, "spv_wallet.db")
@@ -68,10 +79,11 @@ func (s *Server) fetchUTXOsFromExplorer(ctx context.Context, address string) ([]
 	if wf, err := s.loadWallet(); err == nil && wf != nil {
 		testnet = strings.EqualFold(wf.Network, "testnet")
 	}
-	if utxos := s.utxosFromSPVRESTForAddress(address); len(utxos) > 0 {
+	// Prefer such when available: correct per-address filtering without extra HTTP to spvnode.
+	if utxos, err := s.runSuchListUnspent(address, testnet); err == nil && len(utxos) > 0 {
 		return utxos, nil
 	}
-	if utxos, err := s.runSuchListUnspent(address, testnet); err == nil && len(utxos) > 0 {
+	if utxos := s.utxosFromSPVRESTForAddress(address); len(utxos) > 0 {
 		return utxos, nil
 	}
 	if !isSQLiteDatabaseFile(dbPath) {

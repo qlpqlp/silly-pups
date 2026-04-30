@@ -326,6 +326,34 @@
             </div>
           </details>
           <details class="card settings-details">
+            <summary class="settings-details-summary"><h2 class="settings-details-h2"><span class="material-symbols-outlined icon-inline">api</span> SPV REST probe</h2></summary>
+            <div class="settings-details-body">
+            <p class="small muted">Issue a read-only GET to your local <code class="mono">spvnode</code> HTTP server (same base as <code class="mono">SPV_HTTP_ADDR</code>, default <code class="mono">127.0.0.1:8080</code>). Endpoints match the <a href="https://lib.dogecoin.org/docs/rest" target="_blank" rel="noopener noreferrer">Libdogecoin SPV REST API</a>. <strong>Sensitive:</strong> <code class="mono">/getWallet</code> returns wallet bytes — use only in a trusted environment.</p>
+            <div class="field field-tight">
+              <span class="field-label" id="spv-rest-probe-label">Endpoint</span>
+              <div class="select-wrap">
+                <select id="spv-rest-probe-select" class="input-modern" aria-labelledby="spv-rest-probe-label">
+                  <option value="/getChaintip">GET /getChaintip</option>
+                  <option value="/getBalance">GET /getBalance</option>
+                  <option value="/getTimestamp">GET /getTimestamp</option>
+                  <option value="/getLastBlockInfo">GET /getLastBlockInfo</option>
+                  <option value="/getAddresses">GET /getAddresses</option>
+                  <option value="/getTransactions">GET /getTransactions</option>
+                  <option value="/getUTXOs">GET /getUTXOs</option>
+                  <option value="/getHeaders">GET /getHeaders (binary)</option>
+                  <option value="/getWallet">GET /getWallet (binary)</option>
+                </select>
+                <span class="material-symbols-outlined select-caret" aria-hidden="true">expand_more</span>
+              </div>
+            </div>
+            <div class="toolbar toolbar-actions">
+              <button type="button" class="btn btn-sm primary" id="btn-spv-rest-probe"><span class="material-symbols-outlined btn-ico">play_arrow</span> Fetch response</button>
+            </div>
+            <p class="small muted" id="spv-rest-probe-msg"></p>
+            <pre class="dos-screen" id="spv-rest-probe-out" style="min-height:10rem;margin-top:.5rem">Unlock the wallet, choose an endpoint, then Fetch response.</pre>
+            </div>
+          </details>
+          <details class="card settings-details">
             <summary class="settings-details-summary"><h2 class="settings-details-h2">Backup</h2></summary>
             <div class="settings-details-body">
             <p class="small muted">Downloads wallet JSON (only while not sealed, or export after unlock).</p>

@@ -177,13 +177,14 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	spendable := math.Max(0, inSum-outSum)
-	// Prefer libdogecoin SPV REST /getBalance (or /getUTXOs total); then per-address UTXO sum.
-	if restSpend, ok := s.computeSPVRESTSpendableDOGE(); ok {
-		spendable = math.Max(0, restSpend)
-	} else if utxoSpendable, ok := s.computeSuchSpendableDOGE(wf); ok {
+	// Spendable from summed UTXOs (such / REST / SQLite via fetchUTXOsFromExplorer), not /getBalance alone:
+	// during header sync REST totals can lag or disagree with the wallet UI ledger.
+	if utxoSpendable, ok := s.computeSuchSpendableDOGE(wf); ok {
 		spendable = math.Max(0, utxoSpendable)
 	} else if utxoSpendable, ok := s.latestSuchSpendable(10 * time.Minute); ok {
 		spendable = math.Max(0, utxoSpendable)
+	} else if restSpend, ok := s.computeSPVRESTSpendableDOGE(); ok {
+		spendable = math.Max(0, restSpend)
 	}
 
 	eng, engErr := s.ensureMempoolEngine(wf)
@@ -376,7 +377,8 @@ func (s *Server) mergeTransactionsFromBroadcastLog(st *WalletState) bool {
 	}
 	ids := extractBroadcastOutTxidsFromTail(tail)
 	hints := extractBroadcastPaymentHintsFromTail(tail)
-	if len(ids) == 0 && len(hints) == 0 {
+	spentPrev := extractBroadcastSpentPrevoutHintsFromTail(tail)
+	if len(ids) == 0 && len(hints) == 0 && len(spentPrev) == 0 {
 		return false
 	}
 	incoming := make([]TxRecord, 0, len(ids)+len(hints))
@@ -415,6 +417,9 @@ func (s *Server) mergeTransactionsFromBroadcastLog(st *WalletState) bool {
 	}
 	if changed {
 		st.Transactions = merged
+	}
+	if applyBroadcastSpentPrevoutRewrites(st, tail) {
+		changed = true
 	}
 	return changed
 }

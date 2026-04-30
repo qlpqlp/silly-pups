@@ -16,6 +16,7 @@ var (
 	reBroadcastHexChunk = regexp.MustCompile(`(?i)^\S+\s+SIGNED_RAW_HEX\s+off=(\d+)\s+len=(\d+)\s+([0-9a-f]+)\s*$`)
 	reBroadcastLineTxid = regexp.MustCompile(`(?i)^\S+\s+txid=([0-9a-f]{64})\b`)
 	reBroadcastPaymentHintLine = regexp.MustCompile(`(?i)^\S+\s+PAYMENT_HINT\s+txid=([0-9a-f]{64})\s+to=([A-Za-z0-9]{26,64})\s+amount_doge=([0-9]+(?:\.[0-9]+)?)\s*$`)
+	reBroadcastSpentPrevoutHintLine = regexp.MustCompile(`(?i)^\S+\s+SPENT_PREVOUT_HINT\s+prev_txid=([0-9a-f]{64})\s+prev_vout=(\d+)\s+spend_txid=([0-9a-f]{64})\s+to=([A-Za-z0-9]{26,64})\s+amount_doge=([0-9]+(?:\.[0-9]+)?)\s*$`)
 	// sendtx sometimes logs: "start broadcasting transaction: <64hex>"
 	reSendtxBroadcastStartLine = regexp.MustCompile(`(?i)start\s+broadcasting\s+transaction:\s*([0-9a-f]{64})\b`)
 )
@@ -68,6 +69,14 @@ type broadcastPaymentHint struct {
 	AmountDOGE float64
 }
 
+// broadcastSpentPrevoutHint links /getTransactions "spent" rows (keyed by funding txid) to the real spend txid.
+type broadcastSpentPrevoutHint struct {
+	PrevTxid   string
+	SpendTxid  string
+	ToAddress  string
+	AmountDOGE float64
+}
+
 func extractBroadcastPaymentHintsFromTail(tail string) map[string]broadcastPaymentHint {
 	out := map[string]broadcastPaymentHint{}
 	for _, line := range strings.Split(strings.ReplaceAll(tail, "\r\n", "\n"), "\n") {
@@ -88,6 +97,69 @@ func extractBroadcastPaymentHintsFromTail(tail string) map[string]broadcastPayme
 		out[txid] = broadcastPaymentHint{ToAddress: to, AmountDOGE: amt}
 	}
 	return out
+}
+
+func extractBroadcastSpentPrevoutHintsFromTail(tail string) []broadcastSpentPrevoutHint {
+	var out []broadcastSpentPrevoutHint
+	for _, line := range strings.Split(strings.ReplaceAll(tail, "\r\n", "\n"), "\n") {
+		pl := stripBroadcastLogTimePrefix(strings.TrimSpace(line))
+		if pl == "" {
+			continue
+		}
+		m := reBroadcastSpentPrevoutHintLine.FindStringSubmatch(pl)
+		if len(m) < 6 {
+			continue
+		}
+		prev := normalizeTxid(m[1])
+		spend := normalizeTxid(m[3])
+		to := strings.TrimSpace(m[4])
+		amt, _ := strconv.ParseFloat(strings.TrimSpace(m[5]), 64)
+		if prev == "" || spend == "" || to == "" || amt <= 0 {
+			continue
+		}
+		out = append(out, broadcastSpentPrevoutHint{
+			PrevTxid:   prev,
+			SpendTxid:  spend,
+			ToAddress:  to,
+			AmountDOGE: amt,
+		})
+	}
+	return out
+}
+
+// applyBroadcastSpentPrevoutRewrites rewrites SPV /getTransactions rows that use the funding txid as the row key
+// into the actual broadcast spend txid with pay-to metadata (matches PAYMENT_HINT / local send row).
+func applyBroadcastSpentPrevoutRewrites(st *WalletState, tail string) bool {
+	if st == nil {
+		return false
+	}
+	hints := extractBroadcastSpentPrevoutHintsFromTail(tail)
+	if len(hints) == 0 {
+		return false
+	}
+	prevMeta := make(map[string]broadcastSpentPrevoutHint, len(hints))
+	for _, h := range hints {
+		prevMeta[h.PrevTxid] = h
+	}
+	changed := false
+	for i := range st.Transactions {
+		id := normalizeTxid(st.Transactions[i].Txid)
+		h, ok := prevMeta[id]
+		if !ok {
+			continue
+		}
+		st.Transactions[i].Txid = h.SpendTxid
+		st.Transactions[i].Direction = "out"
+		st.Transactions[i].Address = h.ToAddress
+		st.Transactions[i].AmountDOGE = h.AmountDOGE
+		st.Transactions[i].Source = "manual"
+		changed = true
+	}
+	if !changed {
+		return false
+	}
+	st.Transactions = mergeTxRecords(nil, st.Transactions)
+	return true
 }
 
 // mergeRawHexFromBroadcastLog reassembles SIGNED_RAW_HEX chunks from broadcast.log into TxRecord.RawHex

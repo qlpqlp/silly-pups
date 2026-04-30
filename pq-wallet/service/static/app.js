@@ -2175,6 +2175,30 @@ const btnSpvDeep = $("btn-spv-deep-refresh");
 if (btnSpvDeep) btnSpvDeep.addEventListener("click", () => refreshSpvDeepLog());
 const btnSpvLedger = $("btn-spv-ledger-refresh");
 if (btnSpvLedger) btnSpvLedger.addEventListener("click", () => refreshSpvLedgerSnapshot());
+const btnSpvRestProbe = $("btn-spv-rest-probe");
+if (btnSpvRestProbe) {
+  btnSpvRestProbe.addEventListener("click", async () => {
+    const sel = $("spv-rest-probe-select");
+    const out = $("spv-rest-probe-out");
+    const msg = $("spv-rest-probe-msg");
+    const path = sel && sel.value ? String(sel.value).trim() : "/getChaintip";
+    if (msg) msg.textContent = "";
+    if (out) out.textContent = "…";
+    try {
+      const j = await api(`/api/debug/spv-rest?path=${encodeURIComponent(path)}`, { timeout_ms: 25000 });
+      if (j && j.error && !j.path) {
+        if (msg) msg.textContent = String(j.error);
+        if (out) out.textContent = JSON.stringify(j, null, 2);
+        return;
+      }
+      if (msg && j.spv_http_base) msg.textContent = `Base: ${j.spv_http_base} — HTTP ${j.status}`;
+      if (out) out.textContent = JSON.stringify(j, null, 2);
+    } catch (e) {
+      if (msg) msg.textContent = e && e.message ? e.message : String(e);
+      if (out) out.textContent = "";
+    }
+  });
+}
 ["spv-deep-merkle", "spv-deep-hex", "spv-deep-addr", "spv-deep-rawhdr", "spv-deep-tail"].forEach((id) => {
   const el = $(id);
   if (!el) return;

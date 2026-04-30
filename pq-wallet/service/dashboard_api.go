@@ -371,12 +371,22 @@ func (s *Server) mergeTransactionsFromBroadcastLog(st *WalletState) bool {
 		return false
 	}
 	ids := extractBroadcastOutTxidsFromTail(tail)
-	if len(ids) == 0 {
+	hints := extractBroadcastPaymentHintsFromTail(tail)
+	if len(ids) == 0 && len(hints) == 0 {
 		return false
 	}
-	incoming := make([]TxRecord, 0, len(ids))
+	incoming := make([]TxRecord, 0, len(ids)+len(hints))
 	for _, id := range ids {
 		incoming = append(incoming, TxRecord{Txid: id, Direction: "out", Source: "spv"})
+	}
+	for txid, h := range hints {
+		incoming = append(incoming, TxRecord{
+			Txid:       txid,
+			Direction:  "out",
+			Address:    strings.TrimSpace(h.ToAddress),
+			AmountDOGE: h.AmountDOGE,
+			Source:     "manual",
+		})
 	}
 	merged := mergeTxRecords(st.Transactions, incoming)
 	before := len(st.Transactions)

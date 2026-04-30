@@ -406,6 +406,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	}
 	if txCTxid != "" {
 		s.recordOutgoingLocalTx(txCTxid, to, sendKoinu, rawHex, pqCommitment32Hex != "")
+		s.logBroadcastPaymentHint("send_pq_safe", txCTxid, to, float64(sendKoinu)/1e8)
 	}
 
 	txRID := ""

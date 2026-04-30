@@ -15,6 +15,7 @@ var (
 	reBroadcastTxLine   = regexp.MustCompile(`(?i)^\S+\s+txid=([0-9a-f]{64})\s+signed_hex_len=(\d+)`)
 	reBroadcastHexChunk = regexp.MustCompile(`(?i)^\S+\s+SIGNED_RAW_HEX\s+off=(\d+)\s+len=(\d+)\s+([0-9a-f]+)\s*$`)
 	reBroadcastLineTxid = regexp.MustCompile(`(?i)^\S+\s+txid=([0-9a-f]{64})\b`)
+	reBroadcastPaymentHintLine = regexp.MustCompile(`(?i)^\S+\s+PAYMENT_HINT\s+txid=([0-9a-f]{64})\s+to=([A-Za-z0-9]{26,64})\s+amount_doge=([0-9]+(?:\.[0-9]+)?)\s*$`)
 	// sendtx sometimes logs: "start broadcasting transaction: <64hex>"
 	reSendtxBroadcastStartLine = regexp.MustCompile(`(?i)start\s+broadcasting\s+transaction:\s*([0-9a-f]{64})\b`)
 )
@@ -60,6 +61,33 @@ func extractBroadcastOutTxidsFromTail(tail string) []string {
 type broadcastHexChunk struct {
 	off int
 	hex string
+}
+
+type broadcastPaymentHint struct {
+	ToAddress  string
+	AmountDOGE float64
+}
+
+func extractBroadcastPaymentHintsFromTail(tail string) map[string]broadcastPaymentHint {
+	out := map[string]broadcastPaymentHint{}
+	for _, line := range strings.Split(strings.ReplaceAll(tail, "\r\n", "\n"), "\n") {
+		pl := stripBroadcastLogTimePrefix(strings.TrimSpace(line))
+		if pl == "" {
+			continue
+		}
+		m := reBroadcastPaymentHintLine.FindStringSubmatch(pl)
+		if len(m) < 4 {
+			continue
+		}
+		txid := normalizeTxid(m[1])
+		to := strings.TrimSpace(m[2])
+		amt, _ := strconv.ParseFloat(strings.TrimSpace(m[3]), 64)
+		if txid == "" || to == "" || amt <= 0 {
+			continue
+		}
+		out[txid] = broadcastPaymentHint{ToAddress: to, AmountDOGE: amt}
+	}
+	return out
 }
 
 // mergeRawHexFromBroadcastLog reassembles SIGNED_RAW_HEX chunks from broadcast.log into TxRecord.RawHex

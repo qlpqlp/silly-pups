@@ -1149,6 +1149,25 @@ func (s *Server) logBroadcastDetails(sourceTag, txid string, signedHex string, s
 	}
 }
 
+// logBroadcastPaymentHint stores wallet-known destination info for an outgoing tx.
+// This lets tx list rendering show Dogecoin Wallet-style "paid to X amount Y"
+// without requiring full transaction fetches.
+func (s *Server) logBroadcastPaymentHint(sourceTag, txid, toAddress string, amountDOGE float64) {
+	if s == nil || s.storageDir == "" {
+		return
+	}
+	txid = normalizeTxid(strings.TrimSpace(txid))
+	toAddress = strings.TrimSpace(toAddress)
+	if txid == "" || toAddress == "" || amountDOGE <= 0 {
+		return
+	}
+	tag := strings.TrimSpace(sourceTag)
+	if tag == "" {
+		tag = "broadcast"
+	}
+	s.appendBroadcastLogLine(fmt.Sprintf("%s PAYMENT_HINT txid=%s to=%s amount_doge=%.8f", tag, txid, toAddress, amountDOGE))
+}
+
 func readFileTail(path string, max int) (string, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {

@@ -148,6 +148,10 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 				// Never let a REST hint overwrite direction already reconciled from decoded raw tx.
 				if enrichedFromRaw && restHint {
 					// keep prev.Direction
+				} else if strings.EqualFold(strings.TrimSpace(prev.Source), "manual") &&
+					strings.EqualFold(strings.TrimSpace(prev.Direction), "out") &&
+					!strings.EqualFold(strings.TrimSpace(t.Source), "manual") {
+					// Local send metadata (known pay-to + amount from wallet action) wins over later SPV/REST hints.
 				} else if directionRank(t.Direction) >= directionRank(prev.Direction) {
 					prev.Direction = t.Direction
 				}

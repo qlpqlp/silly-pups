@@ -280,7 +280,11 @@ func (s *Server) handleLogsSPVDeep(w http.ResponseWriter, r *http.Request) {
 			}
 			hashSQLite := strings.ToLower(strings.TrimSpace(s.sqliteHeaderHashAtHeight(hProbe)))
 			if hx == "" {
-				b.WriteString("(no blob header column / row at height)\n")
+				if note, _ := meta["note"].(string); strings.Contains(strings.ToLower(note), "legacy non-sqlite") {
+					b.WriteString("(legacy headers.db format detected; SQLite raw-header probe is not applicable)\n")
+				} else {
+					b.WriteString("(no blob header column / row at height)\n")
+				}
 			} else {
 				fmt.Fprintf(&b, "blob_hex_len_chars=%d\n", len(hx))
 				show := hx

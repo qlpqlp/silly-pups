@@ -334,7 +334,7 @@ func (s *Server) sqliteHeaderBlobHexAtHeight(height int64) (hexLower string, met
 	dbPath := filepath.Join(s.storageDir, "headers.db")
 	meta["headers_db"] = dbPath
 	if !isSQLiteDBFile(dbPath) {
-		meta["note"] = "headers.db missing or not SQLite"
+		meta["note"] = "headers.db uses legacy non-SQLite format; raw SQLite header probe skipped"
 		return "", meta
 	}
 	sqlite3Bin, err := exec.LookPath("sqlite3")

@@ -306,13 +306,6 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 	// when inputs spending our UTXOs are fully resolved; sends with unknown funding txs fall back to output-side totals.
 	prevIdx := buildPrevoutWalletIndex(collectUniqueRawHexes(st, logBlob), walletByHash160)
 	cache := make(map[string]rawTxFlow)
-	walletAddrLo := map[string]struct{}{}
-	for _, a := range wf.AllDistinctP2PKHAddresses() {
-		al := strings.ToLower(strings.TrimSpace(a))
-		if al != "" {
-			walletAddrLo[al] = struct{}{}
-		}
-	}
 	for i := range st.Transactions {
 		tx := &st.Transactions[i]
 		raw := strings.TrimSpace(tx.RawHex)
@@ -330,12 +323,17 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 		}
 		net, _, _, netOk := walletNetFromPrevoutIndex(raw, walletByHash160, testnet, prevIdx)
 		if netOk && net != 0 {
-			var netAbs int64 = net
-			if netAbs < 0 {
-				netAbs = -netAbs
+			amtSats := net
+			if amtSats < 0 {
+				amtSats = -amtSats
 			}
-			amt := round2(float64(netAbs) / 1e8)
 			if net < 0 {
+				// Dogecoin Wallet style: OUT row amount is what was paid to counterparty (first external P2PKH output),
+				// not our change output and not net+fee when we can identify the payment line.
+				if fl.CounterpartySats > 0 {
+					amtSats = fl.CounterpartySats
+				}
+				amt := round2(float64(amtSats) / 1e8)
 				if !strings.EqualFold(strings.TrimSpace(tx.Direction), "out") {
 					tx.Direction = "out"
 					changed = true
@@ -354,6 +352,7 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 					changed = true
 				}
 			} else {
+				amt := round2(float64(amtSats) / 1e8)
 				if !strings.EqualFold(strings.TrimSpace(tx.Direction), "in") {
 					tx.Direction = "in"
 					changed = true

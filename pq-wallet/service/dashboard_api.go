@@ -684,16 +684,28 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 			walletAddrSet[a] = struct{}{}
 		}
 	}
-	outTxids := map[string]struct{}{}
-	for _, t := range st.Transactions {
-		if strings.EqualFold(strings.TrimSpace(t.Direction), "out") {
-			if id := normalizeTxid(t.Txid); id != "" {
-				outTxids[id] = struct{}{}
-			}
-		}
-	}
 	testnet := wf != nil && strings.EqualFold(wf.Network, "testnet")
 	walletH160 := walletP2PKHHash160Map(wf)
+	outTxids := map[string]struct{}{}
+	for _, t := range st.Transactions {
+		id := normalizeTxid(t.Txid)
+		if id == "" {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(t.Direction), "out") {
+			outTxids[id] = struct{}{}
+			continue
+		}
+		// Include decoded sends as OUT anchors so change-echo rows can be suppressed
+		// even when REST temporarily labels the spend as IN/unknown.
+		raw := strings.TrimSpace(t.RawHex)
+		if raw == "" || len(walletH160) == 0 {
+			continue
+		}
+		if fl, err := decodeSPVRawTxFlow(raw, walletH160, testnet); err == nil && fl.ExternalSats > 0 {
+			outTxids[id] = struct{}{}
+		}
+	}
 	var prevIdx map[string]prevoutWalletMeta
 	if len(walletH160) > 0 {
 		logBlob := ""
@@ -727,12 +739,15 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 			if err == nil {
 				net, _, _, netOk := walletNetFromPrevoutIndex(tr.RawHex, walletH160, testnet, prevIdx)
 				if netOk && net != 0 {
-					var netAbs int64 = net
-					if netAbs < 0 {
-						netAbs = -netAbs
+					amtSats := net
+					if amtSats < 0 {
+						amtSats = -amtSats
 					}
-					amt := round2(float64(netAbs) / 1e8)
 					if net < 0 {
+						if fl.CounterpartySats > 0 {
+							amtSats = fl.CounterpartySats
+						}
+						amt := round2(float64(amtSats) / 1e8)
 						tr.Direction = "out"
 						if amt > 0 {
 							tr.AmountDOGE = amt
@@ -741,6 +756,7 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 							tr.Address = fl.ExternalAddr
 						}
 					} else {
+						amt := round2(float64(amtSats) / 1e8)
 						tr.Direction = "in"
 						if amt > 0 {
 							tr.AmountDOGE = amt

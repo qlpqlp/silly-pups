@@ -225,9 +225,10 @@ func (s *Server) handleWalletImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Import/restore is typically an existing wallet history, not a new wallet.
-	// Clear tx cache + SPV wallet DB so libdogecoin can rebuild full history for
-	// the restored addresses from current headers.
+	// Force SPV replay for restored keys (Dogecoin Wallet-style behavior):
+	// clear tx cache + SPV wallet DB + header DB so historical transactions are re-discovered.
 	s.stopSPVNode()
+	_ = os.Remove(filepath.Join(s.storageDir, "headers.db"))
 	_ = os.Remove(filepath.Join(s.storageDir, "spv_wallet.db"))
 	_ = os.Remove(s.spvWatchAddrPath())
 	_ = s.saveState(&WalletState{Version: 1})
@@ -236,8 +237,9 @@ func (s *Server) handleWalletImport(w http.ResponseWriter, r *http.Request) {
 		"ok":                 true,
 		"wallet":             wf,
 		"import_mode":        "restore_resync",
+		"removed_headers_db": filepath.Join(s.storageDir, "headers.db"),
 		"removed_spv_wallet": filepath.Join(s.storageDir, "spv_wallet.db"),
-		"note":               "Wallet restore started. SPV wallet DB was reset so transaction history can resync for restored addresses.",
+		"note":               "Wallet restore started. SPV headers + wallet DB were reset so transaction history can resync for restored addresses.",
 	})
 }
 

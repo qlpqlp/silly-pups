@@ -1168,6 +1168,32 @@ func (s *Server) logBroadcastPaymentHint(sourceTag, txid, toAddress string, amou
 	s.appendBroadcastLogLine(fmt.Sprintf("%s PAYMENT_HINT txid=%s to=%s amount_doge=%.8f", tag, txid, toAddress, amountDOGE))
 }
 
+// logBroadcastSpentPrevoutHints maps each consumed wallet UTXO (prev txid:vout) to
+// the final spending tx + destination metadata. This allows SPV /getTransactions spent rows
+// (which are keyed by prevout txid:vout) to be shown as OUT with correct pay-to in UI.
+func (s *Server) logBroadcastSpentPrevoutHints(sourceTag, spendTxid, toAddress string, amountDOGE float64, used []ExplorerUTXO) {
+	if s == nil || s.storageDir == "" {
+		return
+	}
+	spendTxid = normalizeTxid(strings.TrimSpace(spendTxid))
+	toAddress = strings.TrimSpace(toAddress)
+	if spendTxid == "" || toAddress == "" || amountDOGE <= 0 || len(used) == 0 {
+		return
+	}
+	tag := strings.TrimSpace(sourceTag)
+	if tag == "" {
+		tag = "broadcast"
+	}
+	for _, u := range used {
+		prevTxid := normalizeTxid(strings.TrimSpace(u.TxID))
+		if prevTxid == "" {
+			continue
+		}
+		s.appendBroadcastLogLine(fmt.Sprintf("%s SPENT_PREVOUT_HINT prev_txid=%s prev_vout=%d spend_txid=%s to=%s amount_doge=%.8f",
+			tag, prevTxid, u.Vout, spendTxid, toAddress, amountDOGE))
+	}
+}
+
 func readFileTail(path string, max int) (string, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {

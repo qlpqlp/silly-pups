@@ -8,7 +8,7 @@ let
 
   pq_bin = pkgs.buildGoModule {
     pname = "pq-wallet";
-    version = "0.0.45";
+    version = "0.0.46";
     src = ./service;
     vendorHash = null;
     go = pkgs.go_1_24;

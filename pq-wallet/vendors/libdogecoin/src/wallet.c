@@ -651,7 +651,7 @@ void dogecoin_wallet_free(dogecoin_wallet* wallet)
     // Destroy binary trees
     dogecoin_btree_tdestroy(wallet->hdkeys_rbtree, NULL);
     dogecoin_btree_tdestroy(wallet->unspent_rbtree, NULL);
-    dogecoin_btree_tdestroy(wallet->spends_rbtree, NULL);
+    dogecoin_btree_tdestroy(wallet->spends_rbtree, dogecoin_free);
     dogecoin_btree_tdestroy(wallet->wtxes_rbtree, (void (*)(void *)) dogecoin_wallet_wtx_free);
     dogecoin_btree_tdestroy(wallet->waddr_rbtree, NULL);
 
@@ -808,6 +808,29 @@ void dogecoin_wallet_add_wtx_intern_move(dogecoin_wallet *wallet, const dogecoin
     }
     dogecoin_btree_tfind(wtx, &wallet->wtxes_rbtree, dogecoin_wtx_compare);
     vector_add(wallet->vec_wtxes, (dogecoin_wtx *)wtx);
+
+    /* Index spends: for is_from_me wtx, record each non-coinbase prevout in spends_rbtree
+     * so dogecoin_wallet_is_spent() can answer outpoint queries. */
+    if (wtx && wtx->tx && wtx->tx->vin && dogecoin_wallet_is_from_me(wallet, wtx->tx)) {
+        for (unsigned int i = 0; i < wtx->tx->vin->len; i++) {
+            dogecoin_tx_in *in = vector_idx(wtx->tx->vin, i);
+            if (!in || dogecoin_tx_outpoint_is_null(&in->prevout)) {
+                continue;
+            }
+
+            dogecoin_tx_outpoint key;
+            memcpy_safe(&key.hash, in->prevout.hash, sizeof(uint256_t));
+            key.n = in->prevout.n;
+            if (dogecoin_btree_tfind(&key, &wallet->spends_rbtree, dogecoin_tx_outpoint_compare)) {
+                continue;
+            }
+
+            dogecoin_tx_outpoint *op = dogecoin_calloc(1, sizeof(dogecoin_tx_outpoint));
+            memcpy_safe(&op->hash, in->prevout.hash, sizeof(uint256_t));
+            op->n = in->prevout.n;
+            dogecoin_btree_tsearch(op, &wallet->spends_rbtree, dogecoin_tx_outpoint_compare);
+        }
+    }
 }
 
 dogecoin_bool dogecoin_wallet_create(dogecoin_wallet* wallet, const char* file_path, int *error)
@@ -1556,6 +1579,9 @@ int64_t dogecoin_wallet_get_debit_txi(dogecoin_wallet *wallet, const dogecoin_tx
 int64_t dogecoin_wallet_get_debit_tx(dogecoin_wallet *wallet, const dogecoin_tx *tx) {
     unsigned int i;
     int64_t debit = 0;
+    if (!wallet || !tx) {
+        return 0;
+    }
     if (tx->vin) {
         for (i = 0; i < tx->vin->len; i++) {
             dogecoin_tx_in* tx_in= vector_idx(tx->vin, i);
@@ -1569,12 +1595,11 @@ int64_t dogecoin_wallet_get_debit_tx(dogecoin_wallet *wallet, const dogecoin_tx 
 
 dogecoin_bool dogecoin_wallet_is_from_me(dogecoin_wallet *wallet, const dogecoin_tx *tx)
 {
-    if (dogecoin_wallet_get_debit_tx(wallet, tx) > 0) {
-        return true;
-    }
-
     if (!wallet || !tx || !tx->vin) {
         return false;
+    }
+    if (dogecoin_wallet_get_debit_tx(wallet, tx) > 0) {
+        return true;
     }
 
     for (unsigned int i = 0; i < tx->vin->len; i++) {

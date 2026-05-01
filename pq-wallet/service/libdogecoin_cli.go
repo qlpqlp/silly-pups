@@ -1253,6 +1253,40 @@ func (s *Server) logBroadcastSpentPrevoutHints(sourceTag, spendTxid, toAddress s
 	}
 }
 
+// logBroadcastPQSafeSummary records PQ carrier / TX_R outcome on broadcast.log for later diagnosis
+// (same fields as the send_pq_safe JSON response, without needing the HTTP client).
+func (s *Server) logBroadcastPQSafeSummary(
+	sourceTag, txCTxid, pqMode string,
+	pqCommitment, carrierFlow, pqRevealRequested, carrierEnvDisabled, falconSigPresent, econDowngraded bool,
+	pqCarrierExtendErr, txRID, txRErr, pqRevealSkipReason string,
+	pqMkParts int,
+) {
+	if s == nil || s.storageDir == "" {
+		return
+	}
+	tag := strings.TrimSpace(sourceTag)
+	if tag == "" {
+		tag = "broadcast"
+	}
+	oneLine := func(s string) string {
+		s = strings.ReplaceAll(s, "\r", " ")
+		s = strings.ReplaceAll(s, "\n", " ")
+		s = strings.TrimSpace(s)
+		if len(s) > 500 {
+			return s[:500] + "…"
+		}
+		return s
+	}
+	txCTxid = normalizeTxid(strings.TrimSpace(txCTxid))
+	txRID = normalizeTxid(strings.TrimSpace(txRID))
+	pqMode = strings.TrimSpace(pqMode)
+	s.appendBroadcastLogLine(fmt.Sprintf(
+		"%s PQ_STATUS tx_c_txid=%s pq_mode=%s pq_commitment=%t pq_carrier_flow=%t pq_reveal_requested=%t carrier_env_disabled=%t falcon_sig_present=%t econ_downgraded=%t carrier_extend_err=%q tx_r_txid=%s tx_r_mkpart_parts=%d tx_r_err=%q pq_reveal_skip_reason=%q",
+		tag, txCTxid, pqMode, pqCommitment, carrierFlow, pqRevealRequested, carrierEnvDisabled, falconSigPresent, econDowngraded,
+		oneLine(pqCarrierExtendErr), txRID, pqMkParts, oneLine(txRErr), oneLine(pqRevealSkipReason),
+	))
+}
+
 func readFileTail(path string, max int) (string, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {

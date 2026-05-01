@@ -312,6 +312,101 @@ func parseSPVRESTRows(raw, direction string) []spvRESTTxRow {
 	return rows
 }
 
+// parseSPVRESTGetSpends parses GET /getSpends (libdogecoin outgoing-tx blocks with nested "output:" sections).
+func parseSPVRESTGetSpends(raw string) []spvRESTTxRow {
+	raw = strings.ReplaceAll(strings.TrimSpace(raw), "\r\n", "\n")
+	if raw == "" {
+		return nil
+	}
+	var rows []spvRESTTxRow
+	for _, blk := range strings.Split(raw, "----------------------") {
+		blk = strings.TrimSpace(blk)
+		if blk == "" {
+			continue
+		}
+		first := strings.ToLower(strings.TrimSpace(strings.SplitN(blk, "\n", 2)[0]))
+		if strings.HasPrefix(first, "outgoing transactions") || strings.HasPrefix(first, "total sent") {
+			continue
+		}
+		var txid string
+		var height int64
+		var sent float64
+		type outRec struct {
+			addr string
+			mine bool
+		}
+		var outs []outRec
+		mode := "hdr"
+		var cur outRec
+		curOpen := false
+		flushCur := func() {
+			if mode == "out" && curOpen {
+				outs = append(outs, cur)
+			}
+			cur = outRec{}
+			curOpen = false
+		}
+		for _, ln := range strings.Split(blk, "\n") {
+			ts := strings.TrimSpace(ln)
+			if ts == "" {
+				continue
+			}
+			if strings.EqualFold(ts, "output:") {
+				flushCur()
+				mode = "out"
+				curOpen = true
+				continue
+			}
+			i := strings.IndexAny(ln, ":=")
+			if i <= 0 {
+				continue
+			}
+			k := strings.ToLower(strings.TrimSpace(ln[:i]))
+			v := strings.TrimSpace(ln[i+1:])
+			switch mode {
+			case "hdr":
+				switch k {
+				case "txid":
+					txid = normalizeTxid(v)
+				case "height":
+					height, _ = strconv.ParseInt(v, 10, 64)
+				case "sent":
+					sent, _ = strconv.ParseFloat(v, 64)
+				}
+			case "out":
+				if !curOpen {
+					continue
+				}
+				switch k {
+				case "address":
+					cur.addr = v
+				case "is_mine":
+					cur.mine = (v == "1")
+				}
+			}
+		}
+		flushCur()
+		if txid == "" {
+			continue
+		}
+		addr := ""
+		for _, o := range outs {
+			if !o.mine && o.addr != "" && o.addr != "(non-p2pkh)" {
+				addr = o.addr
+				break
+			}
+		}
+		rows = append(rows, spvRESTTxRow{
+			Txid:        txid,
+			Direction:   "out",
+			AmountDOGE:  absFloat(sent),
+			Address:     addr,
+			BlockHeight: height,
+		})
+	}
+	return rows
+}
+
 func (s *Server) fetchTxTimestampFromSoChain(txid string, testnet bool) time.Time {
 	txid = normalizeTxid(txid)
 	if txid == "" {
@@ -618,22 +713,45 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 	}
 	utxoRaw, errU := s.fetchSPVREST("/getUTXOs")
 	txRaw, errT := s.fetchSPVREST("/getTransactions")
-	if errU != nil && errT != nil {
+	spendRaw, errS := s.fetchSPVREST("/getSpends")
+	if errU != nil && errT != nil && errS != nil {
 		return false
 	}
-	// Use both sources for coverage:
-	// - /getTransactions is the primary transaction history source
+	// Use multiple sources for coverage:
+	// - /getSpends (when present) lists outgoing txs keyed by spend txid — merge first so OUT rows win.
+	// - /getTransactions is the primary receive + external-spent history source
 	// - /getUTXOs fills gaps for receive-side rows some SPV builds omit from tx history
 	//
 	// Guardrail: if a txid exists in /getTransactions, do not merge /getUTXOs rows for
 	// that same txid (prevents UTXO/change rows from mutating OUT tx history).
+	spendRows := parseSPVRESTGetSpends(spendRaw)
 	txRows := parseSPVRESTRows(txRaw, "unknown")
 	utxoRows := parseSPVRESTRows(utxoRaw, "in")
-	rows := make([]spvRESTTxRow, 0, len(txRows)+len(utxoRows))
+	rows := make([]spvRESTTxRow, 0, len(spendRows)+len(txRows)+len(utxoRows))
+	rows = append(rows, spendRows...)
 	rows = append(rows, txRows...)
-	txSeen := make(map[string]struct{}, len(txRows))
+	txSeen := make(map[string]struct{}, len(spendRows)+len(txRows)+8)
+	for _, r := range spendRows {
+		if id := normalizeTxid(r.Txid); id != "" {
+			txSeen[id] = struct{}{}
+		}
+	}
 	for _, r := range txRows {
 		if id := normalizeTxid(r.Txid); id != "" {
+			txSeen[id] = struct{}{}
+		}
+		if sid := normalizeTxid(r.SpendTxid); sid != "" {
+			// Spending txids appear in spent-UTXO hints; do not also ingest /getUTXOs change rows for that txid.
+			txSeen[sid] = struct{}{}
+		}
+	}
+	for _, t := range st.Transactions {
+		id := normalizeTxid(t.Txid)
+		if id == "" {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(t.Source), "manual") && strings.EqualFold(strings.TrimSpace(t.Direction), "out") {
+			// Treat broadcast spend txids like REST "known" ids so /getUTXOs does not add a change row as IN.
 			txSeen[id] = struct{}{}
 		}
 	}
@@ -648,6 +766,12 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 		rows = append(rows, r)
 	}
 	for i := range rows {
+		if rows[i].Confirmations == 0 && rows[i].BlockHeight > 0 && tipHeight > 0 {
+			d := tipHeight - rows[i].BlockHeight + 1
+			if d > 0 && d <= tipHeight+1 {
+				rows[i].Confirmations = int(d)
+			}
+		}
 		if rows[i].SeenAt.IsZero() && rows[i].BlockHeight > 0 && tipHeight > 0 && tipUnix > 0 {
 			if ts := seenAtApproxFromBlockHeight(rows[i].BlockHeight, tipHeight, tipUnix); !ts.IsZero() {
 				rows[i].SeenAt = ts

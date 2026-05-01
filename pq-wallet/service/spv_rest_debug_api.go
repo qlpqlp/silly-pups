@@ -22,6 +22,7 @@ var spvRESTDocumentedPaths = []string{
 	"/getBalance",
 	"/getAddresses",
 	"/getTransactions",
+	"/getSpends",
 	"/getUTXOs",
 	"/getWallet",
 	"/getHeaders",
@@ -60,6 +61,8 @@ func normalizeSPVRESTProbeQueryPath(raw string) string {
 		return "/getAddresses"
 	case "gettransactions":
 		return "/getTransactions"
+	case "getspends":
+		return "/getSpends"
 	case "getutxos":
 		return "/getUTXOs"
 	case "getwallet":

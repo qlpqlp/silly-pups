@@ -222,11 +222,13 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	var pqMode string
 	var falconSigHex string
 	var carrierFlow bool
+	var pqCarrierExtendErr string // last falcon_add_commit_and_carrier_tx failure (or decode/short tx) when carrier was wished
 	econDowngraded := false
 	var errUtx error
 	var unsignedBase []byte
 
 	for econPass := 0; econPass < 3; econPass++ {
+		pqCarrierExtendErr = ""
 		extraFeeOutputs := 0
 		if includePQCommitment {
 			extraFeeOutputs = 1
@@ -338,12 +340,16 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 			pqMode != "legacy_pubkey_hash_fallback"
 		if carrierWish {
 			extHex, errC := s.runSuchFalconAddCommitAndCarrierTx(baseHex, pqCommitment32Hex, strings.TrimSpace(wf.PQPublicHex), falconSigHex, carrierKoinu, testnet)
-			if errC == nil {
-				if b, errH := hex.DecodeString(extHex); errH == nil && len(b) > 80 {
-					unsignedForSign = b
-					carrierFlow = true
-					pqMode = pqMode + "_carrier_txc"
-				}
+			if errC != nil {
+				pqCarrierExtendErr = errC.Error()
+			} else if b, errH := hex.DecodeString(extHex); errH != nil {
+				pqCarrierExtendErr = "decode falcon_add_commit_and_carrier_tx hex: " + errH.Error()
+			} else if len(b) <= 80 {
+				pqCarrierExtendErr = "falcon_add_commit_and_carrier_tx produced tx too short for carrier layout"
+			} else {
+				unsignedForSign = b
+				carrierFlow = true
+				pqMode = pqMode + "_carrier_txc"
 			}
 		}
 
@@ -526,6 +532,23 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	if txRErr != "" {
 		resp["tx_r_error"] = txRErr
 	}
+	pqRevealRequested := includePQCommitment && includePQReveal
+	pqRevealSkipReason := ""
+	if pqRevealRequested && !carrierFlow && txRErr == "" {
+		switch {
+		case carrierEnvDisabled:
+			pqRevealSkipReason = "PUP_PQ_DISABLE_CARRIER"
+		case falconSigHex == "":
+			pqRevealSkipReason = "no_falcon_sig_sighash_or_falcon_sign_failed"
+		case strings.HasPrefix(pqMode, "legacy_pubkey_hash_fallback"):
+			pqRevealSkipReason = "legacy_pubkey_hash_fallback_no_carrier_path"
+		case strings.TrimSpace(pqCarrierExtendErr) != "":
+			pqRevealSkipReason = pqCarrierExtendErr
+		default:
+			pqRevealSkipReason = "carrier_extend_failed_unknown"
+		}
+	}
+	s.logBroadcastPQSafeSummary("send_pq_safe", txCTxid, pqMode, pqCommitment32Hex != "", carrierFlow, pqRevealRequested, carrierEnvDisabled, falconSigHex != "", econDowngraded, pqCarrierExtendErr, txRID, txRErr, pqRevealSkipReason, pqMkParts)
 	writeJSON(w, http.StatusOK, resp)
 }
 

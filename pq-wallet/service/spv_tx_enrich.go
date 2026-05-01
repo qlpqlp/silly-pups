@@ -359,6 +359,11 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 		if raw == "" {
 			continue
 		}
+		// Broadcast-time OUT rows already store the user-chosen amount + destination; raw decode can disagree
+		// on PQ / carrier / multi-output layouts and would corrupt the activity list and balance views.
+		if strings.EqualFold(strings.TrimSpace(tx.Source), "manual") && strings.EqualFold(strings.TrimSpace(tx.Direction), "out") {
+			continue
+		}
 		fl, ok := cache[raw]
 		if !ok {
 			v, err := decodeSPVRawTxFlow(raw, walletByHash160, testnet)

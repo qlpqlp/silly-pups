@@ -126,6 +126,10 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 		if prev, ok := byID[id]; ok {
 			manualOutHint := strings.EqualFold(strings.TrimSpace(t.Source), "manual") &&
 				strings.EqualFold(strings.TrimSpace(t.Direction), "out")
+			// Rows recorded at broadcast (send_pq_safe / send) carry exact pay-to + amount; SPV REST may later
+			// surface the same txid as a "receive" (change UTXO) or mis-sized decode — never clobber those fields.
+			manualSendPersisted := strings.EqualFold(strings.TrimSpace(prev.Source), "manual") &&
+				strings.EqualFold(strings.TrimSpace(prev.Direction), "out")
 			if manualOutHint {
 				// Wallet-originated send metadata is authoritative for list display:
 				// it carries the exact pay-to destination and amount selected at send time.
@@ -150,11 +154,13 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 			if t.PQVerified {
 				prev.PQVerified = true
 			}
-			if t.AmountDOGE != 0 && prev.AmountDOGE == 0 {
-				prev.AmountDOGE = t.AmountDOGE
-			}
-			if prev.Address == "" && t.Address != "" {
-				prev.Address = t.Address
+			if !manualSendPersisted {
+				if t.AmountDOGE != 0 && prev.AmountDOGE == 0 {
+					prev.AmountDOGE = t.AmountDOGE
+				}
+				if prev.Address == "" && t.Address != "" {
+					prev.Address = t.Address
+				}
 			}
 			if prev.RawHex == "" && t.RawHex != "" {
 				prev.RawHex = t.RawHex
@@ -181,15 +187,13 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 				// Never let a REST hint overwrite direction already reconciled from decoded raw tx.
 				if enrichedFromRaw && restHint {
 					// keep prev.Direction
-				} else if strings.EqualFold(strings.TrimSpace(prev.Source), "manual") &&
-					strings.EqualFold(strings.TrimSpace(prev.Direction), "out") &&
-					!strings.EqualFold(strings.TrimSpace(t.Source), "manual") {
-					// Local send metadata (known pay-to + amount from wallet action) wins over later SPV/REST hints.
+				} else if manualSendPersisted && !strings.EqualFold(strings.TrimSpace(t.Source), "manual") {
+					// Local send row wins over SPV/REST (e.g. /getUTXOs lists change back to self as "in" same txid).
 				} else if directionRank(t.Direction) >= directionRank(prev.Direction) {
 					prev.Direction = t.Direction
 				}
 			}
-			if t.Source != "" {
+			if t.Source != "" && !manualSendPersisted {
 				prev.Source = t.Source
 			}
 			// Prefer confirmed-chain timestamp once available, instead of keeping a mempool seen time forever.

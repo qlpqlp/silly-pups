@@ -194,6 +194,8 @@ LIBDOGECOIN_API int64_t dogecoin_wallet_get_balance(dogecoin_wallet* wallet);
 LIBDOGECOIN_API int64_t dogecoin_wallet_wtx_get_credit(dogecoin_wallet* wallet, dogecoin_wtx* wtx);
 
 LIBDOGECOIN_API int64_t dogecoin_wallet_get_debit_tx(dogecoin_wallet *wallet, const dogecoin_tx *tx);
+/** true if the wallet contributed inputs to this tx (send / change-chain spend). */
+LIBDOGECOIN_API dogecoin_bool dogecoin_wallet_is_from_me(dogecoin_wallet *wallet, const dogecoin_tx *tx);
 LIBDOGECOIN_API int64_t dogecoin_wallet_wtx_get_available_credit(dogecoin_wallet* wallet, dogecoin_wtx* wtx);
 
 /** checks if a transaction outpoint is owned by the wallet */

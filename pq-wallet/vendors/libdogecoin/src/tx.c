@@ -1077,10 +1077,12 @@ dogecoin_bool dogecoin_tx_add_p2pkh_out(dogecoin_tx* tx, int64_t amount, const d
  *
  * @return 1 if the outpoint is null.
  */
-dogecoin_bool dogecoin_tx_outpoint_is_null(dogecoin_tx_outpoint* tx)
+dogecoin_bool dogecoin_tx_outpoint_is_null(dogecoin_tx_outpoint* op)
 {
-    (void)(tx);
-    return true;
+    if (!op) {
+        return true;
+    }
+    return dogecoin_hash_is_empty(op->hash) && op->n == UINT32_MAX;
 }
 
 

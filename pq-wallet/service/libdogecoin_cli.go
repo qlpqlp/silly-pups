@@ -1115,6 +1115,9 @@ func (s *Server) readSPVStatus() map[string]any {
 	prefs := s.readSPVSyncPrefs()
 	out["use_checkpoint"] = prefs.UseCheckpoint
 	out["restore_checkpoint_hint"] = prefs.RestoreCheckpointHint
+	if prefs.PendingRollbackKeepHeight != nil {
+		out["pending_rollback_keep_height"] = *prefs.PendingRollbackKeepHeight
+	}
 	out["spv_checkpoints"] = map[string]any{
 		"mainnet": spvMainnetCheckpoints,
 		"testnet": spvTestnetCheckpoints,

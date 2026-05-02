@@ -348,7 +348,13 @@ async function openSpvRepairModal() {
       const hp = st.headers_db_present === true;
       const path = st.headers_db ? String(st.headers_db) : `${dir}/headers.db`;
       const fmt = st.headers_db_format ? ` [${String(st.headers_db_format)}]` : "";
-      line.textContent = `Storage: ${dir} — headers.db ${hp ? "present (" + path + ")" + fmt : "not present yet (expected " + path + ")"}`;
+      let t = `Storage: ${dir} — headers.db ${hp ? "present (" + path + ")" + fmt : "not present yet (expected " + path + ")"}`;
+      const pr = st.pending_rollback_keep_height;
+      if (pr != null && Number.isFinite(Number(pr))) {
+        t +=
+          ` — deferred rollback to block ${pr}: will trim SQLite headers automatically once the tip passes that height (short ETA until then is normal).`;
+      }
+      line.textContent = t;
     }
   } catch {
     if (line) line.textContent = "Could not load /api/spv/status.";

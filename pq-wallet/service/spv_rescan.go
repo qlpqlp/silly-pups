@@ -526,11 +526,12 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": `mode must be "full" or omitted`})
 			return
 		}
+		prefs := s.readSPVSyncPrefs()
 		if body.UseCheckpoint != nil {
-			prefs := s.readSPVSyncPrefs()
 			prefs.UseCheckpoint = *body.UseCheckpoint
-			_ = s.writeSPVSyncPrefs(prefs)
 		}
+		prefs.PendingRollbackKeepHeight = nil
+		_ = s.writeSPVSyncPrefs(prefs)
 		s.stopSPVNode()
 		migrated, legacyBackup, migErr := s.migrateLegacyHeadersDB()
 		if migErr != nil {
@@ -543,7 +544,6 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = os.Remove(s.spvWatchAddrPath())
 		s.startSPVNode(wf)
-		prefs := s.readSPVSyncPrefs()
 		out := map[string]any{
 			"ok":              true,
 			"action":          "full_rescan",
@@ -609,16 +609,26 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, http.StatusConflict, map[string]string{"error": "headers.db was not SQLite but disappeared before backup; retry or use RESCAN (full)"})
 				return
 			}
+			prefs := s.readSPVSyncPrefs()
+			h := keepHeight
+			prefs.PendingRollbackKeepHeight = &h
+			if err := s.writeSPVSyncPrefs(prefs); err != nil {
+				log.Printf("[pq-wallet] deferred rollback prefs: %v", err)
+			}
 			_ = os.Remove(walletDB)
 			s.startSPVNode(wf)
 			writeJSON(w, http.StatusOK, map[string]any{
-				"ok":                        true,
-				"action":                    "legacy_headers_migrated",
-				"legacy_headers_renamed_to": legacyBackup,
-				"requested_keep_height":     keepHeight,
-				"height_source":             heightSource,
-				"rollback_block_hash":       hash,
-				"note":                      "headers.db was not SQLite (legacy install). SPV was stopped, the file renamed aside, spv_wallet.db removed, and spvnode restarted. SQLite rollback was not applied to the old file. After headers sync, run rollback again if you still need to trim the new SQLite header chain.",
+				"ok":                           true,
+				"action":                       "legacy_headers_migrated",
+				"rollback_deferred":            true,
+				"pending_rollback_keep_height": keepHeight,
+				"legacy_headers_renamed_to":    legacyBackup,
+				"requested_keep_height":        keepHeight,
+				"height_source":                heightSource,
+				"rollback_block_hash":          hash,
+				"note": "Legacy file-based headers.db cannot be truncated in place; it was renamed aside and a new SQLite header store will grow as SPV syncs. " +
+					"Your chosen rollback height is saved: once SQLite headers pass that height, the pup will automatically delete rows above it and restart SPV (watch GET /api/spv/status pending_rollback_keep_height until it disappears). " +
+					"Until then, ETA can look short because the node is catching up toward the current chain tip first.",
 			})
 			return
 		}
@@ -647,6 +657,9 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		maxAfter := s.sqliteHeadersDBMaxHeight()
+		prefsDone := s.readSPVSyncPrefs()
+		prefsDone.PendingRollbackKeepHeight = nil
+		_ = s.writeSPVSyncPrefs(prefsDone)
 		_ = os.Remove(walletDB)
 		_ = os.Remove(s.spvWatchAddrPath())
 		s.startSPVNode(wf)
@@ -672,4 +685,64 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `unknown confirm value; use "RESCAN" or "ROLLBACK"`})
 	}
+}
+
+// tryApplyPendingRollbackSQLite finishes a rollback that was deferred because headers.db was legacy
+// (non-SQLite). Once SQLite exists and the stored header tip is above keepHeight, we delete rows with
+// height > keepHeight, clear spv_wallet.db, and restart spvnode.
+func (s *Server) tryApplyPendingRollbackSQLite(wf *WalletFile) {
+	if s == nil || wf == nil {
+		return
+	}
+	prefs := s.readSPVSyncPrefs()
+	if prefs.PendingRollbackKeepHeight == nil {
+		return
+	}
+	keep := *prefs.PendingRollbackKeepHeight
+	if keep < 0 || keep > 200_000_000 {
+		prefs.PendingRollbackKeepHeight = nil
+		_ = s.writeSPVSyncPrefs(prefs)
+		return
+	}
+	headersPath := filepath.Join(s.storageDir, "headers.db")
+	st, err := os.Stat(headersPath)
+	if err != nil || st.IsDir() {
+		return
+	}
+	if !isSQLiteDBFile(headersPath) {
+		return
+	}
+	maxBefore := s.sqliteHeadersDBMaxHeight()
+	if maxBefore == 0 {
+		return
+	}
+	// Wait until the header tip is past keepHeight; otherwise DELETE … WHERE height > keep is a no-op
+	// and we would clear the job too early while the node is still catching up toward the real tip.
+	if maxBefore <= keep {
+		return
+	}
+	sqlite3Bin, err := exec.LookPath("sqlite3")
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	tables, err := sqlite3DeleteHeadersAbove(ctx, sqlite3Bin, headersPath, keep)
+	if err != nil {
+		log.Printf("[pq-wallet] pending rollback sqlite delete: %v", err)
+		return
+	}
+	if len(tables) == 0 {
+		return
+	}
+	maxAfter := s.sqliteHeadersDBMaxHeight()
+	prefs.PendingRollbackKeepHeight = nil
+	if err := s.writeSPVSyncPrefs(prefs); err != nil {
+		log.Printf("[pq-wallet] pending rollback prefs write: %v", err)
+	}
+	log.Printf("[pq-wallet] deferred rollback applied keep_height=%d max_before=%d max_after=%d tables=%v", keep, maxBefore, maxAfter, tables)
+	s.stopSPVNode()
+	_ = os.Remove(filepath.Join(s.storageDir, "spv_wallet.db"))
+	_ = os.Remove(s.spvWatchAddrPath())
+	s.startSPVNode(wf)
 }

@@ -148,6 +148,9 @@ func (s *Server) handleWalletDelete(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.stopSPVNode()
+	pr := s.readSPVSyncPrefs()
+	pr.PendingRollbackKeepHeight = nil
+	_ = s.writeSPVSyncPrefs(pr)
 	s.lockWalletSession()
 	_ = os.Remove(s.walletPath)
 	_ = os.Remove(s.sealedPath())
@@ -266,6 +269,9 @@ func (s *Server) handleWalletImport(w http.ResponseWriter, r *http.Request) {
 	// Force SPV replay for restored keys (Dogecoin Wallet-style behavior):
 	// clear tx cache + SPV wallet DB + header DB so historical transactions are re-discovered.
 	s.stopSPVNode()
+	pImp := s.readSPVSyncPrefs()
+	pImp.PendingRollbackKeepHeight = nil
+	_ = s.writeSPVSyncPrefs(pImp)
 	_ = os.Remove(filepath.Join(s.storageDir, "headers.db"))
 	_ = os.Remove(filepath.Join(s.storageDir, "spv_wallet.db"))
 	_ = os.Remove(s.spvWatchAddrPath())

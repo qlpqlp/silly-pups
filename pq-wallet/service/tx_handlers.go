@@ -133,6 +133,7 @@ func (s *Server) handleSPVStatus(w http.ResponseWriter, _ *http.Request) {
 		s.startSPVNodeFromWatchState()
 	} else if err == nil && wf != nil {
 		s.startSPVNode(wf)
+		s.tryApplyPendingRollbackSQLite(wf)
 	}
 	writeJSON(w, http.StatusOK, s.readSPVStatus())
 }

@@ -1082,7 +1082,15 @@ dogecoin_bool dogecoin_tx_outpoint_is_null(dogecoin_tx_outpoint* op)
     if (!op) {
         return true;
     }
-    return dogecoin_hash_is_empty(op->hash) && op->n == UINT32_MAX;
+    if (op->n != (uint32_t)-1) {
+        return false;
+    }
+    for (size_t i = 0; i < sizeof(op->hash); i++) {
+        if (op->hash[i] != 0) {
+            return false;
+        }
+    }
+    return true;
 }
 
 

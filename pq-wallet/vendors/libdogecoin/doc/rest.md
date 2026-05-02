@@ -9,6 +9,7 @@
     - [GET /getAddresses](#get-getaddresses)
     - [GET /getTransactions](#get-gettransactions)
     - [GET /getUTXOs](#get-getutxos)
+    - [GET /getSpends](#get-getspends)
     - [GET /getWallet](#get-getwallet)
     - [GET /getHeaders](#get-getheaders)
     - [GET /getChaintip](#get-getchaintip)
@@ -100,7 +101,11 @@ address: DQe1QeG4FxhEgvfuvGfC7oL5G2G87huuxU
 
 ### GET **/getTransactions**
 
-Retrieves all spent (non-spendable) transactions associated with the wallet.
+Spent external receipts: non-spendable UTXOs received from external senders.
+Change from the wallet's own outgoing txs (`is_from_me`) is skipped to avoid
+double-counting along the change chain. Complements `/getUTXOs` (still held)
+and `/getSpends` (outgoing). Optional `spend_*` / `pay_*` lines (when present)
+mirror Dogecoin Wallet-style metadata for the spending transaction.
 
 #### **Request**
 
@@ -120,6 +125,7 @@ Retrieves all spent (non-spendable) transactions associated with the wallet.
   script_pubkey:  <script_pubkey>
   amount:         <amount>
   confirmations:  <confirmations>
+  height:         <height>
   spendable:      <spendable>
   solvable:       <solvable>
   spend_txid:     <txid>   (optional — tx that spent this UTXO)
@@ -131,7 +137,8 @@ Retrieves all spent (non-spendable) transactions associated with the wallet.
   Spent Balance: <total_spent_balance>
   ```
 
-  Information about each spent transaction (UTXO) and the total spent balance. Optional `spend_*` / `pay_*` lines mirror Dogecoin Wallet-style “sent to” metadata for the spending transaction.
+  Information about each previously-received (now spent) UTXO and the total
+  spent balance, summed over external receipts only.
 
 #### **Example**
 
@@ -149,6 +156,7 @@ address:        DH5yaieqoZN36fDVciNyRueRGvGLR3mr7L
 script_pubkey:  76a9144621d6a7f3b4ebbaee4e2d8c10eafbf1ccbc9c0a88ac
 amount:         50.00000000
 confirmations:  100
+height:         5123450
 spendable:      0
 solvable:       1
 spend_txid:     a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd
@@ -184,6 +192,7 @@ Retrieves all unspent transaction outputs (UTXOs) associated with the wallet.
   script_pubkey:  <script_pubkey>
   amount:         <amount>
   confirmations:  <confirmations>
+  height:         <height>
   spendable:      <spendable>
   solvable:       <solvable>
   ...
@@ -209,9 +218,59 @@ address:        DQe1QeG4FxhEgvfuvGfC7oL5G2G87huuxU
 script_pubkey:  76a9145d6a7f3b4ebbaee4e2d8c10eafbf1ccbc9c0a88ac
 amount:         75.00000000
 confirmations:  100
+height:         5123456
 spendable:      1
 solvable:       1
 Total Unspent: 75.00000000
+```
+
+---
+
+### GET **/getSpends**
+
+Retrieves the wallet's outgoing transaction history with per-output recipient
+breakdown. Iterates `wallet->vec_wtxes`, filters to transactions the wallet
+funded (`is_from_me`), and for each one decodes every vout's destination address.
+
+For each output the response flags `is_mine` so external recipients are
+distinguishable from change. Per-tx totals (`total_in`, `total_out`, `sent`,
+`change`, `fee`) are computed from the wtx vins/vouts.
+
+#### **Request**
+
+- **Method:** `GET`
+- **URL:** `/getSpends`
+
+#### **Response**
+
+- **Content-Type:** `text/plain`
+- **Body:** for each outgoing wtx:
+
+  ```
+  ----------------------
+  txid:           <txid>
+  height:         <block_height>
+  total_in:       <amount>
+  total_out:      <amount>
+  sent:           <amount>
+  change:         <amount>
+  fee:            <amount>
+    output:
+      vout:           <index>
+      address:        <address|(non-p2pkh)>
+      amount:         <amount>
+      is_mine:        <0|1>
+    ...
+  ...
+  ----------------------
+  Outgoing transactions: <count>
+  Total Sent (excl. change): <total>
+  ```
+
+#### **Example**
+
+```bash
+curl http://localhost:<port>/getSpends
 ```
 
 ---

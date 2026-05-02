@@ -649,10 +649,12 @@ void dogecoin_wallet_free(dogecoin_wallet* wallet)
     wallet->chain = NULL;
 
     // Destroy binary trees
+    // NOTE: wtxes_rbtree and waddr_rbtree share ownership of their elements with vec_wtxes
+    // and waddr_vector respectively, which were already freed above with their owning destructor.
     dogecoin_btree_tdestroy(wallet->hdkeys_rbtree, NULL);
     dogecoin_btree_tdestroy(wallet->unspent_rbtree, NULL);
     dogecoin_btree_tdestroy(wallet->spends_rbtree, dogecoin_free);
-    dogecoin_btree_tdestroy(wallet->wtxes_rbtree, (void (*)(void *)) dogecoin_wallet_wtx_free);
+    dogecoin_btree_tdestroy(wallet->wtxes_rbtree, NULL);
     dogecoin_btree_tdestroy(wallet->waddr_rbtree, NULL);
 
     remove_all_utxos();
@@ -794,19 +796,21 @@ void dogecoin_wallet_add_wtx_intern_move(dogecoin_wallet *wallet, const dogecoin
     if (checkwtx) {
         // remove existing wtx
         checkwtx = *(dogecoin_wtx **)checkwtx;
+        // we do not really delete transactions
+        checkwtx->ignore = true;
+        dogecoin_btree_tdelete(checkwtx, &wallet->wtxes_rbtree, dogecoin_wtx_compare);
+        // vec_wtxes owns the wtx (its elem_free_f is dogecoin_wallet_wtx_free),
+        // so vector_remove_idx will free checkwtx. Do not free it again here.
         unsigned int i;
         for (i = 0; i < wallet->vec_wtxes->len; i++) {
             dogecoin_wtx *wtx_vec = vector_idx(wallet->vec_wtxes, i);
             if (wtx_vec == checkwtx) {
                 vector_remove_idx(wallet->vec_wtxes, i);
+                break;
             }
         }
-        // we do not really delete transactions
-        checkwtx->ignore = true;
-        dogecoin_btree_tdelete(checkwtx, &wallet->wtxes_rbtree, dogecoin_wtx_compare);
-        dogecoin_wallet_wtx_free(checkwtx);
     }
-    dogecoin_btree_tfind(wtx, &wallet->wtxes_rbtree, dogecoin_wtx_compare);
+    dogecoin_btree_tsearch(wtx, &wallet->wtxes_rbtree, dogecoin_wtx_compare);
     vector_add(wallet->vec_wtxes, (dogecoin_wtx *)wtx);
 
     /* Index spends: for is_from_me wtx, record each non-coinbase prevout in spends_rbtree

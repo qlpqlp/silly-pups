@@ -246,11 +246,11 @@ void dogecoin_http_request_cb(struct evhttp_request *req, void *arg) {
                     char amt_str[KOINU_STRINGLEN] = {0};
                     koinu_to_coins_str((uint64_t)o->value, amt_str);
 
-                    evbuffer_add_printf(evb, " output:\n");
-                    evbuffer_add_printf(evb, " vout:           %u\n", j);
-                    evbuffer_add_printf(evb, " address:        %s\n", addr_out);
-                    evbuffer_add_printf(evb, " amount:         %s\n", amt_str);
-                    evbuffer_add_printf(evb, " is_mine:        %d\n", mine);
+                    evbuffer_add_printf(evb, "  output:\n");
+                    evbuffer_add_printf(evb, "    vout:           %u\n", j);
+                    evbuffer_add_printf(evb, "    address:        %s\n", addr_out);
+                    evbuffer_add_printf(evb, "    amount:         %s\n", amt_str);
+                    evbuffer_add_printf(evb, "    is_mine:        %d\n", mine);
                 }
 
                 outgoing_count++;

@@ -1117,7 +1117,8 @@ func (s *Server) readSPVStatus() map[string]any {
 	out["spv_checkpoints"] = map[string]any{
 		"mainnet": spvMainnetCheckpoints,
 		"testnet": spvTestnetCheckpoints,
-		"note":    "With use_checkpoint true, spvnode -p lets libdogecoin pick one row from this table by timestamp (wallet scan window), not a single fixed menu index.",
+		"note": "Rollback uses the height you pick from this list (must match vendored chainparams.c). " +
+			"Fresh SPV start with use_checkpoint uses spvnode -p only: libdogecoin seeds headers from its checkpoint table using wallet scan-window timestamps, not this menu index (interactive -q is not used from the pup).",
 	}
 	if _, err := os.Stat(wdb); err == nil {
 		out["spv_wallet_db"] = wdb

@@ -1,8 +1,8 @@
 package main
 
-// Embedded libdogecoin checkpoint metadata from
-// dogecoinfoundation/libdogecoin rev a120e0377650f247398b8b76c5d74e5ed89ec437
-// (see pq-wallet/nix/libdogecoin.nix). Timestamps are Unix seconds from chainparams.c.
+// Embedded libdogecoin checkpoint metadata — MUST match pq-wallet/vendors/libdogecoin/src/chainparams.c
+// (dogecoin_mainnet_checkpoint_array / dogecoin_testnet_checkpoint_array). Timestamps are Unix seconds from .c.
+// Used for Settings → rollback dropdown and /api/spv/status spv_checkpoints. Re-copy when chainparams checkpoints change.
 
 type spvCheckpointRow struct {
 	Height    int    `json:"height"`
@@ -35,8 +35,13 @@ var spvMainnetCheckpoints = []spvCheckpointRow{
 	{4303965, "ed7d266dcbd8bb8af80f9ccb8deb3e18f9cc3f6972912680feeb37b090f8cee0", 1657646310},
 	{5050000, "e7d4577405223918491477db725a393bcfc349d8ee63b0a4fde23cbfbfd81dea", 1705383360},
 	{5400000, "cbb1f4ae807da83e13bdf9c28188982938c9ee6bf560c1023f51adac229eef87", 1727704957},
-	{5900000, "9eb4809b6bf358a5bf9fbddf82da9ff4f047ef76577d2939efabefc7bd6ced07", 1759340677},
-	{6093890, "7ecb28519e0c144261e511fd8706f8b54a93620cac31c41b5bcb0135f0d86a2b", 1771624740},
+	{6148124, "0f4d009c402553dbec50012ace7e224018595e4b788d1af78cea72eb6401d959", 1775065954},
+	{6154988, "8ca6972c34a2154b6ae6f15996de8d1a794477ec0add439ee1279bd9a21b2eed", 1775506602},
+	{6156000, "e8257a8929faef98929dc4e006bf405ec0fdfa93cb29b6d336a04e6b4d7bd02e", 1775571096},
+	{6156600, "2b17dfd7a717852058940928fd87b438971c29573474589abb427480ea7db83f", 1775609059},
+	{6169760, "7296ff3bbbc905a0a6d9ca290fb4fcead9b5e9ddbc5be752aa20cd0d789d0316", 1776448183},
+	{6173706, "1a59af827274d479127434728f9e1885a45b9a252bab246d039045822e671aa5", 1776698026},
+	{6184584, "14b1edee8a071f16c54120b5c7a80fecb5d9b54b0063aece8aa73f8fbf926de1", 1777388884},
 }
 
 var spvTestnetCheckpoints = []spvCheckpointRow{
@@ -60,4 +65,8 @@ var spvTestnetCheckpoints = []spvCheckpointRow{
 	{3976284, "af23c3e750bb4f2ce091235f006e7e4e2af453d4c866282e7870471dcfeb4382", 1657646588},
 	{5900000, "199bea6a442310589cbb50a193a30b097c228bd5a0f21af21e4e53dd57c382d3", 1703511130},
 	{41595117, "ff15d3837501029b27f34419ceb76c283be15159b6aecca38e11cd9f55f2ec85", 1773263888},
+	{41598400, "5fab0f828e47da930d5a010ab6d6204b185362e062f70b24b16f696135fdc9e5", 1773338705},
+	{44518499, "11d7c46c746b7bd3b52e519cfa736dee5c301046ee44a25f80c34f32cc2950ae", 1774975684},
+	{44531497, "274f5820c16f7fd40719c3018648a51efc97a608c0cc069a108c0fd1ef8da091", 1774978992},
+	{46533515, "c5e11996abc86dfaabffbe3c653301ff106bf689e8f57f6d20377c0fccd86a3a", 1775506692},
 }

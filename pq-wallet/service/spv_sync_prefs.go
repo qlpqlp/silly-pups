@@ -11,9 +11,6 @@ type spvSyncPrefs struct {
 	UseCheckpoint bool `json:"use_checkpoint"`
 	// RestoreCheckpointHint is the bundled checkpoint height last chosen at wallet import (0 = genesis path).
 	RestoreCheckpointHint int64 `json:"restore_checkpoint_hint"`
-	// PendingRollbackKeepHeight is set when rollback could not trim legacy (non-SQLite) headers.db; once SQLite
-	// headers exist with tip above this height, tryApplyPendingRollbackSQLite deletes rows with height > keep.
-	PendingRollbackKeepHeight *int64 `json:"pending_rollback_keep_height,omitempty"`
 }
 
 // spvOnRestoreOpts is sent with wrapped wallet import JSON as spv_on_restore.
@@ -50,7 +47,6 @@ func (s *Server) applySPVSyncPrefsFromWalletRestore(o *spvOnRestoreOpts, testnet
 	}
 	sync := strings.ToLower(strings.TrimSpace(o.Sync))
 	prefs := s.readSPVSyncPrefs()
-	prefs.PendingRollbackKeepHeight = nil
 	switch sync {
 	case "bundled_checkpoints", "checkpoints":
 		prefs.UseCheckpoint = true

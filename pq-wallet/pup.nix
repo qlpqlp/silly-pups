@@ -29,7 +29,7 @@ let
     STORAGE="''${PQ_STORAGE_DIR:-/storage/pq-wallet}"
     mkdir -p "$STORAGE"
 
-    export PATH="${libdogecoin}/bin:${pkgs.jq}/bin:${pkgs.sqlite}/bin:${pkgs.coreutils}/bin:$PATH"
+    export PATH="${libdogecoin}/bin:${pkgs.jq}/bin:${pkgs.coreutils}/bin:$PATH"
 
     export PUBLIC_PORT
     export PQ_STORAGE_DIR="$STORAGE"

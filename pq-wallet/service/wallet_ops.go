@@ -148,18 +148,12 @@ func (s *Server) handleWalletDelete(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.stopSPVNode()
-	pr := s.readSPVSyncPrefs()
-	pr.PendingRollbackKeepHeight = nil
-	_ = s.writeSPVSyncPrefs(pr)
+	s.wipeAuxiliaryWalletRuntimeState()
 	s.lockWalletSession()
 	_ = os.Remove(s.walletPath)
 	_ = os.Remove(s.sealedPath())
-	_ = os.Remove(s.statePath())
-	_ = os.Remove(filepath.Join(s.storageDir, "spv.log"))
-	_ = os.Remove(s.spvPidPath())
-	_ = os.Remove(filepath.Join(s.storageDir, "spv_wallet.db"))
 	_ = os.Remove(filepath.Join(s.storageDir, "headers.db"))
-	_ = os.Remove(s.watchPath)
+	removeLegacyHeaderBackups(s.storageDir)
 	s.removeServicePrefsFile()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
@@ -267,14 +261,8 @@ func (s *Server) handleWalletImport(w http.ResponseWriter, r *http.Request) {
 	}
 	// Import/restore is typically an existing wallet history, not a new wallet.
 	// Force SPV replay for restored keys (Dogecoin Wallet-style behavior):
-	// clear tx cache + SPV wallet DB + header DB so historical transactions are re-discovered.
-	s.stopSPVNode()
-	pImp := s.readSPVSyncPrefs()
-	pImp.PendingRollbackKeepHeight = nil
-	_ = s.writeSPVSyncPrefs(pImp)
-	_ = os.Remove(filepath.Join(s.storageDir, "headers.db"))
-	_ = os.Remove(filepath.Join(s.storageDir, "spv_wallet.db"))
-	_ = os.Remove(s.spvWatchAddrPath())
+	// clear chain DB, SPV wallet DB, tx/mempool caches, logs, and tracker data so history can resync.
+	s.resetLocalChainForWalletImport()
 	_ = s.saveState(&WalletState{Version: 1})
 	s.startSPVNode(&wf)
 	out := map[string]any{
@@ -284,7 +272,7 @@ func (s *Server) handleWalletImport(w http.ResponseWriter, r *http.Request) {
 		"import_legacy_format": legacyImport,
 		"removed_headers_db":   filepath.Join(s.storageDir, "headers.db"),
 		"removed_spv_wallet":   filepath.Join(s.storageDir, "spv_wallet.db"),
-		"note":                 "Wallet restore started. SPV headers + wallet DB were reset so transaction history can resync for restored addresses.",
+		"note":                 "Wallet restore started. headers.db, spv_wallet.db, tx/metrics cache (state.json), mempool tracker data, and SPV-related logs were cleared so transaction history can resync for restored addresses.",
 	}
 	if !legacyImport {
 		p := s.readSPVSyncPrefs()

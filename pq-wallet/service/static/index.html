@@ -107,7 +107,7 @@
           <div class="card onboarding-card">
             <div class="onboarding-grid">
               <section class="onboarding-panel" aria-labelledby="onb-create-title">
-                <h2 id="onb-create-title">Create wallet</h2>
+                <h2 id="onb-create-title"><span class="material-symbols-outlined icon-inline">account_balance_wallet</span> Create wallet</h2>
                 <p class="small muted onboarding-lead">P2PKH + WIF via <code>such</code>; optional Falcon-512 PQ keys. State is stored under the pup volume.</p>
                 <div class="onboarding-body">
                   <div class="field field-tight">
@@ -133,7 +133,7 @@
                 </div>
               </section>
               <section class="onboarding-panel" aria-labelledby="onb-restore-title">
-                <h2 id="onb-restore-title">Restore</h2>
+                <h2 id="onb-restore-title"><span class="material-symbols-outlined icon-inline">restore_page</span> Restore</h2>
                 <p class="small muted onboarding-lead">Import a <code>wallet.json</code> backup (only when no wallet exists — delete first in Wallet file).</p>
                 <div class="onboarding-body">
                   <span class="field-label" id="backup-label">Backup file</span>
@@ -360,7 +360,7 @@
             </div>
           </details>
           <details class="card settings-details">
-            <summary class="settings-details-summary"><h2 class="settings-details-h2">Backup</h2></summary>
+            <summary class="settings-details-summary"><h2 class="settings-details-h2"><span class="material-symbols-outlined icon-inline">save</span> Backup</h2></summary>
             <div class="settings-details-body">
             <p class="small muted">Downloads wallet JSON (only while not sealed, or export after unlock).</p>
             <button type="button" class="btn primary" id="btn-backup"><span class="material-symbols-outlined btn-ico">payments</span> Download backup</button>
@@ -494,7 +494,7 @@
             </div>
           </details>
           <details class="card settings-details danger-zone">
-            <summary class="settings-details-summary"><h2 class="settings-details-h2">Remove wallet</h2></summary>
+            <summary class="settings-details-summary"><h2 class="settings-details-h2"><span class="material-symbols-outlined icon-inline">account_balance_wallet</span> Remove wallet</h2></summary>
             <div class="settings-details-body">
             <p class="small danger-zone-desc">Deletes wallet, SPV DBs, and cached state.</p>
             <div class="danger-confirm-block">

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,17 +8,15 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 )
 
-const debugSQLiteMaxRows = 200
+const debugWalletDBMaxRows = 200
 
-func debugSQLiteQueryAllowed(q string) (string, error) {
+func debugVirtualQueryAllowed(q string) (string, error) {
 	q = strings.TrimSpace(q)
 	if q == "" {
 		return "", errors.New("empty query")
 	}
-	// Strip a single trailing semicolon (sqlite3 accepts it).
 	if strings.HasSuffix(q, ";") {
 		q = strings.TrimSpace(strings.TrimSuffix(q, ";"))
 	}
@@ -42,10 +39,9 @@ func debugSQLiteQueryAllowed(q string) (string, error) {
 func nonSQLiteDebugPayload(path, op string) map[string]any {
 	return map[string]any{
 		"path":                path,
-		"format":              "libdogecoin_binary_or_non_sqlite",
-		"sqlite_available":    false,
+		"format":              "libdogecoin_wallet_file",
 		"requested_operation": op,
-		"hint":                "This is expected for libdogecoin spv_wallet.db in this pup. The wallet uses `such list_unspent` + SPV REST parsing for transaction details. SQLite table/query tools only work when the file is true SQLite.",
+		"hint":                "libdogecoin spv_wallet.db is a binary wallet file in this pup. Use virtual tables (addresses, utxos, transactions, chaintip, timestamp) backed by such + SPV REST.",
 	}
 }
 
@@ -192,125 +188,69 @@ func (s *Server) handleDebugSPVWalletDB(w http.ResponseWriter, r *http.Request) 
 	}
 	op := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("op")))
 	if op == "" || op == "meta" {
-		if !isSQLiteDatabaseFile(dbPath) {
-			p := nonSQLiteDebugPayload(dbPath, "meta")
-			p["virtual_tables"] = nonSQLiteVirtualTableNames()
-			writeJSON(w, http.StatusOK, p)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"path":   dbPath,
-			"format": "sqlite3",
-		})
+		p := nonSQLiteDebugPayload(dbPath, "meta")
+		p["virtual_tables"] = nonSQLiteVirtualTableNames()
+		writeJSON(w, http.StatusOK, p)
 		return
 	}
-	if !isSQLiteDatabaseFile(dbPath) {
-		switch op {
-		case "tables":
-			t := nonSQLiteVirtualTableNames()
-			sort.Strings(t)
-			writeJSON(w, http.StatusOK, map[string]any{
-				"path":              dbPath,
-				"format":            "libdogecoin_binary_or_non_sqlite",
-				"sqlite_available":  false,
-				"virtual_tables":    t,
-				"tables":            t,
-				"note":              "Virtual tables are derived from libdogecoin such/spv REST data sources.",
-			})
-			return
-		case "table_info":
-			tbl := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("table")))
-			if tbl == "" {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing table"})
-				return
-			}
-			rows, err := s.nonSQLiteVirtualRows(wf, tbl)
-			if err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-				return
-			}
-			cols := []string{}
-			if len(rows) > 0 {
-				for k := range rows[0] {
-					cols = append(cols, k)
-				}
-				sort.Strings(cols)
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"table": tbl, "columns": cols, "row_count": len(rows), "virtual": true})
-			return
-		case "query":
-			q := strings.TrimSpace(r.URL.Query().Get("q"))
-			if q == "" {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "empty query"})
-				return
-			}
-			tbl := extractFromClauseTable(q)
-			if tbl == "" {
-				tbl = strings.ToLower(strings.TrimSpace(q))
-			}
-			rows, err := s.nonSQLiteVirtualRows(wf, tbl)
-			if err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "for non-sqlite wallet files, query uses virtual table names or SELECT ... FROM <table>; available: addresses, utxos, transactions, chaintip, timestamp"})
-				return
-			}
-			truncated := false
-			if len(rows) > debugSQLiteMaxRows {
-				truncated = true
-				rows = rows[:debugSQLiteMaxRows]
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"table": tbl, "rows": rows, "row_count": len(rows), "truncated": truncated, "virtual": true})
-			return
-		default:
-			p := nonSQLiteDebugPayload(dbPath, op)
-			p["virtual_tables"] = nonSQLiteVirtualTableNames()
-			writeJSON(w, http.StatusOK, p)
-			return
-		}
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
-	defer cancel()
 	switch op {
 	case "tables":
-		rows, err := s.sqliteRows(ctx, dbPath, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"tables": rows})
+		t := nonSQLiteVirtualTableNames()
+		sort.Strings(t)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"path":            dbPath,
+			"format":          "libdogecoin_wallet_file",
+			"virtual_tables":  t,
+			"tables":          t,
+			"note":            "Virtual tables are derived from libdogecoin such/spv REST data sources.",
+		})
+		return
 	case "table_info":
-		tbl := strings.TrimSpace(r.URL.Query().Get("table"))
+		tbl := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("table")))
 		if tbl == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing table"})
 			return
 		}
-		rows, err := s.sqliteRows(ctx, dbPath, "PRAGMA table_info("+sqliteIdent(tbl)+")")
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"table": tbl, "table_info": rows})
-	case "query":
-		q, err := debugSQLiteQueryAllowed(r.URL.Query().Get("q"))
+		rows, err := s.nonSQLiteVirtualRows(wf, tbl)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		limited := q
-		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(q)), "pragma") {
-			limited = q + " LIMIT " + fmt.Sprintf("%d", debugSQLiteMaxRows+1)
+		cols := []string{}
+		if len(rows) > 0 {
+			for k := range rows[0] {
+				cols = append(cols, k)
+			}
+			sort.Strings(cols)
 		}
-		rows, err := s.sqliteRows(ctx, dbPath, limited)
+		writeJSON(w, http.StatusOK, map[string]any{"table": tbl, "columns": cols, "row_count": len(rows), "virtual": true})
+		return
+	case "query":
+		qin := strings.TrimSpace(r.URL.Query().Get("q"))
+		if _, err := debugVirtualQueryAllowed(qin); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		tbl := extractFromClauseTable(qin)
+		if tbl == "" {
+			tbl = strings.ToLower(strings.TrimSpace(qin))
+		}
+		rows, err := s.nonSQLiteVirtualRows(wf, tbl)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "use virtual table names or SELECT ... FROM <table>; available: addresses, utxos, transactions, chaintip, timestamp"})
 			return
 		}
 		truncated := false
-		if len(rows) > debugSQLiteMaxRows {
+		if len(rows) > debugWalletDBMaxRows {
 			truncated = true
-			rows = rows[:debugSQLiteMaxRows]
+			rows = rows[:debugWalletDBMaxRows]
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"rows": rows, "row_count": len(rows), "truncated": truncated})
+		writeJSON(w, http.StatusOK, map[string]any{"table": tbl, "rows": rows, "row_count": len(rows), "truncated": truncated, "virtual": true})
+		return
 	default:
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unknown op (meta, tables, table_info, query)"})
+		p := nonSQLiteDebugPayload(dbPath, op)
+		p["virtual_tables"] = nonSQLiteVirtualTableNames()
+		writeJSON(w, http.StatusOK, p)
+		return
 	}
 }

@@ -701,7 +701,7 @@ func backfillSeenAtFromTip(txs []TxRecord, tipHeight, tipUnix int64) ([]TxRecord
 }
 
 // mergeTransactionsFromSPVREST uses the spvnode REST API when available.
-// It gives richer details for binary libdogecoin wallet files (non-SQLite).
+// It gives richer details for binary libdogecoin wallet files.
 // tipHeight/tipUnix from readSPVStatus improve SeenAt when REST rows lack times.
 func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUnix int64) bool {
 	if st == nil {

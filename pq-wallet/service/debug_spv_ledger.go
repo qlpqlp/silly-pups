@@ -137,8 +137,12 @@ func (s *Server) handleDebugSPVLedger(w http.ResponseWriter, r *http.Request) {
 	if st, err := os.Stat(hdb); err == nil {
 		hmeta["size"] = st.Size()
 		hmeta["is_dir"] = st.IsDir()
-		hmeta["sqlite"] = isSQLiteDBFile(hdb)
-		hmeta["max_height_sqlite_probe"] = s.sqliteHeadersDBMaxHeight()
+		hmeta["libdogecoin_headers_file"] = isLibdogecoinHeadersFileFormat(hdb)
+		if isLibdogecoinHeadersFileFormat(hdb) {
+			if tip, err := libdogecoinHeadersFileTipHeight(hdb); err == nil {
+				hmeta["headers_file_tip_height"] = tip
+			}
+		}
 	} else {
 		hmeta["stat_error"] = err.Error()
 	}
@@ -184,7 +188,7 @@ func (s *Server) handleDebugSPVLedger(w http.ResponseWriter, r *http.Request) {
 		"tail_read_error":   errString(bcErr),
 		"tail_bytes":        len(bcTail),
 		"txids_from_log":    bcIDs,
-		"virtual_db_query":  "GET /api/debug/spv-wallet-db?op=query&q=SELECT%20*%20FROM%20transactions — virtual tables when spv_wallet.db is not SQLite",
+		"virtual_db_query":  "GET /api/debug/spv-wallet-db?op=query&q=SELECT%20*%20FROM%20transactions — virtual tables over libdogecoin spv_wallet.db",
 	}
 
 	writeJSON(w, http.StatusOK, out)

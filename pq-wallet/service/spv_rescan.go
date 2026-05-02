@@ -1,9 +1,6 @@
 package main
 
 import (
-	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -40,7 +36,7 @@ func (s *Server) repairHeadersDBForSPVStart() {
 		walletDB := filepath.Join(s.storageDir, "spv_wallet.db")
 		_ = os.Remove(walletDB)
 		_ = os.Remove(s.spvWatchAddrPath())
-		log.Printf("[pq-wallet] removed invalid headers.db directory (renamed to %s); SPV will recreate SQLite store from checkpoint", backup)
+		log.Printf("[pq-wallet] removed invalid headers.db directory (renamed to %s); SPV will recreate headers from checkpoint", backup)
 		return
 	}
 	if st.Size() < 100 {
@@ -48,12 +44,12 @@ func (s *Server) repairHeadersDBForSPVStart() {
 		_ = os.Remove(headersPath)
 		_ = os.Remove(filepath.Join(s.storageDir, "spv_wallet.db"))
 		_ = os.Remove(s.spvWatchAddrPath())
-		log.Printf("[pq-wallet] removed invalid tiny headers.db; SPV will recreate SQLite header store from checkpoint")
+		log.Printf("[pq-wallet] removed invalid tiny headers.db; SPV will recreate header store from checkpoint")
 	}
 }
 
-// migrateLegacyHeadersDB stops spvnode, then if headers.db exists but is not SQLite (older libdogecoin layouts),
-// renames it aside, removes spv_wallet.db and the watch-list file so the next spvnode start creates a fresh SQLite header store.
+// migrateLegacyHeadersDB stops spvnode, then if headers.db exists but is not the libdogecoin file layout,
+// renames it aside, removes spv_wallet.db and the watch-list file so the next spvnode start creates a fresh headers.db.
 func (s *Server) migrateLegacyHeadersDB() (migrated bool, backupPath string, err error) {
 	headersPath := filepath.Join(s.storageDir, "headers.db")
 	st, statErr := os.Stat(headersPath)
@@ -63,12 +59,11 @@ func (s *Server) migrateLegacyHeadersDB() (migrated bool, backupPath string, err
 	if st.IsDir() {
 		return false, "", fmt.Errorf("headers.db is a directory")
 	}
-	// Do not treat a tiny file as "legacy": SQLite may still be initializing, and
-	// renaming it would force a full header resync (often mistaken for "unlock wiped DB").
+	// Do not treat a tiny file as "legacy": it may be an incomplete write; renaming would force a full resync.
 	if st.Size() < 100 {
 		return false, "", nil
 	}
-	if isSQLiteDBFile(headersPath) {
+	if isLibdogecoinHeadersFileFormat(headersPath) {
 		return false, "", nil
 	}
 	s.stopSPVNode()
@@ -80,398 +75,6 @@ func (s *Server) migrateLegacyHeadersDB() (migrated bool, backupPath string, err
 	_ = os.Remove(walletDB)
 	_ = os.Remove(s.spvWatchAddrPath())
 	return true, backupPath, nil
-}
-
-func isSQLiteDBFile(path string) bool {
-	b := make([]byte, 16)
-	f, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-	n, err := f.Read(b)
-	if err != nil || n < 16 {
-		return false
-	}
-	return string(b[:15]) == "SQLite format 3" && b[15] == 0
-}
-
-func sqlite3ListTables(ctx context.Context, sqlite3Bin, dbPath string) ([]string, error) {
-	cmd := exec.CommandContext(ctx, sqlite3Bin, "-bail", "-batch", dbPath, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name;")
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, err
-	}
-	var names []string
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			names = append(names, line)
-		}
-	}
-	return names, nil
-}
-
-func sqlite3QuoteIdent(ident string) string {
-	return `"` + strings.ReplaceAll(ident, `"`, `""`) + `"`
-}
-
-func sqlite3PickHeightColumn(ctx context.Context, sqlite3Bin, dbPath, table string) string {
-	q := fmt.Sprintf(`PRAGMA table_info(%s);`, sqlite3QuoteIdent(table))
-	cmd := exec.CommandContext(ctx, sqlite3Bin, "-bail", "-batch", dbPath, q)
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	type colRow struct {
-		name string
-		typ  string
-	}
-	var cols []colRow
-	// Lines like: 0|height|INTEGER|0||0
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		parts := strings.Split(line, "|")
-		if len(parts) < 3 {
-			continue
-		}
-		name := strings.TrimSpace(parts[1])
-		typ := strings.TrimSpace(parts[2])
-		if name == "" {
-			continue
-		}
-		cols = append(cols, colRow{name: name, typ: typ})
-	}
-	heightColScore := func(name, typ string) int {
-		low := strings.ToLower(name)
-		if low == "rowid" || low == "oid" {
-			return -1
-		}
-		lowTyp := strings.ToLower(typ)
-		intish := strings.Contains(lowTyp, "int") || lowTyp == "" || strings.Contains(lowTyp, "num")
-		boost := 0
-		if intish {
-			boost = 5
-		}
-		switch low {
-		case "height":
-			return 100 + boost
-		case "block_height", "n_height":
-			return 95 + boost
-		case "header_height", "hdr_height", "blk_height", "chain_height", "blockheight", "nheight":
-			return 80 + boost
-		}
-		// Last resort: obvious block-index style names used by some SQLite header stores.
-		if strings.HasSuffix(low, "_height") && !strings.Contains(low, "time") {
-			return 40 + boost
-		}
-		return -1
-	}
-	bestName := ""
-	bestScore := -1
-	for _, c := range cols {
-		if sc := heightColScore(c.name, c.typ); sc > bestScore {
-			bestScore = sc
-			bestName = c.name
-		}
-	}
-	return bestName
-}
-
-func sqlite3PickHashColumn(ctx context.Context, sqlite3Bin, dbPath, table string) string {
-	q := fmt.Sprintf(`PRAGMA table_info(%s);`, sqlite3QuoteIdent(table))
-	cmd := exec.CommandContext(ctx, sqlite3Bin, "-bail", "-batch", dbPath, q)
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	var candidates []string
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		parts := strings.Split(line, "|")
-		if len(parts) < 2 {
-			continue
-		}
-		col := strings.TrimSpace(parts[1])
-		low := strings.ToLower(col)
-		if low == "txid" || strings.Contains(low, "prev_block") || strings.Contains(low, "witness") {
-			continue
-		}
-		if strings.Contains(low, "hash") {
-			candidates = append(candidates, col)
-		}
-	}
-	for _, col := range candidates {
-		if strings.EqualFold(col, "block_hash") {
-			return col
-		}
-	}
-	for _, col := range candidates {
-		if strings.EqualFold(col, "hash") {
-			return col
-		}
-	}
-	if len(candidates) > 0 {
-		return candidates[0]
-	}
-	return ""
-}
-
-// sqliteHeaderHashAtHeight looks up a 64-hex block hash for a height in SQLite headers.db (libdogecoin layout varies by version).
-func (s *Server) sqliteHeaderHashAtHeight(height int64) string {
-	if height <= 0 || s == nil || strings.TrimSpace(s.storageDir) == "" {
-		return ""
-	}
-	dbPath := filepath.Join(s.storageDir, "headers.db")
-	if !isSQLiteDBFile(dbPath) {
-		return ""
-	}
-	sqlite3Bin, err := exec.LookPath("sqlite3")
-	if err != nil {
-		return ""
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	tables, err := sqlite3ListTables(ctx, sqlite3Bin, dbPath)
-	if err != nil {
-		return ""
-	}
-	for _, tbl := range tables {
-		hcol := sqlite3PickHeightColumn(ctx, sqlite3Bin, dbPath, tbl)
-		bcol := sqlite3PickHashColumn(ctx, sqlite3Bin, dbPath, tbl)
-		if hcol == "" || bcol == "" {
-			continue
-		}
-		q := fmt.Sprintf(`SELECT %s FROM %s WHERE %s = %d LIMIT 1;`, sqlite3QuoteIdent(bcol), sqlite3QuoteIdent(tbl), sqlite3QuoteIdent(hcol), height)
-		cmd := exec.CommandContext(ctx, sqlite3Bin, "-noheader", "-batch", dbPath, q)
-		b, err := cmd.Output()
-		if err != nil {
-			continue
-		}
-		h := normalizeTxid(strings.TrimSpace(string(b)))
-		if len(h) == 64 {
-			return h
-		}
-	}
-	return ""
-}
-
-func hash256dLEHex(header80 []byte) string {
-	if len(header80) < 80 {
-		return ""
-	}
-	first := sha256.Sum256(header80[:80])
-	second := sha256.Sum256(first[:])
-	// Bitcoin/Dogecoin block hash is SHA256d interpreted as little-endian 32-byte word.
-	out := make([]byte, 32)
-	for i := 0; i < 32; i++ {
-		out[i] = second[31-i]
-	}
-	return hex.EncodeToString(out)
-}
-
-func sqlite3MaxInt64(ctx context.Context, sqlite3Bin, dbPath, q string) int64 {
-	cmd := exec.CommandContext(ctx, sqlite3Bin, "-noheader", "-batch", dbPath, q)
-	b, err := cmd.Output()
-	if err != nil {
-		return 0
-	}
-	v := strings.TrimSpace(string(b))
-	if v == "" {
-		return 0
-	}
-	n, err := strconv.ParseInt(v, 10, 64)
-	if err != nil || n <= 0 {
-		return 0
-	}
-	return n
-}
-
-func sqlite3PickBlobHeaderColumn(ctx context.Context, sqlite3Bin, dbPath, table string) string {
-	q := fmt.Sprintf(`PRAGMA table_info(%s);`, sqlite3QuoteIdent(table))
-	cmd := exec.CommandContext(ctx, sqlite3Bin, "-bail", "-batch", dbPath, q)
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	type cand struct {
-		name string
-		typ  string
-	}
-	var cands []cand
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		parts := strings.Split(line, "|")
-		if len(parts) < 3 {
-			continue
-		}
-		name := strings.TrimSpace(parts[1])
-		typ := strings.ToLower(strings.TrimSpace(parts[2]))
-		if name == "" {
-			continue
-		}
-		cands = append(cands, cand{name: name, typ: typ})
-	}
-	score := func(name, typ string) int {
-		low := strings.ToLower(name)
-		// Prefer obvious header-ish columns.
-		switch {
-		case strings.Contains(low, "header") && strings.Contains(low, "raw"):
-			return 100
-		case low == "header" || strings.HasSuffix(low, "_header"):
-			return 90
-		case strings.Contains(low, "serialized") || strings.Contains(low, "block_header"):
-			return 85
-		case strings.Contains(low, "header"):
-			return 70
-		default:
-			return 0
-		}
-	}
-	best := ""
-	bestScore := -1
-	for _, c := range cands {
-		lowTyp := strings.ToLower(c.typ)
-		if !strings.Contains(lowTyp, "blob") && !strings.Contains(lowTyp, "binary") {
-			continue
-		}
-		sc := score(c.name, c.typ)
-		if sc > bestScore {
-			bestScore = sc
-			best = c.name
-		}
-	}
-	if best != "" {
-		return best
-	}
-	// Fallback: any BLOB-ish column on a table that also has a height column.
-	for _, c := range cands {
-		lowTyp := strings.ToLower(c.typ)
-		if strings.Contains(lowTyp, "blob") || strings.Contains(lowTyp, "binary") {
-			return c.name
-		}
-	}
-	return ""
-}
-
-// sqliteHeaderBlobHexAtHeight returns lowercase hex for a likely 80-byte header blob at height, if discoverable.
-func (s *Server) sqliteHeaderBlobHexAtHeight(height int64) (hexLower string, meta map[string]any) {
-	meta = map[string]any{}
-	if height <= 0 || s == nil || strings.TrimSpace(s.storageDir) == "" {
-		return "", meta
-	}
-	dbPath := filepath.Join(s.storageDir, "headers.db")
-	meta["headers_db"] = dbPath
-	if !isSQLiteDBFile(dbPath) {
-		meta["note"] = "headers.db uses legacy non-SQLite format; raw SQLite header probe skipped"
-		return "", meta
-	}
-	sqlite3Bin, err := exec.LookPath("sqlite3")
-	if err != nil {
-		meta["note"] = "sqlite3 binary not found in PATH"
-		return "", meta
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	tables, err := sqlite3ListTables(ctx, sqlite3Bin, dbPath)
-	if err != nil || len(tables) == 0 {
-		meta["note"] = fmt.Sprintf("list tables: %v", err)
-		return "", meta
-	}
-	for _, tbl := range tables {
-		hcol := sqlite3PickHeightColumn(ctx, sqlite3Bin, dbPath, tbl)
-		if hcol == "" {
-			continue
-		}
-		bcol := sqlite3PickBlobHeaderColumn(ctx, sqlite3Bin, dbPath, tbl)
-		if bcol == "" {
-			continue
-		}
-		q := fmt.Sprintf(`SELECT lower(hex(%s)) FROM %s WHERE %s = %d LIMIT 1;`, sqlite3QuoteIdent(bcol), sqlite3QuoteIdent(tbl), sqlite3QuoteIdent(hcol), height)
-		cmd := exec.CommandContext(ctx, sqlite3Bin, "-noheader", "-batch", dbPath, q)
-		out, err := cmd.Output()
-		if err != nil {
-			continue
-		}
-		hx := strings.ToLower(strings.TrimSpace(string(out)))
-		if hx == "" {
-			continue
-		}
-		meta["table"] = tbl
-		meta["height_column"] = hcol
-		meta["blob_column"] = bcol
-		meta["blob_hex_len"] = len(hx)
-		return hx, meta
-	}
-	meta["note"] = "no BLOB header column found in headers.db (layout differs)"
-	return "", meta
-}
-
-// sqliteHeadersDBMaxHeight returns the largest height value found in any table with a height-like column.
-func (s *Server) sqliteHeadersDBMaxHeight() int64 {
-	if s == nil || strings.TrimSpace(s.storageDir) == "" {
-		return 0
-	}
-	dbPath := filepath.Join(s.storageDir, "headers.db")
-	if !isSQLiteDBFile(dbPath) {
-		return 0
-	}
-	sqlite3Bin, err := exec.LookPath("sqlite3")
-	if err != nil {
-		return 0
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	tables, err := sqlite3ListTables(ctx, sqlite3Bin, dbPath)
-	if err != nil {
-		return 0
-	}
-	var best int64
-	for _, tbl := range tables {
-		hcol := sqlite3PickHeightColumn(ctx, sqlite3Bin, dbPath, tbl)
-		if hcol == "" {
-			continue
-		}
-		q := fmt.Sprintf(`SELECT MAX(%s) FROM %s;`, sqlite3QuoteIdent(hcol), sqlite3QuoteIdent(tbl))
-		if v := sqlite3MaxInt64(ctx, sqlite3Bin, dbPath, q); v > best {
-			best = v
-		}
-	}
-	return best
-}
-
-// sqlite3DeleteHeadersAbove removes rows with height > keepHeight from every table that has a height-like column.
-func sqlite3DeleteHeadersAbove(ctx context.Context, sqlite3Bin, dbPath string, keepHeight int64) ([]string, error) {
-	if keepHeight < 0 {
-		return nil, errors.New("invalid keep height")
-	}
-	tables, err := sqlite3ListTables(ctx, sqlite3Bin, dbPath)
-	if err != nil {
-		return nil, err
-	}
-	var touched []string
-	for _, tbl := range tables {
-		col := sqlite3PickHeightColumn(ctx, sqlite3Bin, dbPath, tbl)
-		if col == "" {
-			continue
-		}
-		del := fmt.Sprintf(`DELETE FROM %s WHERE %s > %d;`, sqlite3QuoteIdent(tbl), sqlite3QuoteIdent(col), keepHeight)
-		cmd := exec.CommandContext(ctx, sqlite3Bin, "-bail", dbPath, del)
-		if err := cmd.Run(); err != nil {
-			return touched, fmt.Errorf("sqlite delete on %s: %w", tbl, err)
-		}
-		touched = append(touched, tbl)
-	}
-	return touched, nil
 }
 
 func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
@@ -517,9 +120,6 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 	headersPath := filepath.Join(s.storageDir, "headers.db")
 	walletDB := filepath.Join(s.storageDir, "spv_wallet.db")
 
-	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
-	defer cancel()
-
 	switch confirm {
 	case "RESCAN":
 		if mode != "" && mode != "full" {
@@ -530,7 +130,6 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 		if body.UseCheckpoint != nil {
 			prefs.UseCheckpoint = *body.UseCheckpoint
 		}
-		prefs.PendingRollbackKeepHeight = nil
 		_ = s.writeSPVSyncPrefs(prefs)
 		s.stopSPVNode()
 		migrated, legacyBackup, migErr := s.migrateLegacyHeadersDB()
@@ -543,6 +142,7 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 			_ = os.Remove(headersPath)
 		}
 		_ = os.Remove(s.spvWatchAddrPath())
+		s.wipeAuxiliaryWalletRuntimeState()
 		s.startSPVNode(wf)
 		out := map[string]any{
 			"ok":              true,
@@ -554,7 +154,7 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 		}
 		if migrated && legacyBackup != "" {
 			out["legacy_headers_renamed_to"] = legacyBackup
-			out["note"] = "Non-SQLite headers.db (legacy install) was renamed aside; SPV will create a new SQLite header store from the bundled checkpoint and rescan watched addresses."
+			out["note"] = "Unknown-format headers.db (legacy install) was renamed aside; SPV will create a new libdogecoin headers file from the bundled checkpoint and rescan watched addresses."
 		}
 		writeJSON(w, http.StatusOK, out)
 		return
@@ -592,157 +192,91 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 
 		if _, err := os.Stat(headersPath); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]any{
-				"error":        "headers.db missing — rollback needs the SQLite header store on disk",
+				"error":        "headers.db missing — rollback needs the on-disk header store",
 				"headers_path": headersPath,
 				"storage_dir":  s.storageDir,
-				"hint":         "Dashboard chain tip now comes from SPV REST status and metrics. Use Full SPV rescan (RESCAN), or wait until GET /api/spv/status shows headers_db_present true. Headers resume in the same directory as headers.db and spv_wallet.db (PQ_STORAGE_DIR, default /storage/pq-wallet in the pup).",
+				"hint":         "Dashboard chain tip comes from SPV REST status and metrics. Use Full SPV rescan (RESCAN), or wait until GET /api/spv/status shows headers_db_present true.",
 			})
 			return
 		}
-		if !isSQLiteDBFile(headersPath) {
+
+		if isLibdogecoinHeadersFileFormat(headersPath) {
+			s.stopSPVNode()
+			maxKept, newSz, terr := truncateLibdogecoinHeadersFile(headersPath, keepHeight)
+			if terr == nil {
+				s.wipeAuxiliaryWalletRuntimeState()
+				s.startSPVNode(wf)
+				writeJSON(w, http.StatusOK, map[string]any{
+					"ok":                  true,
+					"action":              "rollback_headers_file",
+					"keep_height":         keepHeight,
+					"height_source":       heightSource,
+					"rollback_block_hash": hash,
+					"headers_db":          headersPath,
+					"headers_db_format":   "libdogecoin_file_truncated",
+					"max_height_kept":     int64(maxKept),
+					"headers_file_bytes":  newSz,
+					"removed_wallet_db":   true,
+					"note": fmt.Sprintf("File-based headers.db (libdogecoin headersdb_file) was truncated after the last header at or below height %d. Local SPV wallet DB, watch files, tx cache, mempool tracker data, and logs were cleared so SPV can resync from the rolled-back chain tip.", keepHeight),
+				})
+				return
+			}
+			log.Printf("[pq-wallet] libdogecoin headers file truncate failed: %v; attempting legacy migrate", terr)
 			migrated, legacyBackup, migErr := s.migrateLegacyHeadersDB()
 			if migErr != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": migErr.Error()})
 				return
 			}
 			if !migrated {
-				writeJSON(w, http.StatusConflict, map[string]string{"error": "headers.db was not SQLite but disappeared before backup; retry or use RESCAN (full)"})
+				writeJSON(w, http.StatusInternalServerError, map[string]any{
+					"error":   fmt.Sprintf("rollback truncate failed: %v", terr),
+					"headers": headersPath,
+					"hint":    "headers.db is libdogecoin file format but could not be truncated; try Full SPV rescan (RESCAN).",
+				})
 				return
 			}
-			prefs := s.readSPVSyncPrefs()
-			h := keepHeight
-			prefs.PendingRollbackKeepHeight = &h
-			if err := s.writeSPVSyncPrefs(prefs); err != nil {
-				log.Printf("[pq-wallet] deferred rollback prefs: %v", err)
-			}
 			_ = os.Remove(walletDB)
+			s.wipeAuxiliaryWalletRuntimeState()
 			s.startSPVNode(wf)
 			writeJSON(w, http.StatusOK, map[string]any{
-				"ok":                           true,
-				"action":                       "legacy_headers_migrated",
-				"rollback_deferred":            true,
-				"pending_rollback_keep_height": keepHeight,
-				"legacy_headers_renamed_to":    legacyBackup,
-				"requested_keep_height":        keepHeight,
-				"height_source":                heightSource,
-				"rollback_block_hash":          hash,
-				"note": "Legacy file-based headers.db cannot be truncated in place; it was renamed aside and a new SQLite header store will grow as SPV syncs. " +
-					"Your chosen rollback height is saved: once SQLite headers pass that height, the pup will automatically delete rows above it and restart SPV (watch GET /api/spv/status pending_rollback_keep_height until it disappears). " +
-					"Until then, ETA can look short because the node is catching up toward the current chain tip first.",
+				"ok":                        true,
+				"action":                    "legacy_headers_migrated_after_truncate_fail",
+				"legacy_headers_renamed_to": legacyBackup,
+				"requested_keep_height":     keepHeight,
+				"height_source":             heightSource,
+				"rollback_block_hash":       hash,
+				"truncate_error":            terr.Error(),
+				"note": "Could not truncate libdogecoin headers.db in place; the file was renamed aside for a fresh header sync. " +
+					"The chosen rollback height was not applied to the old file. After the node catches up, run Rollback again or use Full rescan.",
 			})
-			return
-		}
-		sqlite3Bin, err := exec.LookPath("sqlite3")
-		if err != nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "sqlite3 CLI not found on PATH — install sqlite for rollback-from-height, or use RESCAN (full)"})
 			return
 		}
 
-		s.stopSPVNode()
-		maxBefore := s.sqliteHeadersDBMaxHeight()
-		tables, err := sqlite3DeleteHeadersAbove(ctx, sqlite3Bin, headersPath, keepHeight)
-		if err != nil {
-			s.startSPVNode(wf)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		migrated, legacyBackup, migErr := s.migrateLegacyHeadersDB()
+		if migErr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": migErr.Error()})
 			return
 		}
-		if len(tables) == 0 {
-			s.startSPVNode(wf)
-			writeJSON(w, http.StatusBadRequest, map[string]any{
-				"error":            "rollback found no SQLite tables with a recognized height column (expected names like height, block_height, n_height, header_height, …)",
-				"headers_db":       headersPath,
-				"max_height_probe": maxBefore,
-				"hint":             "Your headers.db layout may differ from what pq-wallet expects. Inspect with: sqlite3 headers.db '.schema' — or use Full SPV rescan (RESCAN) to rebuild.",
-			})
+		if !migrated {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "headers.db is not libdogecoin file format and could not be migrated (file missing or too small); retry or use RESCAN (full)"})
 			return
 		}
-		maxAfter := s.sqliteHeadersDBMaxHeight()
-		prefsDone := s.readSPVSyncPrefs()
-		prefsDone.PendingRollbackKeepHeight = nil
-		_ = s.writeSPVSyncPrefs(prefsDone)
 		_ = os.Remove(walletDB)
-		_ = os.Remove(s.spvWatchAddrPath())
+		s.wipeAuxiliaryWalletRuntimeState()
 		s.startSPVNode(wf)
-		note := "Headers newer than the chosen block were removed; spv_wallet.db was deleted so the node can rescan filters and UTXOs from the rolled-back chain tip."
-		if maxAfter > keepHeight && maxBefore > keepHeight {
-			note += " Warning: max header height in SQLite is still above keep_height — verify schema or run sqlite3 manually; tables touched: " + strings.Join(tables, ", ") + "."
-		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"ok":                       true,
-			"action":                   "rollback_headers",
-			"keep_height":              keepHeight,
-			"height_source":            heightSource,
-			"rollback_block_hash":      hash,
-			"headers_db":               headersPath,
-			"tables_deleted_from":      tables,
-			"header_max_height_before": maxBefore,
-			"header_max_height_after":  maxAfter,
-			"removed_wallet_db":        true,
-			"note":                     note,
+			"ok":                        true,
+			"action":                    "legacy_headers_migrated",
+			"legacy_headers_renamed_to": legacyBackup,
+			"requested_keep_height":     keepHeight,
+			"height_source":             heightSource,
+			"rollback_block_hash":       hash,
+			"note": "Unknown-format headers.db was renamed aside for a fresh libdogecoin header sync. " +
+				"The chosen rollback height was not applied to the old file. After headers exist again, run Rollback again or use Full rescan.",
 		})
 		return
 
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `unknown confirm value; use "RESCAN" or "ROLLBACK"`})
 	}
-}
-
-// tryApplyPendingRollbackSQLite finishes a rollback that was deferred because headers.db was legacy
-// (non-SQLite). Once SQLite exists and the stored header tip is above keepHeight, we delete rows with
-// height > keepHeight, clear spv_wallet.db, and restart spvnode.
-func (s *Server) tryApplyPendingRollbackSQLite(wf *WalletFile) {
-	if s == nil || wf == nil {
-		return
-	}
-	prefs := s.readSPVSyncPrefs()
-	if prefs.PendingRollbackKeepHeight == nil {
-		return
-	}
-	keep := *prefs.PendingRollbackKeepHeight
-	if keep < 0 || keep > 200_000_000 {
-		prefs.PendingRollbackKeepHeight = nil
-		_ = s.writeSPVSyncPrefs(prefs)
-		return
-	}
-	headersPath := filepath.Join(s.storageDir, "headers.db")
-	st, err := os.Stat(headersPath)
-	if err != nil || st.IsDir() {
-		return
-	}
-	if !isSQLiteDBFile(headersPath) {
-		return
-	}
-	maxBefore := s.sqliteHeadersDBMaxHeight()
-	if maxBefore == 0 {
-		return
-	}
-	// Wait until the header tip is past keepHeight; otherwise DELETE … WHERE height > keep is a no-op
-	// and we would clear the job too early while the node is still catching up toward the real tip.
-	if maxBefore <= keep {
-		return
-	}
-	sqlite3Bin, err := exec.LookPath("sqlite3")
-	if err != nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
-	tables, err := sqlite3DeleteHeadersAbove(ctx, sqlite3Bin, headersPath, keep)
-	if err != nil {
-		log.Printf("[pq-wallet] pending rollback sqlite delete: %v", err)
-		return
-	}
-	if len(tables) == 0 {
-		return
-	}
-	maxAfter := s.sqliteHeadersDBMaxHeight()
-	prefs.PendingRollbackKeepHeight = nil
-	if err := s.writeSPVSyncPrefs(prefs); err != nil {
-		log.Printf("[pq-wallet] pending rollback prefs write: %v", err)
-	}
-	log.Printf("[pq-wallet] deferred rollback applied keep_height=%d max_before=%d max_after=%d tables=%v", keep, maxBefore, maxAfter, tables)
-	s.stopSPVNode()
-	_ = os.Remove(filepath.Join(s.storageDir, "spv_wallet.db"))
-	_ = os.Remove(s.spvWatchAddrPath())
-	s.startSPVNode(wf)
 }

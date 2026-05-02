@@ -50,7 +50,7 @@ func (s *Server) latestSuchSpendable(maxAge time.Duration) (float64, bool) {
 }
 
 // computeSuchSpendableDOGE sums spendable UTXOs per address via fetchUTXOsFromExplorer
-// (SPV REST /getUTXOs, then such list_unspent, then SQLite when applicable).
+// (SPV REST /getUTXOs, then such list_unspent).
 func (s *Server) computeSuchSpendableDOGE(wf *WalletFile) (float64, bool) {
 	if wf == nil {
 		return 0, false
@@ -177,7 +177,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	spendable := math.Max(0, inSum-outSum)
-	// Spendable from summed UTXOs (such / REST / SQLite via fetchUTXOsFromExplorer), not /getBalance alone:
+	// Spendable from summed UTXOs (such / REST via fetchUTXOsFromExplorer), not /getBalance alone:
 	// during header sync REST totals can lag or disagree with the wallet UI ledger.
 	if utxoSpendable, ok := s.computeSuchSpendableDOGE(wf); ok {
 		spendable = math.Max(0, utxoSpendable)

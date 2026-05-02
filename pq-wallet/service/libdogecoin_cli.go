@@ -570,7 +570,7 @@ func (s *Server) cachedSuchPQCProbe(ctx context.Context) map[string]any {
 }
 
 // runSuchListUnspent tries to use a native libdogecoin/such unspent query command.
-// If the current such build does not support it, caller should fallback to local sqlite parsing.
+// If the current such build does not support it, caller should fallback to SPV REST /getUTXOs.
 func (s *Server) runSuchListUnspent(address string, testnet bool) ([]ExplorerUTXO, error) {
 	address = strings.TrimSpace(address)
 	if address == "" {
@@ -930,7 +930,7 @@ func (s *Server) spvHTTPBaseURL() string {
 
 // spvnodeArgs builds argv for libdogecoin spvnode. We intentionally omit -f:
 // with -f 0, spvnode treats headers as in-memory only and ignores -h, so
-// headers.db never appears on disk and SQLite rollback cannot run.
+// headers.db never appears on disk and file-based header rollback cannot run.
 func spvnodeArgs(testnet bool, addrs []string, storageDir string, useCheckpoint bool, httpAddr string) []string {
 	args := []string{"-c", "-l"}
 	if useCheckpoint {
@@ -999,7 +999,7 @@ func (s *Server) startSPVNode(w *WalletFile) {
 		log.Printf("[pq-wallet] legacy headers.db migrate failed: %v", err)
 		return
 	} else if migrated {
-		log.Printf("[pq-wallet] migrated non-SQLite headers.db to %s", backup)
+		log.Printf("[pq-wallet] migrated unknown-format headers.db to %s", backup)
 	}
 	s.stopSPVNode()
 	testnet := strings.EqualFold(w.Network, "testnet")
@@ -1045,14 +1045,13 @@ func (s *Server) startSPVNode(w *WalletFile) {
 	log.Printf("[pq-wallet] spvnode pid=%d watch_addrs=%d", started.Pid, len(used))
 }
 
-func (s *Server) startSPVNodeFromWatchState() {
+// walletFileFromSPVWatchState builds a minimal WalletFile from spv_watch_addrs.txt (used when the wallet is sealed).
+func (s *Server) walletFileFromSPVWatchState() *WalletFile {
 	st, err := s.loadSPVWatchState()
 	if err != nil || st == nil || len(st.Addresses) == 0 {
-		return
+		return nil
 	}
-	w := &WalletFile{
-		Network: st.Network,
-	}
+	w := &WalletFile{Network: st.Network}
 	w.Addresses = make([]WalletAddress, 0, len(st.Addresses))
 	for _, a := range st.Addresses {
 		a = strings.TrimSpace(a)
@@ -1062,9 +1061,15 @@ func (s *Server) startSPVNodeFromWatchState() {
 		w.Addresses = append(w.Addresses, WalletAddress{P2PKH: a})
 	}
 	if len(w.Addresses) == 0 {
-		return
+		return nil
 	}
-	s.startSPVNode(w)
+	return w
+}
+
+func (s *Server) startSPVNodeFromWatchState() {
+	if w := s.walletFileFromSPVWatchState(); w != nil {
+		s.startSPVNode(w)
+	}
 }
 
 func (s *Server) stopSPVNode() {
@@ -1104,10 +1109,10 @@ func (s *Server) readSPVStatus() map[string]any {
 	if _, err := os.Stat(hdb); err == nil {
 		out["headers_db"] = hdb
 		out["headers_db_present"] = true
-		if isSQLiteDBFile(hdb) {
-			out["headers_db_format"] = "sqlite"
+		if isLibdogecoinHeadersFileFormat(hdb) {
+			out["headers_db_format"] = "libdogecoin_file"
 		} else {
-			out["headers_db_format"] = "legacy_non_sqlite"
+			out["headers_db_format"] = "unknown"
 		}
 	} else {
 		out["headers_db_present"] = false
@@ -1115,9 +1120,6 @@ func (s *Server) readSPVStatus() map[string]any {
 	prefs := s.readSPVSyncPrefs()
 	out["use_checkpoint"] = prefs.UseCheckpoint
 	out["restore_checkpoint_hint"] = prefs.RestoreCheckpointHint
-	if prefs.PendingRollbackKeepHeight != nil {
-		out["pending_rollback_keep_height"] = *prefs.PendingRollbackKeepHeight
-	}
 	out["spv_checkpoints"] = map[string]any{
 		"mainnet": spvMainnetCheckpoints,
 		"testnet": spvTestnetCheckpoints,

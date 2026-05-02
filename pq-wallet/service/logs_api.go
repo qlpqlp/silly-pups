@@ -1,12 +1,14 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -27,10 +29,24 @@ func readLastNLinesFromFile(path string, maxBytes, n int) (string, error) {
 	return strings.Join(lines[len(lines)-n:], "\n"), nil
 }
 
-// augmentSPVLogWithHeaderHashes appends block hash (from SQLite headers.db) to lines that mention a height but have no 64-hex hash yet.
+func hash256dLEHex(header80 []byte) string {
+	if len(header80) < 80 {
+		return ""
+	}
+	first := sha256.Sum256(header80[:80])
+	second := sha256.Sum256(first[:])
+	out := make([]byte, 32)
+	for i := 0; i < 32; i++ {
+		out[i] = second[31-i]
+	}
+	return hex.EncodeToString(out)
+}
+
+// augmentSPVLogWithHeaderHashes appends block hash from libdogecoin file-based headers.db to lines that mention a height but have no 64-hex hash yet.
 func (s *Server) augmentSPVLogWithHeaderHashes(text string) string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	lines := strings.Split(text, "\n")
+	hdb := filepath.Join(s.storageDir, "headers.db")
 	for i, ln := range lines {
 		if reBlockHash.MatchString(ln) {
 			continue
@@ -46,7 +62,10 @@ func (s *Server) augmentSPVLogWithHeaderHashes(text string) string {
 		if h <= 0 {
 			continue
 		}
-		hash := s.sqliteHeaderHashAtHeight(h)
+		if !isLibdogecoinHeadersFileFormat(hdb) {
+			continue
+		}
+		hash := libdogecoinHeaderHashHexAtHeight(hdb, h)
 		if hash == "" {
 			continue
 		}
@@ -111,7 +130,7 @@ func clampInt(v, lo, hi, def int) int {
 //   merkle=1 filter merkle/proof/inclusion-ish lines
 //   hex=1 filter very long hex lines (likely raw tx / wire dumps)
 //   addr=1 scan for wallet P2PKH address substrings (requires unlocked/plaintext wallet)
-//   raw_header=1 include headers.db blob hex + hash256d check for height=… or best known height
+//   raw_header=1 include libdogecoin headers.db 80-byte header hex + hash256d check for height=… or best known height
 //   height=N explicit height for raw_header probe
 func (s *Server) handleLogsSPVDeep(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -188,7 +207,13 @@ func (s *Server) handleLogsSPVDeep(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	dbMax := s.sqliteHeadersDBMaxHeight()
+	hdbPath := filepath.Join(s.storageDir, "headers.db")
+	var dbMax int64
+	if isLibdogecoinHeadersFileFormat(hdbPath) {
+		if tip, err := libdogecoinHeadersFileTipHeight(hdbPath); err == nil {
+			dbMax = tip
+		}
+	}
 	fmt.Fprintf(&b, "\n[state.json header_height=%d best_block_hash=%s] [headers.db max_height=%d]\n", stateH, stateHash, dbMax)
 
 	// Count buckets
@@ -273,35 +298,31 @@ func (s *Server) handleLogsSPVDeep(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&b, "height_used=%d\n", hProbe)
 		if hProbe <= 0 {
 			b.WriteString("(no height available — set ?height=N)\n")
+		} else if !isLibdogecoinHeadersFileFormat(hdbPath) {
+			fmt.Fprintf(&b, "format=unknown (not libdogecoin file layout); path=%s\n", hdbPath)
 		} else {
-			hx, meta := s.sqliteHeaderBlobHexAtHeight(hProbe)
-			for k, v := range meta {
-				fmt.Fprintf(&b, "meta %s=%v\n", k, v)
-			}
-			hashSQLite := strings.ToLower(strings.TrimSpace(s.sqliteHeaderHashAtHeight(hProbe)))
+			hx := libdogecoinHeader80HexAtHeight(hdbPath, hProbe)
+			hashStored := strings.ToLower(strings.TrimSpace(libdogecoinHeaderHashHexAtHeight(hdbPath, hProbe)))
+			fmt.Fprintf(&b, "meta format=libdogecoin_file path=%s\n", hdbPath)
 			if hx == "" {
-				if note, _ := meta["note"].(string); strings.Contains(strings.ToLower(note), "legacy non-sqlite") {
-					b.WriteString("(legacy headers.db format detected; SQLite raw-header probe is not applicable)\n")
-				} else {
-					b.WriteString("(no blob header column / row at height)\n")
-				}
+				b.WriteString("(no record at height in headers file)\n")
 			} else {
-				fmt.Fprintf(&b, "blob_hex_len_chars=%d\n", len(hx))
+				fmt.Fprintf(&b, "header80_hex_len_chars=%d\n", len(hx))
 				show := hx
 				if len(show) > 400 {
 					show = hx[:400] + "…"
 				}
-				fmt.Fprintf(&b, "blob_hex_prefix=%s\n", show)
+				fmt.Fprintf(&b, "header80_hex_prefix=%s\n", show)
 				rawBytes, err := hex.DecodeString(hx)
 				if err != nil || len(rawBytes) < 80 {
 					fmt.Fprintf(&b, "decode_to_80b: err=%v len=%d\n", err, len(rawBytes))
 				} else {
-					calc := hash256dLEHex(rawBytes[:80])
+					calc := strings.ToLower(hash256dLEHex(rawBytes[:80]))
 					fmt.Fprintf(&b, "hash256d_first80_le_hex=%s\n", calc)
-					fmt.Fprintf(&b, "hash_from_headers_db_lookup=%s\n", hashSQLite)
-					if hashSQLite != "" && calc != "" && hashSQLite == calc {
-						b.WriteString("hash_match=YES (first 80 bytes hash to stored header hash)\n")
-					} else if hashSQLite != "" && calc != "" {
+					fmt.Fprintf(&b, "hash_from_headers_file_record=%s\n", hashStored)
+					if hashStored != "" && calc != "" && hashStored == calc {
+						b.WriteString("hash_match=YES (first 80 bytes hash to stored header hash field)\n")
+					} else if hashStored != "" && calc != "" {
 						b.WriteString("hash_match=NO (layout may differ, or stored hash is not block hash)\n")
 					}
 				}

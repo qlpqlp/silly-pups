@@ -239,8 +239,9 @@ vouts.
 Only **non-wallet** vouts with **positive value** appear as `output:` blocks
 (OP_RETURN / zero-value outputs are omitted so bogus “addresses” are not
 listed). Each block has `is_mine: 0`, plus `vout`, `address`, `amount`. The
-`txid` line uses the same hash byte order as `spend_txid` from `/getTransactions`
-(`dogecoin_tx_hash` / `tx_hash_cache`, no extra reversal). Per-tx totals
+`txid` line uses **display** byte order (hex of `tx_hash_cache` then
+`utils_reverse_hex`), matching `spend_txid` from `/getTransactions`, `txid` on
+`/getUTXOs`, and block explorers (see `/exportTxRaw`). Per-tx totals
 (`total_in`, `total_out`, `sent`, `change`, `fee`) use the full wtx vins/vouts;
 `sent` sums non-wallet vouts with positive value, excluding OP_RETURN.
 

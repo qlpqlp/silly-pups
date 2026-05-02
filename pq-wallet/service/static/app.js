@@ -136,6 +136,9 @@ const state = {
   lastDashboard: null,
   spvHeaderFeed: [],
   pqSendMode: "txc_txr",
+  /** Dashboard tx list: how many rows to render (grows on scroll). */
+  dashTxVisibleCount: 25,
+  dashTxIO: null,
 };
 
 const CACHE_DB_NAME = "pq-wallet-ui-cache";
@@ -143,6 +146,8 @@ const CACHE_DB_VERSION = 1;
 const CACHE_STORE = "snapshots";
 const CACHE_KEY_DASHBOARD = "dashboard_v1";
 const CACHE_KEY_TXS = "txs_v1";
+/** Initial batch on dashboard; each scroll load adds this many more. */
+const DASH_TX_PAGE_SIZE = 25;
 const LOCAL_KEY_PQ_SEND_MODE = "pq_send_mode_v1";
 const LOCAL_KEY_SEND_FEE_DOGE_PER_KB = "pq_send_fee_doge_per_kb_v1";
 const DEFAULT_FEE_PER_KB_DOGE = "0.01";
@@ -1077,6 +1082,23 @@ function buildTxExpandableCard(tx, includeSource) {
   return card;
 }
 
+function sortTxRowsForDisplay(txs) {
+  const arr = Array.isArray(txs) ? txs.slice() : [];
+  arr.sort((a, b) => {
+    const ta = new Date(a && a.seen_at ? a.seen_at : 0).getTime() || 0;
+    const tb = new Date(b && b.seen_at ? b.seen_at : 0).getTime() || 0;
+    if (tb !== ta) return tb - ta;
+    const ha = Number((a && a.block_height) || 0);
+    const hb = Number((b && b.block_height) || 0);
+    if (hb !== ha) return hb - ha;
+    const ca = Number((a && a.confirmations) || 0);
+    const cb = Number((b && b.confirmations) || 0);
+    if (cb !== ca) return cb - ca;
+    return String((b && b.txid) || "").localeCompare(String((a && a.txid) || ""));
+  });
+  return arr;
+}
+
 function upsertTxList(container, txs, includeSource, emptyEl) {
   if (!container) return;
   const arr = Array.isArray(txs) ? txs : [];
@@ -1529,6 +1551,8 @@ function applyDashboardSnapshot(dashboard) {
 function applyTxSnapshot(txs, refresh) {
   const rows = Array.isArray(txs) ? txs : [];
   state.lastTxs = rows;
+  state.dashTxVisibleCount =
+    rows.length === 0 ? DASH_TX_PAGE_SIZE : Math.min(DASH_TX_PAGE_SIZE, rows.length);
   const balBig = $("wallet-balance-big");
   const dashTotals = state.lastDashboard && state.lastDashboard.totals ? state.lastDashboard.totals : null;
   const spendHint = dashTotals && dashTotals.spendable_hint_doge != null ? Number(dashTotals.spendable_hint_doge) : NaN;
@@ -1572,24 +1596,88 @@ async function refreshDashboard() {
   }
 }
 
+function teardownDashTxInfiniteScroll() {
+  if (state.dashTxIO) {
+    try {
+      state.dashTxIO.disconnect();
+    } catch {
+      /* ignore */
+    }
+    state.dashTxIO = null;
+  }
+}
+
+function setupDashTxInfiniteScroll(listEl, totalCount, shownCount) {
+  teardownDashTxInfiniteScroll();
+  if (!listEl || shownCount >= totalCount || totalCount <= 0) return;
+  const sentinel = listEl.querySelector("#dash-tx-sentinel");
+  if (!sentinel) return;
+  if (typeof IntersectionObserver === "undefined") return;
+  const io = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        const cap = Array.isArray(state.lastTxs) ? state.lastTxs.length : 0;
+        if (cap <= 0) return;
+        const cur = Math.min(cap, Number(state.dashTxVisibleCount) || DASH_TX_PAGE_SIZE);
+        if (cur >= cap) return;
+        const next = Math.min(cap, cur + DASH_TX_PAGE_SIZE);
+        if (next <= cur) return;
+        state.dashTxVisibleCount = next;
+        renderDashboardTxPreview();
+        return;
+      }
+    },
+    { root: listEl, rootMargin: "160px", threshold: 0.01 }
+  );
+  io.observe(sentinel);
+  state.dashTxIO = io;
+}
+
 function renderDashboardTxPreview() {
   const list = $("dash-tx-list");
   if (!list) return;
+  teardownDashTxInfiniteScroll();
   const txs = Array.isArray(state.lastTxs) ? state.lastTxs : [];
   if (!txs.length) {
-    if (!list.querySelector(".dash-empty")) {
-      list.innerHTML = "";
-      const p = document.createElement("p");
-      p.className = "small muted dash-empty";
-      p.textContent = "No transactions yet.";
-      list.appendChild(p);
-    }
+    list.innerHTML = "";
+    const p = document.createElement("p");
+    p.className = "small muted dash-empty";
+    p.textContent = "No transactions yet.";
+    list.appendChild(p);
     return;
   }
-  const oldEmpty = list.querySelector(".dash-empty");
-  if (oldEmpty) oldEmpty.remove();
-  const max = Math.min(6, txs.length);
-  upsertTxList(list, txs.slice(0, max), false, null);
+  const sorted = sortTxRowsForDisplay(txs);
+  const total = sorted.length;
+  let vis = Number(state.dashTxVisibleCount) || DASH_TX_PAGE_SIZE;
+  if (!Number.isFinite(vis) || vis < 1) vis = DASH_TX_PAGE_SIZE;
+  if (vis > total) vis = total;
+  if (typeof IntersectionObserver === "undefined") {
+    vis = total;
+  }
+  state.dashTxVisibleCount = vis;
+  const slice = sorted.slice(0, vis);
+  upsertTxList(list, slice, false, null);
+
+  const footer = document.createElement("div");
+  footer.className = "dash-tx-list-footer";
+  const hint = document.createElement("p");
+  hint.className = "small muted dash-tx-scroll-hint";
+  if (vis < total) {
+    hint.textContent = `Showing ${vis} of ${total} — scroll down to load more`;
+    const sentinel = document.createElement("div");
+    sentinel.id = "dash-tx-sentinel";
+    sentinel.className = "dash-tx-sentinel";
+    sentinel.setAttribute("aria-hidden", "true");
+    footer.appendChild(hint);
+    footer.appendChild(sentinel);
+  } else {
+    hint.textContent =
+      total === 1 ? "1 transaction" : `${total} transactions`;
+    footer.appendChild(hint);
+  }
+  list.appendChild(footer);
+  setupDashTxInfiniteScroll(list, total, vis);
 }
 
 ["btn-svc-spv-stop"].forEach((id) => $(id)?.addEventListener("click", () => postServiceControl({ spv_enabled: false })));
@@ -1604,18 +1692,7 @@ async function refreshTxList(refresh) {
   const q = "";
   const data = await api("/api/transactions" + q, { timeout_ms: 18000 });
   if (!data || data.error || !Array.isArray(data.transactions)) return;
-  const txs = (data.transactions || []).slice().sort((a, b) => {
-    const ta = new Date(a && a.seen_at ? a.seen_at : 0).getTime() || 0;
-    const tb = new Date(b && b.seen_at ? b.seen_at : 0).getTime() || 0;
-    if (tb !== ta) return tb - ta;
-    const ha = Number(a && a.block_height || 0);
-    const hb = Number(b && b.block_height || 0);
-    if (hb !== ha) return hb - ha;
-    const ca = Number(a && a.confirmations || 0);
-    const cb = Number(b && b.confirmations || 0);
-    if (cb !== ca) return cb - ca;
-    return String((b && b.txid) || "").localeCompare(String((a && a.txid) || ""));
-  });
+  const txs = sortTxRowsForDisplay(data.transactions || []);
   applyTxSnapshot(txs, !!refresh);
   cacheSet(CACHE_KEY_TXS, { transactions: txs });
   } finally {

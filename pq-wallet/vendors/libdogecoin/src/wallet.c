@@ -1516,6 +1516,10 @@ dogecoin_bool dogecoin_wallet_sent_payment_hints_for_prevout(dogecoin_wallet* wa
                     char p2pkh_from_script_pubkey[P2PKHLEN];
                     if (!tx_out || !tx_out->script_pubkey)
                         continue;
+                    if (tx_out->value <= 0)
+                        continue;
+                    if (tx_out->script_pubkey->len > 0 && (unsigned char)tx_out->script_pubkey->str[0] == 0x6a)
+                        continue;
                     if (dogecoin_wallet_txout_is_mine(wallet, tx_out))
                         continue;
                     dogecoin_mem_zero(p2pkh_from_script_pubkey, sizeof(p2pkh_from_script_pubkey));

@@ -236,9 +236,13 @@ funded (`is_from_me`), skips duplicate wtx entries that share the same internal
 non-wallet vout values (external spend); `change` is the sum of wallet-owned
 vouts.
 
-Only **non-wallet** vouts appear as `output:` blocks (each with `is_mine: 0`,
-plus `vout`, `address`, `amount`). Per-tx totals (`total_in`, `total_out`,
-`sent`, `change`, `fee`) use the full wtx vins/vouts.
+Only **non-wallet** vouts with **positive value** appear as `output:` blocks
+(OP_RETURN / zero-value outputs are omitted so bogus “addresses” are not
+listed). Each block has `is_mine: 0`, plus `vout`, `address`, `amount`. The
+`txid` line uses the same hash byte order as `spend_txid` from `/getTransactions`
+(`dogecoin_tx_hash` / `tx_hash_cache`, no extra reversal). Per-tx totals
+(`total_in`, `total_out`, `sent`, `change`, `fee`) use the full wtx vins/vouts;
+`sent` sums non-wallet vouts with positive value, excluding OP_RETURN.
 
 #### **Request**
 

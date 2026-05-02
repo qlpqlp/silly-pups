@@ -41,6 +41,13 @@
 #include <stdlib.h>   // qsort
 #include <stdint.h>   // uint64_t
 
+/** OP_RETURN / data carrier outputs are not spend destinations for REST listing. */
+static int dogecoin_rest_vout_is_op_return(const dogecoin_tx_out* o)
+{
+    return o && o->script_pubkey && o->script_pubkey->len > 0 &&
+           (unsigned char)o->script_pubkey->str[0] == 0x6a;
+}
+
 static int cmp_u64(const void *a, const void *b) {
     uint64_t va = *(const uint64_t*)a, vb = *(const uint64_t*)b;
     return (va > vb) - (va < vb);
@@ -210,7 +217,7 @@ void dogecoin_http_request_cb(struct evhttp_request *req, void *arg) {
                     total_out += o->value;
                     if (dogecoin_wallet_txout_is_mine(wallet, o)) {
                         mine_out += o->value;
-                    } else {
+                    } else if (o->value > 0 && !dogecoin_rest_vout_is_op_return(o)) {
                         ext_out += o->value;
                     }
                 }
@@ -224,9 +231,8 @@ void dogecoin_http_request_cb(struct evhttp_request *req, void *arg) {
                 int64_t fee = (debit_in > 0 && debit_in >= total_out) ? (debit_in - total_out) : 0;
 
                 char txid_hex[65] = {0};
-                /* tx_hash_cache matches dogecoin_tx_hash / btree; hex+reverse => explorer txid order. */
+                /* Same byte order as dogecoin_tx_hash + spend_txid in /getTransactions (do not reverse). */
                 utils_bin_to_hex((unsigned char*)wtx->tx_hash_cache, sizeof(wtx->tx_hash_cache), txid_hex);
-                utils_reverse_hex(txid_hex, 64);
 
                 char debit_str[KOINU_STRINGLEN] = {0};
                 char total_str[KOINU_STRINGLEN] = {0};
@@ -254,6 +260,9 @@ void dogecoin_http_request_cb(struct evhttp_request *req, void *arg) {
                         continue;
                     }
                     if (dogecoin_wallet_txout_is_mine(wallet, o)) {
+                        continue;
+                    }
+                    if (o->value <= 0 || dogecoin_rest_vout_is_op_return(o)) {
                         continue;
                     }
 

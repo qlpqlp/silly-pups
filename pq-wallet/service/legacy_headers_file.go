@@ -76,6 +76,7 @@ func truncateLibdogecoinHeadersFile(path string, keepHeight int64) (maxKeptHeigh
 	off := int64(libdogeHeadersFileHdrLen)
 	rec := make([]byte, libdogeHeadersFileRecLen)
 	var maxKept uint32
+	var firstHeight *uint32
 
 	for off+int64(libdogeHeadersFileRecLen) <= size {
 		n, rerr := f.ReadAt(rec, off)
@@ -83,12 +84,26 @@ func truncateLibdogecoinHeadersFile(path string, keepHeight int64) (maxKeptHeigh
 			break
 		}
 		h := binary.LittleEndian.Uint32(rec[32:36])
+		if firstHeight == nil {
+			tmp := h
+			firstHeight = &tmp
+		}
 		if int64(h) > keepHeight {
 			break
 		}
 		cut = off + int64(libdogeHeadersFileRecLen)
 		maxKept = h
 		off += int64(libdogeHeadersFileRecLen)
+	}
+
+	if firstHeight == nil {
+		if size <= int64(libdogeHeadersFileHdrLen) {
+			return 0, 0, fmt.Errorf("headers.db has no header records (only file header)")
+		}
+		return 0, 0, fmt.Errorf("headers.db is incomplete or corrupt (expected %d-byte records after %d-byte header)", libdogeHeadersFileRecLen, libdogeHeadersFileHdrLen)
+	}
+	if int64(*firstHeight) > keepHeight {
+		return 0, 0, fmt.Errorf("on-disk header chain starts at height %d; cannot roll back to %d (remove headers.db with Full SPV rescan, or choose rollback_height >= %d)", *firstHeight, keepHeight, *firstHeight)
 	}
 
 	if cut < int64(libdogeHeadersFileHdrLen) {

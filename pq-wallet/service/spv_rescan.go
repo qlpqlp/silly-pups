@@ -203,51 +203,32 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 		if isLibdogecoinHeadersFileFormat(headersPath) {
 			s.stopSPVNode()
 			maxKept, newSz, terr := truncateLibdogecoinHeadersFile(headersPath, keepHeight)
-			if terr == nil {
-				s.wipeAuxiliaryWalletRuntimeState()
+			if terr != nil {
 				s.startSPVNode(wf)
-				writeJSON(w, http.StatusOK, map[string]any{
-					"ok":                  true,
-					"action":              "rollback_headers_file",
-					"keep_height":         keepHeight,
-					"height_source":       heightSource,
-					"rollback_block_hash": hash,
-					"headers_db":          headersPath,
-					"headers_db_format":   "libdogecoin_file_truncated",
-					"max_height_kept":     int64(maxKept),
-					"headers_file_bytes":  newSz,
-					"removed_wallet_db":   true,
-					"note": fmt.Sprintf("File-based headers.db (libdogecoin headersdb_file) was truncated after the last header at or below height %d. Local SPV wallet DB, watch files, tx cache, mempool tracker data, and logs were cleared so SPV can resync from the rolled-back chain tip.", keepHeight),
+				writeJSON(w, http.StatusConflict, map[string]any{
+					"ok":           false,
+					"error":        terr.Error(),
+					"headers_db":   headersPath,
+					"keep_height":  keepHeight,
+					"height_source": heightSource,
+					"hint":         "If your SPV chain started at a bundled checkpoint above this height, pick rollback_height ≥ that start, or use Full SPV rescan (RESCAN) to rebuild headers.db.",
 				})
 				return
 			}
-			log.Printf("[pq-wallet] libdogecoin headers file truncate failed: %v; attempting legacy migrate", terr)
-			migrated, legacyBackup, migErr := s.migrateLegacyHeadersDB()
-			if migErr != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": migErr.Error()})
-				return
-			}
-			if !migrated {
-				writeJSON(w, http.StatusInternalServerError, map[string]any{
-					"error":   fmt.Sprintf("rollback truncate failed: %v", terr),
-					"headers": headersPath,
-					"hint":    "headers.db is libdogecoin file format but could not be truncated; try Full SPV rescan (RESCAN).",
-				})
-				return
-			}
-			_ = os.Remove(walletDB)
 			s.wipeAuxiliaryWalletRuntimeState()
 			s.startSPVNode(wf)
 			writeJSON(w, http.StatusOK, map[string]any{
-				"ok":                        true,
-				"action":                    "legacy_headers_migrated_after_truncate_fail",
-				"legacy_headers_renamed_to": legacyBackup,
-				"requested_keep_height":     keepHeight,
-				"height_source":             heightSource,
-				"rollback_block_hash":       hash,
-				"truncate_error":            terr.Error(),
-				"note": "Could not truncate libdogecoin headers.db in place; the file was renamed aside for a fresh header sync. " +
-					"The chosen rollback height was not applied to the old file. After the node catches up, run Rollback again or use Full rescan.",
+				"ok":                  true,
+				"action":              "rollback_headers_file",
+				"keep_height":         keepHeight,
+				"height_source":       heightSource,
+				"rollback_block_hash": hash,
+				"headers_db":          headersPath,
+				"headers_db_format":   "libdogecoin_file_truncated",
+				"max_height_kept":     int64(maxKept),
+				"headers_file_bytes":  newSz,
+				"removed_wallet_db":   true,
+				"note": fmt.Sprintf("File-based headers.db (libdogecoin headersdb_file) was truncated after the last header at or below height %d. Local SPV wallet DB, watch files, tx cache, mempool tracker data, and logs were cleared so SPV can resync from the rolled-back chain tip.", keepHeight),
 			})
 			return
 		}

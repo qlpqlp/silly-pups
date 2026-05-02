@@ -1026,6 +1026,11 @@ func (s *Server) startSPVNode(w *WalletFile) {
 	}
 	args := spvnodeArgs(testnet, list, s.storageDir, prefs.UseCheckpoint, httpAddr)
 	cmd := exec.Command(s.spvnodePath(), args...)
+	cmdEnv := os.Environ()
+	if prefs.UseCheckpoint && prefs.RestoreCheckpointHint > 0 {
+		cmdEnv = append(cmdEnv, fmt.Sprintf("PQ_SPV_CHECKPOINT_HEIGHT=%d", prefs.RestoreCheckpointHint))
+	}
+	cmd.Env = cmdEnv
 	cmd.Stdout = lf
 	cmd.Stderr = lf
 	if err := cmd.Start(); err != nil {
@@ -1124,7 +1129,7 @@ func (s *Server) readSPVStatus() map[string]any {
 		"mainnet": spvMainnetCheckpoints,
 		"testnet": spvTestnetCheckpoints,
 		"note": "Rollback uses the height you pick from this list (must match vendored chainparams.c). " +
-			"Fresh SPV start with use_checkpoint uses spvnode -p only: libdogecoin seeds headers from its checkpoint table using wallet scan-window timestamps, not this menu index (interactive -q is not used from the pup).",
+			"With use_checkpoint, spvnode runs with -p. After wallet restore with bundled_checkpoints, pq-wallet sets PQ_SPV_CHECKPOINT_HEIGHT from restore_checkpoint_hint so the first sync anchors that exact height when headers.db is still empty (8-byte header only).",
 	}
 	if _, err := os.Stat(wdb); err == nil {
 		out["spv_wallet_db"] = wdb

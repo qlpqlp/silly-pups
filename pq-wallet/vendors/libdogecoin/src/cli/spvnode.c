@@ -788,6 +788,62 @@ int main(int argc, char* argv[]) {
                     }
                 }
             }
+            /* PQ Wallet: non-interactive bundled checkpoint (must match chainparams.c table). Only when headers.db has no records yet (file header only). */
+            if (use_checkpoint && !spv_select_checkpoint) {
+                const char* pcph = getenv("PQ_SPV_CHECKPOINT_HEIGHT");
+                if (pcph && pcph[0] != '\0') {
+                    char* endptr = NULL;
+                    unsigned long want_ul = strtoul(pcph, &endptr, 10);
+                    if (endptr != pcph && want_ul <= 0xffffffffUL) {
+                        uint32_t want_h = (uint32_t)want_ul;
+                        const dogecoin_checkpoint* cps = NULL;
+                        int cp_n = 0;
+                        if (chain == &dogecoin_chainparams_main) {
+                            cps = dogecoin_mainnet_checkpoint_array;
+                            cp_n = (int)(sizeof(dogecoin_mainnet_checkpoint_array) / sizeof(dogecoin_mainnet_checkpoint_array[0]));
+                        } else if (chain == &dogecoin_chainparams_test) {
+                            cps = dogecoin_testnet_checkpoint_array;
+                            cp_n = (int)(sizeof(dogecoin_testnet_checkpoint_array) / sizeof(dogecoin_testnet_checkpoint_array[0]));
+                        }
+                        int cpi = -1;
+                        for (int j = 0; j < cp_n; j++) {
+                            if (cps[j].height == want_h) {
+                                cpi = j;
+                                break;
+                            }
+                        }
+                        if (cpi < 0) {
+                            fprintf(stderr, "PQ_SPV_CHECKPOINT_HEIGHT=%lu: not a known bundled checkpoint height\n", want_ul);
+                        } else if (in_memory_headers) {
+                            fprintf(stderr, "PQ_SPV_CHECKPOINT_HEIGHT ignored (in-memory headers)\n");
+                        } else {
+                            dogecoin_headers_db* hwdb = (dogecoin_headers_db*)client->headers_db_ctx;
+                            long fsz = -1;
+                            if (hwdb && hwdb->headers_tree_file) {
+                                long opos = ftell(hwdb->headers_tree_file);
+                                if (fseek(hwdb->headers_tree_file, 0, SEEK_END) == 0) {
+                                    fsz = ftell(hwdb->headers_tree_file);
+                                }
+                                if (opos >= 0) {
+                                    fseek(hwdb->headers_tree_file, opos, SEEK_SET);
+                                }
+                            }
+                            if (fsz != (long)SPV_HEADERS_FILE_HDR_LEN) {
+                                fprintf(stderr, "PQ_SPV_CHECKPOINT_HEIGHT=%u ignored: headers.db size %ld (need exactly %u-byte empty store)\n", want_h, fsz, SPV_HEADERS_FILE_HDR_LEN);
+                            } else {
+                                uint256_t cphash;
+                                utils_uint256_sethex((char*)cps[cpi].hash, (uint8_t*)&cphash);
+                                client->headers_db->set_checkpoint_start(
+                                    client->headers_db_ctx,
+                                    cphash,
+                                    cps[cpi].height,
+                                    (uint8_t*)client->chainparams->minimumchainwork);
+                                printf("PQ_SPV_CHECKPOINT_HEIGHT: anchored at bundled checkpoint height %u\n", cps[cpi].height);
+                            }
+                        }
+                    }
+                }
+            }
             if (have_decl_daemon) {
 #if defined(HAVE_DECL_DAEMON) && !defined(WIN32)
                 const char *LOGNAME = "libdogecoin-spvnode";

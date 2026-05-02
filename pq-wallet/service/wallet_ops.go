@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -160,6 +161,37 @@ func (s *Server) handleWalletDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+// decodeWalletImportPayload accepts either a raw WalletFile JSON or
+// {"wallet":{...},"spv_on_restore":{"sync":"genesis"|"bundled_checkpoints","height":N}}.
+// legacyImport is true for raw wallet bodies: existing SPV prefs on disk are left unchanged.
+func decodeWalletImportPayload(b []byte) (WalletFile, *spvOnRestoreOpts, bool, error) {
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(b, &probe); err != nil {
+		var zero WalletFile
+		return zero, nil, false, err
+	}
+	walletRaw, wrapped := probe["wallet"]
+	if !wrapped {
+		var wf WalletFile
+		if err := json.Unmarshal(b, &wf); err != nil {
+			return wf, nil, false, err
+		}
+		return wf, nil, true, nil
+	}
+	var wf WalletFile
+	if err := json.Unmarshal(walletRaw, &wf); err != nil {
+		return wf, nil, false, err
+	}
+	var restore *spvOnRestoreOpts
+	if raw, ok := probe["spv_on_restore"]; ok {
+		var o spvOnRestoreOpts
+		if err := json.Unmarshal(raw, &o); err == nil {
+			restore = &o
+		}
+	}
+	return wf, restore, false, nil
+}
+
 func (s *Server) handleWalletImport(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST only"})
@@ -170,8 +202,8 @@ func (s *Server) handleWalletImport(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	var wf WalletFile
-	if err := json.Unmarshal(b, &wf); err != nil {
+	wf, spvOnRestore, legacyImport, err := decodeWalletImportPayload(b)
+	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -224,6 +256,12 @@ func (s *Server) handleWalletImport(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	testnet := strings.EqualFold(wf.Network, "testnet")
+	if !legacyImport {
+		if err := s.applySPVSyncPrefsFromWalletRestore(spvOnRestore, testnet); err != nil {
+			log.Printf("[pq-wallet] wallet import spv_on_restore prefs: %v", err)
+		}
+	}
 	// Import/restore is typically an existing wallet history, not a new wallet.
 	// Force SPV replay for restored keys (Dogecoin Wallet-style behavior):
 	// clear tx cache + SPV wallet DB + header DB so historical transactions are re-discovered.
@@ -233,14 +271,23 @@ func (s *Server) handleWalletImport(w http.ResponseWriter, r *http.Request) {
 	_ = os.Remove(s.spvWatchAddrPath())
 	_ = s.saveState(&WalletState{Version: 1})
 	s.startSPVNode(&wf)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":                 true,
-		"wallet":             wf,
-		"import_mode":        "restore_resync",
-		"removed_headers_db": filepath.Join(s.storageDir, "headers.db"),
-		"removed_spv_wallet": filepath.Join(s.storageDir, "spv_wallet.db"),
-		"note":               "Wallet restore started. SPV headers + wallet DB were reset so transaction history can resync for restored addresses.",
-	})
+	out := map[string]any{
+		"ok":                   true,
+		"wallet":               wf,
+		"import_mode":          "restore_resync",
+		"import_legacy_format": legacyImport,
+		"removed_headers_db":   filepath.Join(s.storageDir, "headers.db"),
+		"removed_spv_wallet":   filepath.Join(s.storageDir, "spv_wallet.db"),
+		"note":                 "Wallet restore started. SPV headers + wallet DB were reset so transaction history can resync for restored addresses.",
+	}
+	if !legacyImport {
+		p := s.readSPVSyncPrefs()
+		out["spv_on_restore_applied"] = map[string]any{
+			"use_checkpoint":          p.UseCheckpoint,
+			"restore_checkpoint_hint": p.RestoreCheckpointHint,
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleWalletNewAddress(w http.ResponseWriter, r *http.Request) {

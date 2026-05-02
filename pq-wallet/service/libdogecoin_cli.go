@@ -1114,6 +1114,7 @@ func (s *Server) readSPVStatus() map[string]any {
 	}
 	prefs := s.readSPVSyncPrefs()
 	out["use_checkpoint"] = prefs.UseCheckpoint
+	out["restore_checkpoint_hint"] = prefs.RestoreCheckpointHint
 	out["spv_checkpoints"] = map[string]any{
 		"mainnet": spvMainnetCheckpoints,
 		"testnet": spvTestnetCheckpoints,

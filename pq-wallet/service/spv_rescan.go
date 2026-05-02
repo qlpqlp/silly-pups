@@ -123,6 +123,11 @@ func sqlite3PickHeightColumn(ctx context.Context, sqlite3Bin, dbPath, table stri
 	if err != nil {
 		return ""
 	}
+	type colRow struct {
+		name string
+		typ  string
+	}
+	var cols []colRow
 	// Lines like: 0|height|INTEGER|0||0
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
@@ -133,14 +138,47 @@ func sqlite3PickHeightColumn(ctx context.Context, sqlite3Bin, dbPath, table stri
 		if len(parts) < 3 {
 			continue
 		}
-		col := strings.TrimSpace(parts[1])
-		switch strings.ToLower(col) {
-		case "height", "block_height", "n_height":
-			return col
-		default:
+		name := strings.TrimSpace(parts[1])
+		typ := strings.TrimSpace(parts[2])
+		if name == "" {
+			continue
+		}
+		cols = append(cols, colRow{name: name, typ: typ})
+	}
+	heightColScore := func(name, typ string) int {
+		low := strings.ToLower(name)
+		if low == "rowid" || low == "oid" {
+			return -1
+		}
+		lowTyp := strings.ToLower(typ)
+		intish := strings.Contains(lowTyp, "int") || lowTyp == "" || strings.Contains(lowTyp, "num")
+		boost := 0
+		if intish {
+			boost = 5
+		}
+		switch low {
+		case "height":
+			return 100 + boost
+		case "block_height", "n_height":
+			return 95 + boost
+		case "header_height", "hdr_height", "blk_height", "chain_height", "blockheight", "nheight":
+			return 80 + boost
+		}
+		// Last resort: obvious block-index style names used by some SQLite header stores.
+		if strings.HasSuffix(low, "_height") && !strings.Contains(low, "time") {
+			return 40 + boost
+		}
+		return -1
+	}
+	bestName := ""
+	bestScore := -1
+	for _, c := range cols {
+		if sc := heightColScore(c.name, c.typ); sc > bestScore {
+			bestScore = sc
+			bestName = c.name
 		}
 	}
-	return ""
+	return bestName
 }
 
 func sqlite3PickHashColumn(ctx context.Context, sqlite3Bin, dbPath, table string) string {
@@ -489,7 +527,9 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if body.UseCheckpoint != nil {
-			_ = s.writeSPVSyncPrefs(spvSyncPrefs{UseCheckpoint: *body.UseCheckpoint})
+			prefs := s.readSPVSyncPrefs()
+			prefs.UseCheckpoint = *body.UseCheckpoint
+			_ = s.writeSPVSyncPrefs(prefs)
 		}
 		s.stopSPVNode()
 		migrated, legacyBackup, migErr := s.migrateLegacyHeadersDB()
@@ -589,25 +629,43 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.stopSPVNode()
+		maxBefore := s.sqliteHeadersDBMaxHeight()
 		tables, err := sqlite3DeleteHeadersAbove(ctx, sqlite3Bin, headersPath, keepHeight)
 		if err != nil {
 			s.startSPVNode(wf)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
+		if len(tables) == 0 {
+			s.startSPVNode(wf)
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"error":            "rollback found no SQLite tables with a recognized height column (expected names like height, block_height, n_height, header_height, …)",
+				"headers_db":       headersPath,
+				"max_height_probe": maxBefore,
+				"hint":             "Your headers.db layout may differ from what pq-wallet expects. Inspect with: sqlite3 headers.db '.schema' — or use Full SPV rescan (RESCAN) to rebuild.",
+			})
+			return
+		}
+		maxAfter := s.sqliteHeadersDBMaxHeight()
 		_ = os.Remove(walletDB)
 		_ = os.Remove(s.spvWatchAddrPath())
 		s.startSPVNode(wf)
+		note := "Headers newer than the chosen block were removed; spv_wallet.db was deleted so the node can rescan filters and UTXOs from the rolled-back chain tip."
+		if maxAfter > keepHeight && maxBefore > keepHeight {
+			note += " Warning: max header height in SQLite is still above keep_height — verify schema or run sqlite3 manually; tables touched: " + strings.Join(tables, ", ") + "."
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"ok":                  true,
-			"action":              "rollback_headers",
-			"keep_height":         keepHeight,
-			"height_source":       heightSource,
-			"rollback_block_hash": hash,
-			"headers_db":          headersPath,
-			"tables_deleted_from": tables,
-			"removed_wallet_db":   true,
-			"note":                "Headers newer than the chosen block were removed; spv_wallet.db was deleted so the node can rescan filters and UTXOs from the rolled-back chain tip.",
+			"ok":                       true,
+			"action":                   "rollback_headers",
+			"keep_height":              keepHeight,
+			"height_source":            heightSource,
+			"rollback_block_hash":      hash,
+			"headers_db":               headersPath,
+			"tables_deleted_from":      tables,
+			"header_max_height_before": maxBefore,
+			"header_max_height_after":  maxAfter,
+			"removed_wallet_db":        true,
+			"note":                     note,
 		})
 		return
 

@@ -2,13 +2,21 @@ package main
 
 import (
 	"encoding/json"
-	"log"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type spvSyncPrefs struct {
 	UseCheckpoint bool `json:"use_checkpoint"`
+	// RestoreCheckpointHint is the bundled checkpoint height last chosen at wallet import (0 = genesis path).
+	RestoreCheckpointHint int64 `json:"restore_checkpoint_hint"`
+}
+
+// spvOnRestoreOpts is sent with wrapped wallet import JSON as spv_on_restore.
+type spvOnRestoreOpts struct {
+	Sync   string `json:"sync"`   // "genesis" (default) or "bundled_checkpoints"
+	Height int64  `json:"height"` // when sync is bundled_checkpoints: checkpoint height from the bundled table (>0)
 }
 
 func (s *Server) spvSyncPrefsPath() string {
@@ -28,16 +36,30 @@ func (s *Server) readSPVSyncPrefs() spvSyncPrefs {
 		_ = s.writeSPVSyncPrefs(out)
 		return out
 	}
-	// Always prefer libdogecoin checkpoint-assisted sync (-p) for on-disk headers.db; genesis-only is easy to misconfigure.
-	if !p.UseCheckpoint {
-		p.UseCheckpoint = true
-		if err := s.writeSPVSyncPrefs(p); err != nil {
-			log.Printf("[pq-wallet] spv_sync_prefs write: %v", err)
-		} else {
-			log.Printf("[pq-wallet] spv_sync_prefs: use_checkpoint set to true (checkpoint sync)")
-		}
-	}
 	return p
+}
+
+// applySPVSyncPrefsFromWalletRestore persists SPV sync prefs after a wrapped wallet import.
+// nil opts means genesis (full headers from block 0, no spvnode -p).
+func (s *Server) applySPVSyncPrefsFromWalletRestore(o *spvOnRestoreOpts, testnet bool) error {
+	if o == nil {
+		o = &spvOnRestoreOpts{Sync: "genesis"}
+	}
+	sync := strings.ToLower(strings.TrimSpace(o.Sync))
+	prefs := s.readSPVSyncPrefs()
+	switch sync {
+	case "bundled_checkpoints", "checkpoints":
+		prefs.UseCheckpoint = true
+		h := o.Height
+		if h > 0 && !bundledCheckpointHeightKnown(testnet, h) {
+			h = 0
+		}
+		prefs.RestoreCheckpointHint = h
+	default:
+		prefs.UseCheckpoint = false
+		prefs.RestoreCheckpointHint = 0
+	}
+	return s.writeSPVSyncPrefs(prefs)
 }
 
 func (s *Server) writeSPVSyncPrefs(p spvSyncPrefs) error {

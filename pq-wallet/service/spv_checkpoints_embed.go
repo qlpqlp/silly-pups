@@ -10,6 +10,20 @@ type spvCheckpointRow struct {
 	Timestamp int64  `json:"timestamp"`
 }
 
+// bundledCheckpointHeightKnown reports whether height appears in the vendored checkpoint table for the network.
+func bundledCheckpointHeightKnown(testnet bool, height int64) bool {
+	list := spvMainnetCheckpoints
+	if testnet {
+		list = spvTestnetCheckpoints
+	}
+	for _, r := range list {
+		if int64(r.Height) == height {
+			return true
+		}
+	}
+	return false
+}
+
 var spvMainnetCheckpoints = []spvCheckpointRow{
 	{0, "1a91e3dace36e2be3bf030a65679fe821aa1d6ef92e7c9902eb318182c355691", 1386325540},
 	{104679, "35eb87ae90d44b98898fec8c39577b76cb1eb08e1261cfc10706c8ce9a1d01cf", 1392637497},

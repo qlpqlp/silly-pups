@@ -255,6 +255,78 @@ function fillSpvRollbackCheckpointSelect(st) {
   }
 }
 
+function resetImportSpvRestoreSelectPlaceholder() {
+  const sel = $("import-spv-restore-select");
+  if (!sel) return;
+  sel.innerHTML = "";
+  const ph = document.createElement("option");
+  ph.value = "";
+  ph.textContent = "Choose a backup JSON file first…";
+  ph.disabled = true;
+  ph.selected = true;
+  sel.appendChild(ph);
+  sel.disabled = true;
+}
+
+/** After a backup file is chosen, populate SPV restore options (genesis default + bundled heights). */
+async function refreshImportSpvRestoreOptionsFromFile(file) {
+  const sel = $("import-spv-restore-select");
+  if (!sel) return;
+  if (!file) {
+    resetImportSpvRestoreSelectPlaceholder();
+    return;
+  }
+  try {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+    const w = parsed.wallet && typeof parsed.wallet === "object" ? parsed.wallet : parsed;
+    const net =
+      w && w.network && String(w.network).toLowerCase() === "testnet" ? "testnet" : "mainnet";
+    const st = await api("/api/spv/status");
+    const rows =
+      st && st.spv_checkpoints && Array.isArray(st.spv_checkpoints[net]) ? st.spv_checkpoints[net] : [];
+    sel.innerHTML = "";
+    const gen = document.createElement("option");
+    gen.value = "genesis";
+    gen.textContent = "Genesis — block 0 — full header chain (no -p)";
+    gen.selected = true;
+    sel.appendChild(gen);
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i] || {};
+      const h = row.height != null ? Number(row.height) : NaN;
+      const hash = row.hash != null ? String(row.hash) : "";
+      const ts = row.timestamp != null ? Number(row.timestamp) : 0;
+      if (!Number.isFinite(h) || hash.length < 32) continue;
+      if (h === 0) continue;
+      const o = document.createElement("option");
+      o.value = "h-" + h;
+      o.textContent = "Block " + h + " — " + spvShortHashHex(hash) + " — " + spvFmtCheckpointUtc(ts);
+      sel.appendChild(o);
+    }
+    sel.disabled = false;
+  } catch {
+    sel.innerHTML = "";
+    const err = document.createElement("option");
+    err.value = "";
+    err.textContent = "Invalid JSON — fix backup file";
+    err.disabled = true;
+    err.selected = true;
+    sel.appendChild(err);
+    sel.disabled = true;
+  }
+}
+
+function buildSpvOnRestoreFromImportSelect() {
+  const sel = $("import-spv-restore-select");
+  const v = sel && sel.value ? sel.value : "genesis";
+  if (v === "genesis" || v === "") return { sync: "genesis", height: 0 };
+  if (v.startsWith("h-")) {
+    const h = parseInt(v.slice(2), 10);
+    if (Number.isFinite(h) && h > 0) return { sync: "bundled_checkpoints", height: h };
+  }
+  return { sync: "genesis", height: 0 };
+}
+
 async function openSpvRepairModal() {
   const m = $("spv-repair-modal");
   const line = $("spv-repair-storage-line");
@@ -2018,9 +2090,30 @@ document.getElementById("btn-import").addEventListener("click", async () => {
     return;
   }
   const text = await f.text();
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    alert("Invalid JSON in backup file.");
+    return;
+  }
+  const isWrappedTopLevelWallet =
+    Object.prototype.hasOwnProperty.call(parsed, "wallet") &&
+    parsed.wallet != null &&
+    typeof parsed.wallet === "object";
+  const walletOnly = isWrappedTopLevelWallet ? parsed.wallet : parsed;
+  const importSel = $("import-spv-restore-select");
+  if (importSel && importSel.disabled) {
+    alert("Could not read SPV restore options — fix the JSON file or pick another backup.");
+    return;
+  }
+  const postBody = JSON.stringify({
+    wallet: walletOnly,
+    spv_on_restore: buildSpvOnRestoreFromImportSelect(),
+  });
   const data = await api("/api/wallet/import", {
     method: "POST",
-    body: text,
+    body: postBody,
   });
   if (data.error) {
     alert(data.error);
@@ -2062,10 +2155,11 @@ if (btnSpvRb) {
       alert("Choose a bundled checkpoint from the list.");
       return;
     }
-    const prev = btnSpvRb.textContent;
+    const rbLabel = btnSpvRb.querySelector(".btn-spv-rollback-label");
+    const prevLabel = rbLabel ? rbLabel.textContent : "Rollback";
     btnSpvRb.disabled = true;
     btnSpvRb.setAttribute("aria-busy", "true");
-    btnSpvRb.textContent = "Working…";
+    if (rbLabel) rbLabel.textContent = "Working…";
     try {
       const out = $("spv-rescan-out");
       const res = await api("/api/spv/rescan", { method: "POST", body: JSON.stringify(body) });
@@ -2079,7 +2173,7 @@ if (btnSpvRb) {
     } finally {
       btnSpvRb.disabled = false;
       btnSpvRb.removeAttribute("aria-busy");
-      btnSpvRb.textContent = prev;
+      if (rbLabel) rbLabel.textContent = prevLabel;
     }
   });
 }
@@ -2411,10 +2505,12 @@ function wireImportFileUI() {
   const nameEl = document.getElementById("import-file-name");
   const wrap = document.querySelector(".file-upload");
   if (!input || !nameEl) return;
+  resetImportSpvRestoreSelectPlaceholder();
   function showName() {
     const f = input.files && input.files[0];
     nameEl.textContent = f ? f.name : "No file selected";
     nameEl.classList.toggle("has-file", !!f);
+    void refreshImportSpvRestoreOptionsFromFile(f || null);
   }
   input.addEventListener("change", showName);
   if (!wrap) return;

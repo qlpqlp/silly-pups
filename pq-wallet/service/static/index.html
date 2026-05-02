@@ -146,6 +146,11 @@
                       <span class="file-input-name" id="import-file-name">No file selected</span>
                     </label>
                   </div>
+                  <label class="field" for="import-spv-restore-select" style="margin-top:0.75rem">
+                    <span class="field-label">SPV header sync after restore</span>
+                    <select id="import-spv-restore-select" class="input-modern" disabled aria-describedby="import-spv-restore-hint"></select>
+                  </label>
+                  <p class="small muted" id="import-spv-restore-hint" style="margin:0.25rem 0 0">Pick a backup file first. Default is genesis (full headers from block 0). Other rows match bundled libdogecoin checkpoints and enable <code class="mono">spvnode -p</code> for faster catch-up (libdogecoin still chooses the seed checkpoint from your wallet time window).</p>
                 </div>
                 <div class="onboarding-actions">
                   <button type="button" class="btn" id="btn-import"><span class="material-symbols-outlined btn-ico">draw</span> Import backup</button>
@@ -543,7 +548,7 @@
       </label>
       <p class="small muted" id="spv-rollback-checkpoint-hint" style="margin:.25rem 0 .5rem">Block 0 is the Dogecoin genesis checkpoint (early Dec 2013, UTC time from libdogecoin). Other rows match the bundled SPV checkpoint table in your libdogecoin build.</p>
       <div class="toolbar toolbar-actions spv-rescan-actions">
-        <button type="button" class="btn primary" id="btn-spv-rollback"><span class="material-symbols-outlined btn-ico">vertical_align_top</span> Rollback</button>
+        <button type="button" class="btn primary" id="btn-spv-rollback"><span class="material-symbols-outlined btn-ico" aria-hidden="true">undo</span> <span class="btn-spv-rollback-label">Rollback</span></button>
       </div>
       <pre id="spv-rescan-out" class="mono small out" aria-live="polite"></pre>
     </div>

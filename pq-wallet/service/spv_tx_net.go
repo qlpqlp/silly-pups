@@ -158,6 +158,14 @@ func walletNetFromPrevoutIndex(rawHex string, walletByHash160 map[string]string,
 		}
 		return 0, 0, 0, false
 	}
+	// All prevouts were indexed, but the implied debit can still be bogus: the tail-only prevout
+	// graph sometimes links unrelated txs or mis-tags funding outputs, while output-side decode
+	// shows no external payees (ExternalSats==0) and only modest wallet credits — the usual
+	// explorer "+0.01" receive pattern. SoChain-style nets must not flip those into large OUT rows.
+	if net < 0 && fl.ExternalSats == 0 && fl.WalletSats > 0 && walletIn > fl.WalletSats*5 {
+		net = fl.WalletSats
+		walletIn = 0
+	}
 	return net, walletIn, walletOut, true
 }
 

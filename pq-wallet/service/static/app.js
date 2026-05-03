@@ -956,6 +956,14 @@ function fitWalletHeroBalance() {
   }
 }
 
+/** List row amount: outs show extra decimals (fee dust) vs explorers; ins stay at 2 dp. */
+function formatTxListAmountDoge(n, dir) {
+  if (n == null || Number.isNaN(Number(n))) return null;
+  const x = Number(n);
+  const dec = dir === "out" ? 5 : 2;
+  return String(x.toFixed(dec)).replace(/\.?0+$/, "");
+}
+
 function buildTxExpandableCard(tx, includeSource) {
   const txidFull = String(tx.txid || "").trim();
   const conf = Number(tx.confirmations || 0);
@@ -966,7 +974,8 @@ function buildTxExpandableCard(tx, includeSource) {
   if (dir === "out") sign = "-";
   else if (dir === "in") sign = "+";
   else if (nAmt != null && nAmt > 0) sign = "+";
-  const amount = nAmt != null ? `${sign}${nAmt.toFixed(2)}` : "—";
+  const amtStr = formatTxListAmountDoge(nAmt, dir);
+  const amount = amtStr != null ? `${sign}${amtStr}` : "—";
   const seen = tx.seen_at ? fmtTime(tx.seen_at) : "—";
   const isConfirmed = conf > 0;
   const short = txidFull ? txidFull.slice(0, 18) + (txidFull.length > 18 ? "…" : "") : "—";
@@ -2412,9 +2421,16 @@ document.getElementById("btn-send-pq-safe").addEventListener("click", async () =
     const sum = res && res.sendtx_summary ? res.sendtx_summary : null;
     if (out && sum) {
       const diag = Array.isArray(sum.sendtx_diagnostic_lines) ? sum.sendtx_diagnostic_lines : [];
+      const revealSkip =
+        res && res.pq_reveal_omitted_note
+          ? `\n\n⚠ ${res.pq_reveal_omitted_note}\n(${String(res.pq_reveal_skip_reason || "").slice(0, 500)})`
+          : res && res.pq_reveal_skip_reason
+            ? `\n\n⚠ PQ reveal skipped: ${String(res.pq_reveal_skip_reason).slice(0, 800)}`
+            : "";
       const lines = [
         `status: ${sum.status || "unknown"}`,
         `note: ${sum.human_note || "—"}`,
+        revealSkip ? revealSkip.trim() : "",
         `txid: ${res.txid || sum.broadcast_txid || "—"}`,
         `connected_nodes: ${sum.connected_nodes ?? 0}`,
         `informed_nodes: ${sum.informed_nodes ?? 0}`,

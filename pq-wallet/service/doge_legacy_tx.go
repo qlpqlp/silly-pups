@@ -326,3 +326,83 @@ func buildUnsignedCarrierRevealTxMulti(prevTxID string, vouts []uint32, outValue
 	}
 	return buf.Bytes(), nil
 }
+
+// RevealExtraPrevout is a normal wallet P2PKH prevout added only to fund TX_R fees; it is not a carrier output.
+type RevealExtraPrevout struct {
+	TxID string
+	Vout uint32
+}
+
+// buildUnsignedCarrierRevealTxMultiExtra is like buildUnsignedCarrierRevealTxMulti but appends extra prevouts
+// (empty scriptSig) so TX_R can spend carrier value plus a separate UTXO for fee headroom.
+func buildUnsignedCarrierRevealTxMultiExtra(carrierTxID string, carrierVouts []uint32, extras []RevealExtraPrevout, outValue int64, outPkScript []byte) ([]byte, error) {
+	if len(carrierVouts) == 0 {
+		return nil, fmt.Errorf("no carrier prevouts")
+	}
+	if outValue <= 0 {
+		return nil, fmt.Errorf("reveal output value must be positive")
+	}
+	if len(outPkScript) == 0 {
+		return nil, fmt.Errorf("empty output script")
+	}
+	var buf bytes.Buffer
+	if err := binary.Write(&buf, binary.LittleEndian, legacyTxVersion); err != nil {
+		return nil, err
+	}
+	nIn := len(carrierVouts) + len(extras)
+	if err := writeVarInt(&buf, uint64(nIn)); err != nil {
+		return nil, err
+	}
+	hCar, err := txidWireBytes(carrierTxID)
+	if err != nil {
+		return nil, err
+	}
+	for _, vo := range carrierVouts {
+		if _, err := buf.Write(hCar[:]); err != nil {
+			return nil, err
+		}
+		if err := binary.Write(&buf, binary.LittleEndian, vo); err != nil {
+			return nil, err
+		}
+		if err := writeVarInt(&buf, 0); err != nil {
+			return nil, err
+		}
+		if err := binary.Write(&buf, binary.LittleEndian, legacyTxInSequence); err != nil {
+			return nil, err
+		}
+	}
+	for _, ex := range extras {
+		hx, err := txidWireBytes(ex.TxID)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := buf.Write(hx[:]); err != nil {
+			return nil, err
+		}
+		if err := binary.Write(&buf, binary.LittleEndian, ex.Vout); err != nil {
+			return nil, err
+		}
+		if err := writeVarInt(&buf, 0); err != nil {
+			return nil, err
+		}
+		if err := binary.Write(&buf, binary.LittleEndian, legacyTxInSequence); err != nil {
+			return nil, err
+		}
+	}
+	if err := writeVarInt(&buf, 1); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(&buf, binary.LittleEndian, uint64(outValue)); err != nil {
+		return nil, err
+	}
+	if err := writeVarInt(&buf, uint64(len(outPkScript))); err != nil {
+		return nil, err
+	}
+	if _, err := buf.Write(outPkScript); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(&buf, binary.LittleEndian, uint32(0)); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}

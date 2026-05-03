@@ -199,7 +199,20 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 			// Prefer confirmed-chain timestamp once available, instead of keeping a mempool seen time forever.
 			// Also replace placeholder wall times (e.g. log-seeded rows with no block height) when SPV supplies
 			// height-derived SeenAt.
-			if (prev.SeenAt.IsZero() && !t.SeenAt.IsZero()) ||
+			// Manual broadcast rows record SeenAt at send time; SPV parsers sometimes attach an older mistaken
+			// wall time when confirmations increase — never regress SeenAt backward for those rows.
+			if manualSendPersisted {
+				if !t.SeenAt.IsZero() {
+					if prev.SeenAt.IsZero() {
+						prev.SeenAt = t.SeenAt
+					} else if !t.SeenAt.Before(prev.SeenAt) &&
+						(t.Confirmations > prev.Confirmations ||
+							t.BlockHeight > prev.BlockHeight ||
+							(t.BlockHeight > 0 && prev.BlockHeight == 0)) {
+						prev.SeenAt = t.SeenAt
+					}
+				}
+			} else if (prev.SeenAt.IsZero() && !t.SeenAt.IsZero()) ||
 				(t.Confirmations > prev.Confirmations && !t.SeenAt.IsZero()) ||
 				(t.BlockHeight > 0 && !t.SeenAt.IsZero() && prev.BlockHeight == 0) {
 				prev.SeenAt = t.SeenAt

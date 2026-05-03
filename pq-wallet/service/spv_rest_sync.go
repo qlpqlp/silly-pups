@@ -856,7 +856,9 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 	for i := range rows {
 		r := &rows[i]
 		sid := normalizeTxid(r.SpendTxid)
-		if sid == "" {
+		fund := normalizeTxid(r.Txid)
+		if sid == "" || (fund != "" && sid == fund) {
+			// Ignore corrupt REST rows that echo the funding txid as spend_txid (would flip receives to OUT).
 			continue
 		}
 		payTo := strings.TrimSpace(r.PayTo)

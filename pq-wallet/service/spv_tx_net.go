@@ -178,9 +178,12 @@ func collectUniqueRawHexes(st *WalletState, logTail string) []string {
 		}
 	}
 	if strings.TrimSpace(logTail) != "" {
-		for _, raw := range parseSPVRawTxHexByTxid(logTail) {
+		for txid, raw := range parseSPVRawTxHexByTxid(logTail) {
 			raw = strings.TrimSpace(raw)
 			if raw == "" {
+				continue
+			}
+			if !signedRawHexMatchesTxid(raw, txid) {
 				continue
 			}
 			if _, ok := seen[raw]; ok {
@@ -191,4 +194,19 @@ func collectUniqueRawHexes(st *WalletState, logTail string) []string {
 		}
 	}
 	return list
+}
+
+// signedRawHexMatchesTxid reports whether raw hex decodes to a legacy tx whose txid (wire byte order) equals wantTxid.
+func signedRawHexMatchesTxid(rawHex, wantTxid string) bool {
+	wantTxid = normalizeTxid(wantTxid)
+	rawHex = strings.TrimSpace(strings.ToLower(rawHex))
+	if wantTxid == "" || rawHex == "" {
+		return false
+	}
+	raw, err := hex.DecodeString(rawHex)
+	if err != nil || len(raw) < 10 {
+		return false
+	}
+	got := normalizeTxid(dogeLegacyTxidHex(raw))
+	return got != "" && got == wantTxid
 }

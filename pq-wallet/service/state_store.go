@@ -162,7 +162,7 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 					prev.Address = t.Address
 				}
 			}
-			if prev.RawHex == "" && t.RawHex != "" {
+			if prev.RawHex == "" && t.RawHex != "" && signedRawHexMatchesTxid(t.RawHex, id) {
 				prev.RawHex = t.RawHex
 			}
 			if prev.SPVHeaderRaw == "" && t.SPVHeaderRaw != "" {
@@ -183,9 +183,24 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 			if t.Direction != "" && t.Direction != "unknown" {
 				restHint := strings.TrimSpace(t.RawHex) == ""
 				enrichedFromRaw := strings.TrimSpace(prev.RawHex) != ""
+				// Heal ghost OUT rows (no raw) when REST later shows a small IN for the same txid (mis-linked spend hints).
+				spvRecvOverGhostOut := !manualSendPersisted &&
+					strings.EqualFold(strings.TrimSpace(prev.Source), "spv") &&
+					strings.EqualFold(strings.TrimSpace(prev.Direction), "out") &&
+					strings.TrimSpace(prev.RawHex) == "" &&
+					strings.EqualFold(strings.TrimSpace(t.Source), "spv") &&
+					strings.EqualFold(strings.TrimSpace(t.Direction), "in") &&
+					t.AmountDOGE > 0 && t.AmountDOGE < 1 &&
+					prev.AmountDOGE > t.AmountDOGE*3
 				// SPV REST rows are UTXO/spend-centric; enrichSPVTxFromRawHex applies bitcoinj-style net from raw hex.
 				// Never let a REST hint overwrite direction already reconciled from decoded raw tx.
-				if enrichedFromRaw && restHint {
+				if spvRecvOverGhostOut {
+					prev.Direction = "in"
+					prev.AmountDOGE = t.AmountDOGE
+					if prev.Address == "" && t.Address != "" {
+						prev.Address = t.Address
+					}
+				} else if enrichedFromRaw && restHint {
 					// keep prev.Direction
 				} else if manualSendPersisted && !strings.EqualFold(strings.TrimSpace(t.Source), "manual") {
 					// Local send row wins over SPV/REST (e.g. /getUTXOs lists change back to self as "in" same txid).

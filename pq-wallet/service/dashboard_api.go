@@ -755,7 +755,7 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 			continue
 		}
 		tr := txListRow{TxRecord: t, Pending: t.Confirmations == 0}
-		if len(walletH160) > 0 && strings.TrimSpace(tr.RawHex) != "" && prevIdx != nil {
+		if len(walletH160) > 0 && strings.TrimSpace(tr.RawHex) != "" && prevIdx != nil && signedRawHexMatchesTxid(tr.RawHex, tr.Txid) {
 			fl, err := decodeSPVRawTxFlow(tr.RawHex, walletH160, testnet)
 			if err == nil {
 				net, _, _, netOk := walletNetFromPrevoutIndex(tr.RawHex, walletH160, testnet, prevIdx)

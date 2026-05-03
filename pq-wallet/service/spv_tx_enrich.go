@@ -298,8 +298,10 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 				continue
 			}
 			if raw := strings.TrimSpace(byTxid[id]); raw != "" {
-				tx.RawHex = raw
-				changed = true
+				if signedRawHexMatchesTxid(raw, id) {
+					tx.RawHex = raw
+					changed = true
+				}
 			}
 		}
 	}
@@ -339,8 +341,10 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 							continue
 						}
 						if raw := strings.TrimSpace(byTxid[id]); raw != "" {
-							tx.RawHex = raw
-							changed = true
+							if signedRawHexMatchesTxid(raw, id) {
+								tx.RawHex = raw
+								changed = true
+							}
 						}
 					}
 					// Reuse the larger blob for prevout indexing below.
@@ -357,6 +361,11 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 		tx := &st.Transactions[i]
 		raw := strings.TrimSpace(tx.RawHex)
 		if raw == "" {
+			continue
+		}
+		if !signedRawHexMatchesTxid(raw, tx.Txid) {
+			tx.RawHex = ""
+			changed = true
 			continue
 		}
 		// Broadcast-time OUT rows already store the user-chosen amount + destination; raw decode can disagree

@@ -956,12 +956,10 @@ function fitWalletHeroBalance() {
   }
 }
 
-/** List row amount: outs show extra decimals (fee dust) vs explorers; ins stay at 2 dp. */
-function formatTxListAmountDoge(n, dir) {
+/** List row amount: always 2 decimal places for scanability. */
+function formatTxListAmountDoge(n, _dir) {
   if (n == null || Number.isNaN(Number(n))) return null;
-  const x = Number(n);
-  const dec = dir === "out" ? 5 : 2;
-  return String(x.toFixed(dec)).replace(/\.?0+$/, "");
+  return Number(n).toFixed(2);
 }
 
 function buildTxExpandableCard(tx, includeSource) {

@@ -230,6 +230,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	econDowngraded := false
 	var errUtx error
 	var unsignedBase []byte
+	var carrierEffUsed int64 // koinu actually locked in carrier on TX_C when falcon succeeds (may be < PUP_PQ_CARRIER_KOINU)
 
 	for econPass := 0; econPass < 3; econPass++ {
 		pqCarrierExtendErr = ""
@@ -269,13 +270,37 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		fee = estimateSendTxFeeKoinu(feePerKbKoinu, len(selected), true, extraFeeOutputs)
-		change = sumIn - sendKoinu - fee
-		if extraFeeOutputs >= 2 {
-			change -= carrierKoinu
+		changePre := sumIn - sendKoinu - fee
+		if useCarrierBudget && changePre < carrierKoinu+dustLimitKoinu {
+			ns, nsum := supplementUTXOsForMinChange(utxos, selected, sumIn, sendKoinu, feePerKbKoinu, extraFeeOutputs, carrierKoinu+dustLimitKoinu)
+			if nsum > sumIn {
+				selected, sumIn = ns, nsum
+				fee = estimateSendTxFeeKoinu(feePerKbKoinu, len(selected), true, extraFeeOutputs)
+				changePre = sumIn - sendKoinu - fee
+			}
 		}
-		if change < 0 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "insufficient balance after fee and PQ carrier reserve"})
-			return
+		if extraFeeOutputs >= 2 {
+			// libdogecoin splits the P2PKH *change* output into carrier + remainder; the unsigned tx must carry
+			// the full pre-carrier slab (see falcon_add_commit_and_carrier_tx "change output … too small for carrier").
+			changeOut = changePre
+			if changePre <= dustLimitKoinu {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "insufficient change headroom for PQ carrier on TX_C; add UTXOs, reduce amount, or lower PUP_PQ_CARRIER_KOINU"})
+				return
+			}
+			change = changePre - carrierKoinu
+			if change < 0 {
+				change = 0
+			}
+		} else {
+			change = changePre
+			changeOut = changePre
+			if changePre <= dustLimitKoinu {
+				changeOut = 0
+			}
+			if change < 0 {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "insufficient balance after fee and PQ carrier reserve"})
+				return
+			}
 		}
 
 		var errScr error
@@ -292,9 +317,10 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		changeOut = change
-		if change <= dustLimitKoinu {
-			changeOut = 0
+		if extraFeeOutputs < 2 {
+			if change <= dustLimitKoinu {
+				changeOut = 0
+			}
 		}
 		unsignedBase, errUtx = buildUnsignedDogeP2PKH(selected, toScript, sendKoinu, changeScript, changeOut, "")
 		if errUtx != nil {
@@ -339,21 +365,53 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		carrierFlow = false
+		carrierEffUsed = 0
 		carrierWish := includePQReveal && !carrierEnvDisabled &&
 			includePQCommitment && pqCommitment32Hex != "" && falconSigHex != "" &&
 			pqMode != "legacy_pubkey_hash_fallback"
 		if carrierWish {
-			extHex, errC := s.runSuchFalconAddCommitAndCarrierTx(baseHex, pqCommitment32Hex, strings.TrimSpace(wf.PQPublicHex), falconSigHex, carrierKoinu, testnet)
-			if errC != nil {
+			eff := carrierKoinu
+			minCar := int64(10_000_000) // 0.1 DOGE floor when shrinking carrier (override with PUP_PQ_CARRIER_MIN_KOINU)
+			if v := strings.TrimSpace(os.Getenv("PUP_PQ_CARRIER_MIN_KOINU")); v != "" {
+				if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= dustLimitKoinu {
+					minCar = n
+				}
+			}
+			for tries := 0; tries < 48; tries++ {
+				if changePre < eff+dustLimitKoinu {
+					pqCarrierExtendErr = fmt.Sprintf("change output %d koinu cannot host carrier %d koinu (after %d shrink tries)", changePre, eff, tries)
+					break
+				}
+				extHex, errC := s.runSuchFalconAddCommitAndCarrierTx(baseHex, pqCommitment32Hex, strings.TrimSpace(wf.PQPublicHex), falconSigHex, eff, testnet)
+				if errC == nil {
+					if b, errH := hex.DecodeString(extHex); errH != nil {
+						pqCarrierExtendErr = "decode falcon_add_commit_and_carrier_tx hex: " + errH.Error()
+					} else if len(b) <= 80 {
+						pqCarrierExtendErr = "falcon_add_commit_and_carrier_tx produced tx too short for carrier layout"
+					} else {
+						unsignedForSign = b
+						carrierFlow = true
+						carrierEffUsed = eff
+						pqMode = pqMode + "_carrier_txc"
+					}
+					break
+				}
 				pqCarrierExtendErr = errC.Error()
-			} else if b, errH := hex.DecodeString(extHex); errH != nil {
-				pqCarrierExtendErr = "decode falcon_add_commit_and_carrier_tx hex: " + errH.Error()
-			} else if len(b) <= 80 {
-				pqCarrierExtendErr = "falcon_add_commit_and_carrier_tx produced tx too short for carrier layout"
-			} else {
-				unsignedForSign = b
-				carrierFlow = true
-				pqMode = pqMode + "_carrier_txc"
+				low := strings.ToLower(errC.Error())
+				if !strings.Contains(low, "too small") && !strings.Contains(low, "change output") && !strings.Contains(low, "append") {
+					break
+				}
+				if eff <= minCar {
+					break
+				}
+				next := eff * 9 / 10
+				if next >= eff {
+					next = eff - 10_000_000
+				}
+				eff = next
+				if eff < minCar {
+					eff = minCar
+				}
 			}
 		}
 
@@ -579,9 +637,11 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 														s.logBroadcastDetails("send_pq_safe_txr", txRID, rHex, sendOutR, nil)
 														log.Printf("[pq-wallet] send_pq_safe TX_R ok txid=%s parts=%d extra_p2pkh=%v", txRID, len(scriptSigs), extraU != nil)
 														if extraU != nil {
-															respExtra := map[string]any{"txid": extraU.TxID, "vout": extraU.Vout, "value_koinu": extraU.Value}
-															// resp not in scope yet — set after resp init via second patch
-															_ = respExtra
+															txrFeeExtraUTXO = map[string]any{
+																"txid":        extraU.TxID,
+																"vout":        extraU.Vout,
+																"value_koinu": extraU.Value,
+															}
 														}
 													}
 												}
@@ -597,6 +657,10 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	changeResp := sumIn - sendKoinu - fee
+	if carrierFlow && carrierEffUsed > 0 {
+		changeResp -= carrierEffUsed
+	}
 	resp := map[string]any{
 		"ok":               true,
 		"code":             "sent",
@@ -607,7 +671,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		"fee_koinu":        fee,
 		"fee_per_kb_koinu": feePerKbKoinu,
 		"fee_doge_per_kb":  float64(feePerKbKoinu) / 1e8,
-		"change_koinu":     change,
+		"change_koinu":     changeResp,
 		"inputs_used":      len(selected),
 		"pq_commitment":    pqCommitment32Hex != "",
 		"pq_commitment_32": pqCommitment32Hex,
@@ -628,6 +692,9 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	}
 	if pqMkParts > 0 {
 		resp["pq_carrier_mkpart_parts"] = pqMkParts
+	}
+	if carrierFlow && carrierEffUsed > 0 && carrierEffUsed != carrierKoinu {
+		resp["carrier_used_koinu"] = carrierEffUsed
 	}
 	if txRErr != "" {
 		resp["tx_r_error"] = txRErr

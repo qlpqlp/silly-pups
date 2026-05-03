@@ -30,6 +30,10 @@ var (
 	reSuchUTXOLine      = regexp.MustCompile(`(?i)\btxid[=: ]+([a-f0-9]{64})\b.*?\bvout[=: ]+(\d+)\b.*?\b(?:value|amount|koinu|satoshis)[=: ]+(-?\d+(?:\.\d+)?)`)
 	reSendtxStartTxid   = regexp.MustCompile(`(?i)start broadcasting transaction:\s*([a-f0-9]{64})`)
 	reSuchFlexibleTxHex = regexp.MustCompile(`(?i)(?:signed|unsigned|modified)\s+TX\s*:\s*([0-9a-f]+)`)
+	// falcon_add_commit*_tx / set_scriptsig label full tx hex; must match before reSuchLongHex (carrier scriptsigs are longer).
+	reSuchTxCommitmentCarrierOut = regexp.MustCompile(`(?i)tx with commitment and carrier outputs:\s*([0-9a-f]+)`)
+	reSuchTxWithCommitment         = regexp.MustCompile(`(?i)tx with commitment:\s*([0-9a-f]+)`)
+	reSuchTxWithScriptSigSet       = regexp.MustCompile(`(?i)tx with scriptsig set:\s*([0-9a-f]+)`)
 	reSuchCarrierSPK    = regexp.MustCompile(`(?i)carrier_p2sh_scriptpubkey:\s*([0-9a-f]+)`)
 	reSuchCarrierMkSig  = regexp.MustCompile(`(?i)carrier_part_scriptsig\[(\d+)\]\s*:\s*([0-9a-f]+)`)
 	reSuchLongHex       = regexp.MustCompile(`\b([0-9a-f]{200,})\b`)
@@ -342,10 +346,20 @@ func (s *Server) runSuchFalconSign(msgHex, privHex string, testnet bool) (string
 // parseSuchTransactionHex extracts raw transaction hex from such stdout (sign / set_scriptsig / falcon_add_*).
 func parseSuchTransactionHex(text string) string {
 	text = strings.TrimSpace(text)
-	if m := reSuchFlexibleTxHex.FindStringSubmatch(text); len(m) >= 2 && len(m[1]) >= 120 {
+	const minTxHex = 120 // ~60 bytes; ignore short hex blobs from unrelated fields
+	if m := reSuchTxCommitmentCarrierOut.FindStringSubmatch(text); len(m) >= 2 && len(m[1]) >= minTxHex {
 		return strings.ToLower(m[1])
 	}
-	if m := reSuchSignedTx.FindStringSubmatch(text); len(m) >= 2 && len(m[1]) >= 120 {
+	if m := reSuchTxWithCommitment.FindStringSubmatch(text); len(m) >= 2 && len(m[1]) >= minTxHex {
+		return strings.ToLower(m[1])
+	}
+	if m := reSuchTxWithScriptSigSet.FindStringSubmatch(text); len(m) >= 2 && len(m[1]) >= minTxHex {
+		return strings.ToLower(m[1])
+	}
+	if m := reSuchFlexibleTxHex.FindStringSubmatch(text); len(m) >= 2 && len(m[1]) >= minTxHex {
+		return strings.ToLower(m[1])
+	}
+	if m := reSuchSignedTx.FindStringSubmatch(text); len(m) >= 2 && len(m[1]) >= minTxHex {
 		return strings.ToLower(m[1])
 	}
 	best := ""

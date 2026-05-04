@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -702,11 +703,29 @@ func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any
 	return changed
 }
 
-// txIsLikelyWalletChangeEcho suppresses list rows that look like pure wallet-side credits whose
-// first input spends an output from a transaction we already treat as OUT (typical change-back
-// after a send). This mirrors Dogecoin Wallet / bitcoinj hiding internal change from RECEIVED.
-func txIsLikelyWalletChangeEcho(t TxRecord, wf *WalletFile, testnet bool, walletH160 map[string]string, outTxids map[string]struct{}) bool {
-	if wf == nil || len(walletH160) == 0 {
+// coinbaseLikePrevout matches legacy coinbase / null outpoints (prev hash all zero, n = 0xffffffff).
+func coinbaseLikePrevout(txid string, vout uint32) bool {
+	if vout == 0xffffffff {
+		return true
+	}
+	id := normalizeTxid(txid)
+	if len(id) != 64 {
+		return false
+	}
+	for i := 0; i < 64; i++ {
+		if id[i] != '0' {
+			return false
+		}
+	}
+	return true
+}
+
+// txIsLikelyWalletChangeEcho suppresses activity-list rows that are pure internal wallet credits:
+// every non-coinbase input spends a UTXO we have indexed as paying to our wallet, and each of
+// those funding transactions is one we classify as OUT (a prior send). Legitimate receives spend
+// third-party prevouts (not in the index as wallet-owned, or funded by a tx not in outTxids).
+func txIsLikelyWalletChangeEcho(t TxRecord, wf *WalletFile, testnet bool, walletH160 map[string]string, outTxids map[string]struct{}, prevIdx map[string]prevoutWalletMeta) bool {
+	if wf == nil || len(walletH160) == 0 || prevIdx == nil || len(prevIdx) == 0 {
 		return false
 	}
 	if strings.EqualFold(strings.TrimSpace(t.Source), "memetracker") {
@@ -719,16 +738,41 @@ func txIsLikelyWalletChangeEcho(t TxRecord, wf *WalletFile, testnet bool, wallet
 	if raw == "" {
 		return false
 	}
+	rawB, err := hex.DecodeString(strings.ToLower(raw))
+	if err != nil {
+		return false
+	}
+	ins, err := parseLegacyTxPrevouts(rawB)
+	if err != nil || len(ins) == 0 {
+		return false
+	}
+	nonCoinbase := 0
+	for _, in := range ins {
+		if coinbaseLikePrevout(in.Txid, in.Vout) {
+			continue
+		}
+		nonCoinbase++
+		key := prevoutIndexKey(in.Txid, in.Vout)
+		meta, ok := prevIdx[key]
+		if !ok || !meta.WalletRecv {
+			return false
+		}
+		if _, ok := outTxids[in.Txid]; !ok {
+			return false
+		}
+	}
+	if nonCoinbase == 0 {
+		return false
+	}
 	fl, err := decodeSPVRawTxFlow(raw, walletH160, testnet)
-	if err != nil || fl.ExternalSats != 0 || fl.WalletSats <= 0 {
+	if err != nil || fl.WalletSats <= 0 {
 		return false
 	}
-	prev := firstInputPrevTxidFromRawHex(raw)
-	if prev == "" {
+	// Explicit external-facing P2PKH payout in this tx — not a pure change echo.
+	if fl.ExternalSats > 0 {
 		return false
 	}
-	_, ok := outTxids[prev]
-	return ok
+	return true
 }
 
 func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []txListRow {
@@ -789,7 +833,7 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 	}
 	out := make([]txListRow, 0, len(st.Transactions))
 	for _, t := range st.Transactions {
-		if txIsLikelyWalletChangeEcho(t, wf, testnet, walletH160, outTxids) {
+		if txIsLikelyWalletChangeEcho(t, wf, testnet, walletH160, outTxids, prevIdx) {
 			continue
 		}
 		tr := txListRow{TxRecord: t, Pending: t.Confirmations == 0}

@@ -41,13 +41,6 @@
 #include <stdlib.h>   // qsort
 #include <stdint.h>   // uint64_t
 
-/** OP_RETURN / data carrier outputs are not spend destinations for REST listing. */
-static int dogecoin_rest_vout_is_op_return(const dogecoin_tx_out* o)
-{
-    return o && o->script_pubkey && o->script_pubkey->len > 0 &&
-           (unsigned char)o->script_pubkey->str[0] == 0x6a;
-}
-
 static int cmp_u64(const void *a, const void *b) {
     uint64_t va = *(const uint64_t*)a, vb = *(const uint64_t*)b;
     return (va > vb) - (va < vb);
@@ -195,18 +188,6 @@ void dogecoin_http_request_cb(struct evhttp_request *req, void *arg) {
                 if (!dogecoin_wallet_is_from_me(wallet, wtx->tx)) {
                     continue;
                 }
-                /* Dedupe: vec_wtxes should be unique by txid, but compare internal hash (one byte order). */
-                int duplicate = 0;
-                for (unsigned int k = 0; k < i; k++) {
-                    dogecoin_wtx* prior = vector_idx(wallet->vec_wtxes, k);
-                    if (prior && memcmp(prior->tx_hash_cache, wtx->tx_hash_cache, sizeof(uint256_t)) == 0) {
-                        duplicate = 1;
-                        break;
-                    }
-                }
-                if (duplicate) {
-                    continue;
-                }
 
                 int64_t total_out = 0, mine_out = 0, ext_out = 0;
                 for (unsigned int j = 0; j < wtx->tx->vout->len; j++) {
@@ -217,22 +198,17 @@ void dogecoin_http_request_cb(struct evhttp_request *req, void *arg) {
                     total_out += o->value;
                     if (dogecoin_wallet_txout_is_mine(wallet, o)) {
                         mine_out += o->value;
-                    } else if (o->value > 0 && !dogecoin_rest_vout_is_op_return(o)) {
+                    } else {
                         ext_out += o->value;
                     }
-                }
-
-                /* Only payments that actually leave the wallet (external outputs), not pure self-transfers. */
-                if (ext_out <= 0) {
-                    continue;
                 }
 
                 int64_t debit_in = dogecoin_wallet_get_debit_tx(wallet, wtx->tx);
                 int64_t fee = (debit_in > 0 && debit_in >= total_out) ? (debit_in - total_out) : 0;
 
                 char txid_hex[65] = {0};
-                /* Same byte order as dogecoin_tx_hash + spend_txid in /getTransactions (do not reverse). */
                 utils_bin_to_hex((unsigned char*)wtx->tx_hash_cache, sizeof(wtx->tx_hash_cache), txid_hex);
+                utils_reverse_hex(txid_hex, 64);
 
                 char debit_str[KOINU_STRINGLEN] = {0};
                 char total_str[KOINU_STRINGLEN] = {0};
@@ -259,12 +235,7 @@ void dogecoin_http_request_cb(struct evhttp_request *req, void *arg) {
                     if (!o) {
                         continue;
                     }
-                    if (dogecoin_wallet_txout_is_mine(wallet, o)) {
-                        continue;
-                    }
-                    if (o->value <= 0 || dogecoin_rest_vout_is_op_return(o)) {
-                        continue;
-                    }
+                    int mine = dogecoin_wallet_txout_is_mine(wallet, o) ? 1 : 0;
 
                     char addr[P2PKHLEN] = {0};
                     const char* addr_out = addr;
@@ -275,12 +246,11 @@ void dogecoin_http_request_cb(struct evhttp_request *req, void *arg) {
                     char amt_str[KOINU_STRINGLEN] = {0};
                     koinu_to_coins_str((uint64_t)o->value, amt_str);
 
-                    /* pq-wallet parseSPVRESTGetSpends: one "output:" block per external vout; keys address, is_mine. */
                     evbuffer_add_printf(evb, "  output:\n");
                     evbuffer_add_printf(evb, "    vout:           %u\n", j);
                     evbuffer_add_printf(evb, "    address:        %s\n", addr_out);
                     evbuffer_add_printf(evb, "    amount:         %s\n", amt_str);
-                    evbuffer_add_printf(evb, "    is_mine:        0\n");
+                    evbuffer_add_printf(evb, "    is_mine:        %d\n", mine);
                 }
 
                 outgoing_count++;

@@ -518,7 +518,39 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	out := s.mergeTxListWithMemeTracker(wf, st)
-	writeJSON(w, http.StatusOK, map[string]any{"transactions": out})
+	total := len(out)
+	q := r.URL.Query()
+	limStr := strings.TrimSpace(q.Get("limit"))
+	if limStr == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"transactions": out, "total": total})
+		return
+	}
+	limit, err := strconv.Atoi(limStr)
+	if err != nil || limit <= 0 {
+		limit = 40
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	offset, _ := strconv.Atoi(strings.TrimSpace(q.Get("offset")))
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > total {
+		offset = total
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	page := out[offset:end]
+	writeJSON(w, http.StatusOK, map[string]any{
+		"transactions": page,
+		"total":        total,
+		"limit":        limit,
+		"offset":       offset,
+		"has_more":     end < total,
+	})
 }
 
 func syncLagSeconds(headerUnix int64) int64 {
@@ -667,11 +699,7 @@ func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any
 // txIsLikelyWalletChangeEcho suppresses list rows that look like pure wallet-side credits whose
 // first input spends an output from a transaction we already treat as OUT (typical change-back
 // after a send). This mirrors Dogecoin Wallet / bitcoinj hiding internal change from RECEIVED.
-//
-// Guards: (1) raw hex must actually serialize to this row's txid so log-merge mixups never hide
-// unrelated receives; (2) only treat as change when we know a prior OUT display amount and this
-// credit is clearly smaller than that line (refunds ≈ prior payment stay visible).
-func txIsLikelyWalletChangeEcho(t TxRecord, wf *WalletFile, testnet bool, walletH160 map[string]string, outTxids map[string]struct{}, outPayDOGE map[string]float64) bool {
+func txIsLikelyWalletChangeEcho(t TxRecord, wf *WalletFile, testnet bool, walletH160 map[string]string, outTxids map[string]struct{}) bool {
 	if wf == nil || len(walletH160) == 0 {
 		return false
 	}
@@ -685,10 +713,6 @@ func txIsLikelyWalletChangeEcho(t TxRecord, wf *WalletFile, testnet bool, wallet
 	if raw == "" {
 		return false
 	}
-	rowID := normalizeTxid(t.Txid)
-	if rowID == "" || !signedRawHexMatchesTxid(raw, rowID) {
-		return false
-	}
 	fl, err := decodeSPVRawTxFlow(raw, walletH160, testnet)
 	if err != nil || fl.ExternalSats != 0 || fl.WalletSats <= 0 {
 		return false
@@ -697,17 +721,8 @@ func txIsLikelyWalletChangeEcho(t TxRecord, wf *WalletFile, testnet bool, wallet
 	if prev == "" {
 		return false
 	}
-	if _, ok := outTxids[prev]; !ok {
-		return false
-	}
-	prevPay := outPayDOGE[prev]
-	if prevPay <= 0 {
-		return false
-	}
-	if t.AmountDOGE >= prevPay*0.95 {
-		return false
-	}
-	return true
+	_, ok := outTxids[prev]
+	return ok
 }
 
 func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []txListRow {
@@ -725,7 +740,6 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 	testnet := wf != nil && strings.EqualFold(wf.Network, "testnet")
 	walletH160 := walletP2PKHHash160Map(wf)
 	outTxids := map[string]struct{}{}
-	outPayDOGE := map[string]float64{}
 	for _, t := range st.Transactions {
 		id := normalizeTxid(t.Txid)
 		if id == "" {
@@ -733,9 +747,6 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 		}
 		if strings.EqualFold(strings.TrimSpace(t.Direction), "out") {
 			outTxids[id] = struct{}{}
-			if t.AmountDOGE > outPayDOGE[id] {
-				outPayDOGE[id] = t.AmountDOGE
-			}
 			continue
 		}
 		// Include decoded sends as OUT anchors so change-echo rows can be suppressed
@@ -746,9 +757,6 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 		}
 		if fl, err := decodeSPVRawTxFlow(raw, walletH160, testnet); err == nil && fl.ExternalSats > 0 {
 			outTxids[id] = struct{}{}
-			if t.AmountDOGE > outPayDOGE[id] {
-				outPayDOGE[id] = t.AmountDOGE
-			}
 		}
 	}
 	var prevIdx map[string]prevoutWalletMeta
@@ -775,11 +783,11 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 	}
 	out := make([]txListRow, 0, len(st.Transactions))
 	for _, t := range st.Transactions {
-		if txIsLikelyWalletChangeEcho(t, wf, testnet, walletH160, outTxids, outPayDOGE) {
+		if txIsLikelyWalletChangeEcho(t, wf, testnet, walletH160, outTxids) {
 			continue
 		}
 		tr := txListRow{TxRecord: t, Pending: t.Confirmations == 0}
-		if len(walletH160) > 0 && strings.TrimSpace(tr.RawHex) != "" && prevIdx != nil && signedRawHexMatchesTxid(tr.RawHex, tr.Txid) {
+		if len(walletH160) > 0 && strings.TrimSpace(tr.RawHex) != "" && prevIdx != nil {
 			fl, err := decodeSPVRawTxFlow(tr.RawHex, walletH160, testnet)
 			if err == nil {
 				net, _, _, netOk := walletNetFromPrevoutIndex(tr.RawHex, walletH160, testnet, prevIdx)
@@ -863,7 +871,6 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 	})
 	return out
 }
-
 
 func (s *Server) applySPVConfirmations(st *WalletState, logTail string) bool {
 	confirmed := parseSPVConfirmedTxids(logTail)

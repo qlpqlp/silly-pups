@@ -158,14 +158,6 @@ func walletNetFromPrevoutIndex(rawHex string, walletByHash160 map[string]string,
 		}
 		return 0, 0, 0, false
 	}
-	// All prevouts were indexed, but the implied debit can still be bogus: the tail-only prevout
-	// graph sometimes links unrelated txs or mis-tags funding outputs, while output-side decode
-	// shows no external payees (ExternalSats==0) and only modest wallet credits — the usual
-	// explorer "+0.01" receive pattern. SoChain-style nets must not flip those into large OUT rows.
-	if net < 0 && fl.ExternalSats == 0 && fl.WalletSats > 0 && walletIn > fl.WalletSats*5 {
-		net = fl.WalletSats
-		walletIn = 0
-	}
 	return net, walletIn, walletOut, true
 }
 
@@ -186,12 +178,9 @@ func collectUniqueRawHexes(st *WalletState, logTail string) []string {
 		}
 	}
 	if strings.TrimSpace(logTail) != "" {
-		for txid, raw := range parseSPVRawTxHexByTxid(logTail) {
+		for _, raw := range parseSPVRawTxHexByTxid(logTail) {
 			raw = strings.TrimSpace(raw)
 			if raw == "" {
-				continue
-			}
-			if !signedRawHexMatchesTxid(raw, txid) {
 				continue
 			}
 			if _, ok := seen[raw]; ok {
@@ -202,19 +191,4 @@ func collectUniqueRawHexes(st *WalletState, logTail string) []string {
 		}
 	}
 	return list
-}
-
-// signedRawHexMatchesTxid reports whether raw hex decodes to a legacy tx whose txid (wire byte order) equals wantTxid.
-func signedRawHexMatchesTxid(rawHex, wantTxid string) bool {
-	wantTxid = normalizeTxid(wantTxid)
-	rawHex = strings.TrimSpace(strings.ToLower(rawHex))
-	if wantTxid == "" || rawHex == "" {
-		return false
-	}
-	raw, err := hex.DecodeString(rawHex)
-	if err != nil || len(raw) < 10 {
-		return false
-	}
-	got := normalizeTxid(dogeLegacyTxidHex(raw))
-	return got != "" && got == wantTxid
 }

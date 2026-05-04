@@ -50,38 +50,6 @@ func selectUTXOs(utxos []ExplorerUTXO, need int64) ([]ExplorerUTXO, int64, error
 	return nil, sum, fmt.Errorf("insufficient balance: need %d koinu, have %d", need, sum)
 }
 
-func utxoPickKey(u ExplorerUTXO) string {
-	return strings.ToLower(normalizeTxid(u.TxID)) + ":" + fmt.Sprintf("%d", u.Vout)
-}
-
-// supplementUTXOsForMinChange appends smallest unused UTXOs until sumIn−send−fee ≥ minChangePre (or no more coins).
-func supplementUTXOsForMinChange(utxos []ExplorerUTXO, selected []ExplorerUTXO, sumIn, sendKoinu int64, feePerKb int64, extraFeeOutputs int, minChangePre int64) ([]ExplorerUTXO, int64) {
-	used := make(map[string]struct{}, len(selected)+8)
-	for _, u := range selected {
-		used[utxoPickKey(u)] = struct{}{}
-	}
-	rest := make([]ExplorerUTXO, 0, len(utxos))
-	for _, u := range utxos {
-		if _, ok := used[utxoPickKey(u)]; ok {
-			continue
-		}
-		rest = append(rest, u)
-	}
-	sort.Slice(rest, func(i, j int) bool { return rest[i].Value < rest[j].Value })
-	sel := append([]ExplorerUTXO(nil), selected...)
-	ssum := sumIn
-	for iter := 0; iter < 64 && len(rest) > 0; iter++ {
-		f := estimateSendTxFeeKoinu(feePerKb, len(sel), true, extraFeeOutputs)
-		if ssum-sendKoinu-f >= minChangePre {
-			return sel, ssum
-		}
-		sel = append(sel, rest[0])
-		ssum += rest[0].Value
-		rest = rest[1:]
-	}
-	return sel, ssum
-}
-
 // buildUnsignedDogeP2PKH creates an unsigned legacy transaction spending selected P2PKH UTXOs.
 // recipientValue and changeValue are in koinu. pqCommitment32Hex adds optional canonical Phase-1 OP_RETURN commitment:
 // OP_RETURN 0x24 "FLC1" <32-byte-commitment>.

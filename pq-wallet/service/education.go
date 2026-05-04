@@ -43,7 +43,7 @@ func educationPayload() map[string]any {
 				"body": []string{
 					"See **libdogecoin** `such` PQC tools (Falcon-512, carrier helpers): https://github.com/edtubbs/libdogecoin/blob/0.1.5-dev-pqc-carrier/doc/tools.md#falcon-512-post-quantum-cryptography-pqc-commands — keygen, **falcon_sign**, **falcon_commit**, **falcon_add_commit_and_carrier_tx**, and **pqc_carrier_** helpers.",
 					"**TX_C (commitment tx):** standard spends + **`OP_RETURN`** with `6a24` + **TAG4** (`FLC1` for Falcon-512) + **32-byte commitment**, where **commitment = SHA256(pqc_public_key ‖ pqc_signature)** over the message you signed (commonly **tx sighash32**). Optionally adds the **canonical P2SH carrier** output (fixed redeemScript `OP_DROP×5 OP_TRUE`) so DOGE sits in a known script until reveal.",
-					"**TX_R (reveal tx):** must still spend the **carrier P2SH** output(s) from **TX_C** (that is what unlocks the commitment proof on-chain). The **payout** is a normal **P2PKH** output to your wallet’s change address — a symbolic self-send is fine: it is not paying someone else to “prove” the commitment. If carrier value minus TX_R fee would be dust, the wallet may add a **second P2PKH input** (another spendable UTXO) only to cover fees; env **`PUP_PQ_TXR_EXTRA_INPUT`** can request that fee bump when it improves net output.",
+					"**TX_R (reveal tx):** spends the carrier **P2SH**; the **full public key and signature** are embedded in **`scriptSig`** using the tagged carrier layout (**`FLC1FULL`** header + chunked pushes, per `pqc_carrier_mkpart` / `pqc_carrier_parsepart` in that doc).",
 					"**Dogecoin Core (PQC build)** can show the same linkage: TX_C commitment, carrier indices, TX_R txid, `SHA256(pk‖sig)` vs commitment, and `OQS_SIG_verify` — this wallet UI focuses on building/broadcasting compatible txs and educational checks; deep on-chain PQ panels mirror **Quantum Explorer** (carrier match uses a configurable block lookback for TX_C vs TX_R, not only same-block).",
 				},
 			},
@@ -76,7 +76,7 @@ func educationPayload() map[string]any {
 			{
 				"step":   "3",
 				"name":   "Carrier output and reveal (TX_R), if needed",
-				"detail": "Some flows lock a little value in a **carrier** output, then spend it in **TX_R** to reveal more PQ data; recovered value returns to your wallet (change), optionally plus an extra input if fees need more headroom.",
+				"detail": "Some flows lock a little value in a **carrier** output, then spend it in **TX_R** to reveal more PQ data and recover funds minus fees.",
 			},
 			{
 				"step":   "4",

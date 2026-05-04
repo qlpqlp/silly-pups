@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -163,9 +162,6 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 			txRFeeFloorKoinu = n
 		}
 	}
-	// PUP_PQ_TXR_EXTRA_INPUT (1/true/on): may add a wallet P2PKH input on TX_R when it improves net output vs fee.
-	// PUP_PQ_TXR_EXTRA_MIN_KOINU: minimum value for that extra UTXO (default dust floor).
-	// When carrier-only TX_R would be dust, an extra input is tried automatically (no env required).
 
 	sendKoinu, err := dogeAmountStringToKoinu(amt)
 	if err != nil {
@@ -230,7 +226,6 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	econDowngraded := false
 	var errUtx error
 	var unsignedBase []byte
-	var carrierEffUsed int64 // koinu actually locked in carrier on TX_C when falcon succeeds (may be < PUP_PQ_CARRIER_KOINU)
 
 	for econPass := 0; econPass < 3; econPass++ {
 		pqCarrierExtendErr = ""
@@ -270,37 +265,13 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		fee = estimateSendTxFeeKoinu(feePerKbKoinu, len(selected), true, extraFeeOutputs)
-		changePre := sumIn - sendKoinu - fee
-		if useCarrierBudget && changePre < carrierKoinu+dustLimitKoinu {
-			ns, nsum := supplementUTXOsForMinChange(utxos, selected, sumIn, sendKoinu, feePerKbKoinu, extraFeeOutputs, carrierKoinu+dustLimitKoinu)
-			if nsum > sumIn {
-				selected, sumIn = ns, nsum
-				fee = estimateSendTxFeeKoinu(feePerKbKoinu, len(selected), true, extraFeeOutputs)
-				changePre = sumIn - sendKoinu - fee
-			}
-		}
+		change = sumIn - sendKoinu - fee
 		if extraFeeOutputs >= 2 {
-			// libdogecoin splits the P2PKH *change* output into carrier + remainder; the unsigned tx must carry
-			// the full pre-carrier slab (see falcon_add_commit_and_carrier_tx "change output … too small for carrier").
-			changeOut = changePre
-			if changePre <= dustLimitKoinu {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "insufficient change headroom for PQ carrier on TX_C; add UTXOs, reduce amount, or lower PUP_PQ_CARRIER_KOINU"})
-				return
-			}
-			change = changePre - carrierKoinu
-			if change < 0 {
-				change = 0
-			}
-		} else {
-			change = changePre
-			changeOut = changePre
-			if changePre <= dustLimitKoinu {
-				changeOut = 0
-			}
-			if change < 0 {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "insufficient balance after fee and PQ carrier reserve"})
-				return
-			}
+			change -= carrierKoinu
+		}
+		if change < 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "insufficient balance after fee and PQ carrier reserve"})
+			return
 		}
 
 		var errScr error
@@ -317,10 +288,9 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		if extraFeeOutputs < 2 {
-			if change <= dustLimitKoinu {
-				changeOut = 0
-			}
+		changeOut = change
+		if change <= dustLimitKoinu {
+			changeOut = 0
 		}
 		unsignedBase, errUtx = buildUnsignedDogeP2PKH(selected, toScript, sendKoinu, changeScript, changeOut, "")
 		if errUtx != nil {
@@ -365,53 +335,21 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		carrierFlow = false
-		carrierEffUsed = 0
 		carrierWish := includePQReveal && !carrierEnvDisabled &&
 			includePQCommitment && pqCommitment32Hex != "" && falconSigHex != "" &&
 			pqMode != "legacy_pubkey_hash_fallback"
 		if carrierWish {
-			eff := carrierKoinu
-			minCar := int64(10_000_000) // 0.1 DOGE floor when shrinking carrier (override with PUP_PQ_CARRIER_MIN_KOINU)
-			if v := strings.TrimSpace(os.Getenv("PUP_PQ_CARRIER_MIN_KOINU")); v != "" {
-				if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= dustLimitKoinu {
-					minCar = n
-				}
-			}
-			for tries := 0; tries < 48; tries++ {
-				if changePre < eff+dustLimitKoinu {
-					pqCarrierExtendErr = fmt.Sprintf("change output %d koinu cannot host carrier %d koinu (after %d shrink tries)", changePre, eff, tries)
-					break
-				}
-				extHex, errC := s.runSuchFalconAddCommitAndCarrierTx(baseHex, pqCommitment32Hex, strings.TrimSpace(wf.PQPublicHex), falconSigHex, eff, testnet)
-				if errC == nil {
-					if b, errH := hex.DecodeString(extHex); errH != nil {
-						pqCarrierExtendErr = "decode falcon_add_commit_and_carrier_tx hex: " + errH.Error()
-					} else if len(b) <= 80 {
-						pqCarrierExtendErr = "falcon_add_commit_and_carrier_tx produced tx too short for carrier layout"
-					} else {
-						unsignedForSign = b
-						carrierFlow = true
-						carrierEffUsed = eff
-						pqMode = pqMode + "_carrier_txc"
-					}
-					break
-				}
+			extHex, errC := s.runSuchFalconAddCommitAndCarrierTx(baseHex, pqCommitment32Hex, strings.TrimSpace(wf.PQPublicHex), falconSigHex, carrierKoinu, testnet)
+			if errC != nil {
 				pqCarrierExtendErr = errC.Error()
-				low := strings.ToLower(errC.Error())
-				if !strings.Contains(low, "too small") && !strings.Contains(low, "change output") && !strings.Contains(low, "append") {
-					break
-				}
-				if eff <= minCar {
-					break
-				}
-				next := eff * 9 / 10
-				if next >= eff {
-					next = eff - 10_000_000
-				}
-				eff = next
-				if eff < minCar {
-					eff = minCar
-				}
+			} else if b, errH := hex.DecodeString(extHex); errH != nil {
+				pqCarrierExtendErr = "decode falcon_add_commit_and_carrier_tx hex: " + errH.Error()
+			} else if len(b) <= 80 {
+				pqCarrierExtendErr = "falcon_add_commit_and_carrier_tx produced tx too short for carrier layout"
+			} else {
+				unsignedForSign = b
+				carrierFlow = true
+				pqMode = pqMode + "_carrier_txc"
 			}
 		}
 
@@ -481,7 +419,6 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 
 	txRID := ""
 	var txRErr string
-	var txrFeeExtraUTXO map[string]any // optional P2PKH input on TX_R (not carrier); set when dust rescue or PUP_PQ_TXR_EXTRA_INPUT improves fee headroom
 	pqMkParts := 0
 	if carrierFlow && txCTxid != "" && falconSigHex != "" {
 		txcBytes, errD := hex.DecodeString(strings.TrimSpace(rawHex))
@@ -512,141 +449,67 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 							} else {
 								pqMkParts = len(scriptSigs)
 								useIdx := carrierIdx[:len(scriptSigs)]
-								var carrierSum int64
+								var totalIn int64
 								vouts := make([]uint32, len(useIdx))
 								for i, vi := range useIdx {
 									vouts[i] = uint32(vi)
-									carrierSum += outs[vi].Value
+									totalIn += outs[vi].Value
 								}
-								nCarrier := len(scriptSigs)
-								fee0 := estimateSendTxFeeKoinu(feePerKbKoinu, nCarrier, false, 0)
-								if fee0 < txRFeeFloorKoinu {
-									fee0 = txRFeeFloorKoinu
+								txRFeeEff := estimateSendTxFeeKoinu(feePerKbKoinu, len(scriptSigs), false, 0)
+								if txRFeeEff < txRFeeFloorKoinu {
+									txRFeeEff = txRFeeFloorKoinu
 								}
-								reveal0 := carrierSum - fee0
-								minExtraK := dustLimitKoinu
-								if v := strings.TrimSpace(os.Getenv("PUP_PQ_TXR_EXTRA_MIN_KOINU")); v != "" {
-									if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= dustLimitKoinu {
-										minExtraK = n
-									}
-								}
-								envExtra := parseEnvTruthy(os.Getenv("PUP_PQ_TXR_EXTRA_INPUT"))
-								needExtra := reveal0 <= dustLimitKoinu
-								var extraU *ExplorerUTXO
-								if needExtra || (envExtra && reveal0 > dustLimitKoinu) {
-									excl := make(map[string]struct{}, len(selected)+len(vouts))
-									for _, z := range selected {
-										excl[prevoutKey(z.TxID, z.Vout)] = struct{}{}
-									}
-									for _, vo := range vouts {
-										excl[prevoutKey(txCTxid, vo)] = struct{}{}
-									}
-									auxList := s.fetchRevealAuxUTXOs(ctx, wf)
-									cands := make([]ExplorerUTXO, 0, len(auxList))
-									for _, u := range auxList {
-										if _, bad := excl[prevoutKey(u.TxID, u.Vout)]; bad {
-											continue
-										}
-										if u.Value < minExtraK {
-											continue
-										}
-										cands = append(cands, u)
-									}
-									sort.Slice(cands, func(i, j int) bool { return cands[i].Value < cands[j].Value })
-									for i := range cands {
-										u := &cands[i]
-										fee1 := estimateSendTxFeeKoinu(feePerKbKoinu, nCarrier+1, false, 0)
-										if fee1 < txRFeeFloorKoinu {
-											fee1 = txRFeeFloorKoinu
-										}
-										rv := carrierSum + u.Value - fee1
-										if rv <= dustLimitKoinu {
-											continue
-										}
-										if needExtra {
-											extraU = u
-											break
-										}
-										if u.Value > fee1-fee0 {
-											extraU = u
-											break
-										}
-									}
-								}
-								if needExtra && extraU == nil {
-									txRErr = "TX_R would leave dust after fee; no separate wallet UTXO large enough to fund TX_R (add spendable coins, lower PUP_PQ_TXR_FEE_KOINU / fee rate, or set PUP_PQ_TXR_EXTRA_MIN_KOINU lower if appropriate)"
+								revealVal := totalIn - txRFeeEff
+								if revealVal <= dustLimitKoinu {
+									txRErr = "TX_R would leave dust after fee; increase balance, raise fee rate slightly, or lower PUP_PQ_TXR_FEE_KOINU floor"
 								} else {
-									var extras []RevealExtraPrevout
-									totalIn := carrierSum
-									txRFeeEff := fee0
-									if extraU != nil {
-										extras = append(extras, RevealExtraPrevout{TxID: extraU.TxID, Vout: extraU.Vout})
-										totalIn = carrierSum + extraU.Value
-										txRFeeEff = estimateSendTxFeeKoinu(feePerKbKoinu, nCarrier+1, false, 0)
-										if txRFeeEff < txRFeeFloorKoinu {
-											txRFeeEff = txRFeeFloorKoinu
-										}
+									maxAttempts := 8
+									if v, err := strconv.Atoi(strings.TrimSpace(os.Getenv("PUP_PQ_TXR_RETRIES"))); err == nil && v > 0 {
+										maxAttempts = v
 									}
-									revealVal := totalIn - txRFeeEff
-									if revealVal <= dustLimitKoinu {
-										txRErr = "TX_R single output would be dust after fee (unexpected)"
-									} else {
-										var unsignedR []byte
-										var errB error
-										if len(extras) > 0 {
-											unsignedR, errB = buildUnsignedCarrierRevealTxMultiExtra(txCTxid, vouts, extras, revealVal, changeScript)
+									retryStep := 800 * time.Millisecond
+									if ms, err := strconv.Atoi(strings.TrimSpace(os.Getenv("PUP_PQ_TXR_RETRY_MS"))); err == nil && ms > 0 {
+										retryStep = time.Duration(ms) * time.Millisecond
+									}
+									for attempt := 0; attempt < maxAttempts; attempt++ {
+										if attempt == 0 {
+											time.Sleep(450 * time.Millisecond)
 										} else {
-											unsignedR, errB = buildUnsignedCarrierRevealTxMulti(txCTxid, vouts, revealVal, changeScript)
+											time.Sleep(retryStep)
+											log.Printf("[pq-wallet] send_pq_safe TX_R retry attempt=%d/%d after TX_C=%s", attempt+1, maxAttempts, txCTxid)
 										}
+										unsignedR, errB := buildUnsignedCarrierRevealTxMulti(txCTxid, vouts, revealVal, changeScript)
 										if errB != nil {
 											txRErr = errB.Error()
-										} else {
-											rHex, errSS := s.runSuchSetScriptSigMulti(hexMsgTx(unsignedR), scriptSigs, testnet)
-											if errSS != nil {
-												txRErr = errSS.Error()
-											} else {
-												if extraU != nil {
-													scrX, errX := s.scriptPubHexForUTXO(wf, extraU)
-													if errX != nil {
-														txRErr = "TX_R extra input scriptPubKey: " + errX.Error()
-													} else {
-														rSigned, errSig := s.runSuchSign(rHex, scrX, pa.WIF, nCarrier, 1, testnet)
-														if errSig != nil {
-															txRErr = errSig.Error()
-														} else {
-															rHex = rSigned
-														}
-													}
-												}
-												if txRErr == "" {
-													sendOutR, errST := s.runSendtx(rHex, testnet, "")
-													sumR := summarizeSendtxOutput(sendOutR)
-													if errST != nil {
-														s.logBroadcastDetails("send_pq_safe_txr", sumR.BroadcastTxID, rHex, sendOutR, errST)
-														txRErr = errST.Error()
-													} else if sumR.ConnectedNodes == 0 {
-														s.logBroadcastDetails("send_pq_safe_txr", sumR.BroadcastTxID, rHex, sendOutR, nil)
-														txRErr = "sendtx TX_R connected to 0 peers"
-													} else {
-														txRID = normalizeTxid(sumR.BroadcastTxID)
-														if txRID == "" {
-															if rb, errR := hex.DecodeString(strings.TrimSpace(rHex)); errR == nil {
-																txRID = dogeLegacyTxidHex(rb)
-															}
-														}
-														s.logBroadcastDetails("send_pq_safe_txr", txRID, rHex, sendOutR, nil)
-														log.Printf("[pq-wallet] send_pq_safe TX_R ok txid=%s parts=%d extra_p2pkh=%v", txRID, len(scriptSigs), extraU != nil)
-														if extraU != nil {
-															txrFeeExtraUTXO = map[string]any{
-																"txid":        extraU.TxID,
-																"vout":        extraU.Vout,
-																"value_koinu": extraU.Value,
-															}
-														}
-													}
-												}
+											break
+										}
+										rHex, errSS := s.runSuchSetScriptSigMulti(hexMsgTx(unsignedR), scriptSigs, testnet)
+										if errSS != nil {
+											txRErr = errSS.Error()
+											break
+										}
+										sendOutR, errST := s.runSendtx(rHex, testnet, "")
+										sumR := summarizeSendtxOutput(sendOutR)
+										if errST != nil {
+											s.logBroadcastDetails("send_pq_safe_txr", sumR.BroadcastTxID, rHex, sendOutR, errST)
+											txRErr = errST.Error()
+											continue
+										}
+										if sumR.ConnectedNodes == 0 {
+											s.logBroadcastDetails("send_pq_safe_txr", sumR.BroadcastTxID, rHex, sendOutR, nil)
+											txRErr = "sendtx TX_R connected to 0 peers"
+											continue
+										}
+										txRID = normalizeTxid(sumR.BroadcastTxID)
+										if txRID == "" {
+											if rb, errR := hex.DecodeString(strings.TrimSpace(rHex)); errR == nil {
+												txRID = dogeLegacyTxidHex(rb)
 											}
 										}
+										s.logBroadcastDetails("send_pq_safe_txr", txRID, rHex, sendOutR, nil)
+										log.Printf("[pq-wallet] send_pq_safe TX_R ok txid=%s parts=%d", txRID, len(scriptSigs))
+										txRErr = ""
+										break
 									}
 								}
 							}
@@ -657,10 +520,6 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	changeResp := sumIn - sendKoinu - fee
-	if carrierFlow && carrierEffUsed > 0 {
-		changeResp -= carrierEffUsed
-	}
 	resp := map[string]any{
 		"ok":               true,
 		"code":             "sent",
@@ -671,7 +530,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		"fee_koinu":        fee,
 		"fee_per_kb_koinu": feePerKbKoinu,
 		"fee_doge_per_kb":  float64(feePerKbKoinu) / 1e8,
-		"change_koinu":     changeResp,
+		"change_koinu":     change,
 		"inputs_used":      len(selected),
 		"pq_commitment":    pqCommitment32Hex != "",
 		"pq_commitment_32": pqCommitment32Hex,
@@ -687,14 +546,8 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	if txRID != "" {
 		resp["tx_r_txid"] = txRID
 	}
-	if txrFeeExtraUTXO != nil {
-		resp["pq_txr_fee_extra_utxo"] = txrFeeExtraUTXO
-	}
 	if pqMkParts > 0 {
 		resp["pq_carrier_mkpart_parts"] = pqMkParts
-	}
-	if carrierFlow && carrierEffUsed > 0 && carrierEffUsed != carrierKoinu {
-		resp["carrier_used_koinu"] = carrierEffUsed
 	}
 	if txRErr != "" {
 		resp["tx_r_error"] = txRErr
@@ -716,60 +569,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.logBroadcastPQSafeSummary("send_pq_safe", txCTxid, pqMode, pqCommitment32Hex != "", carrierFlow, pqRevealRequested, carrierEnvDisabled, falconSigHex != "", econDowngraded, pqCarrierExtendErr, txRID, txRErr, pqRevealSkipReason, pqMkParts)
-	if pqRevealSkipReason != "" {
-		resp["pq_reveal_skip_reason"] = pqRevealSkipReason
-		resp["pq_reveal_omitted_note"] = "TX_R (reveal) was not broadcast: the signed TX only includes the commitment path. " +
-			"With commitment+reveal mode, libdogecoin needs an extra 1 DOGE carrier output on TX_C; if change after fee is below that, falcon_add_commit_and_carrier_tx fails and the wallet sends commitment-only. " +
-			"When TX_C already has a carrier but TX_R would be dust, the wallet can add another wallet UTXO on TX_R for fee headroom (or set PUP_PQ_TXR_EXTRA_INPUT). " +
-			"Otherwise: send a smaller amount, add coins so change exceeds ~1 DOGE after fee, lower fee rate slightly, or use commitment-only mode."
-	}
 	writeJSON(w, http.StatusOK, resp)
-}
-
-func parseEnvTruthy(v string) bool {
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
-		return false
-	}
-}
-
-func prevoutKey(txid string, vout uint32) string {
-	return strings.ToLower(normalizeTxid(txid)) + ":" + strconv.FormatUint(uint64(vout), 10)
-}
-
-// fetchRevealAuxUTXOs lists merged P2PKH UTXOs (primary + derived), same discovery as send_pq_safe funding.
-func (s *Server) fetchRevealAuxUTXOs(ctx context.Context, wf *WalletFile) []ExplorerUTXO {
-	pa := wf.PrimaryAddress()
-	if pa == nil {
-		return nil
-	}
-	utxos, err := s.fetchUTXOsFromExplorer(ctx, strings.TrimSpace(pa.P2PKH))
-	if err == nil && len(utxos) > 0 {
-		return utxos
-	}
-	seen := map[string]struct{}{}
-	all := make([]ExplorerUTXO, 0, 16)
-	for _, a := range wf.AllDistinctP2PKHAddresses() {
-		a = strings.TrimSpace(a)
-		if a == "" {
-			continue
-		}
-		list, ferr := s.fetchUTXOsFromExplorer(ctx, a)
-		if ferr != nil || len(list) == 0 {
-			continue
-		}
-		for _, u := range list {
-			k := prevoutKey(u.TxID, u.Vout)
-			if _, ok := seen[k]; ok {
-				continue
-			}
-			seen[k] = struct{}{}
-			all = append(all, u)
-		}
-	}
-	return all
 }
 
 func (s *Server) recordOutgoingLocalTx(txid, to string, sendKoinu int64, rawHex string, pqHint bool) {

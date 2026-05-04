@@ -11,6 +11,16 @@ import (
 // SPV log tail for raw hex backfill + prevout index: older parent txs must be present here for bitcoinj-style net.
 const spvLogTailForEnrich = 64 << 20
 
+// phase1PQTaggedCommitInRawHex is true when serialized tx hex contains canonical Phase-1 OP_RETURN:
+// 0x6a 0x24 TAG4 (FLC1 / DIL2 / RCG4) + 32-byte commitment.
+func phase1PQTaggedCommitInRawHex(rawHex string) bool {
+	s := strings.TrimSpace(strings.ToLower(rawHex))
+	if len(s) < 40 {
+		return false
+	}
+	return strings.Contains(s, "6a24464c4331") || strings.Contains(s, "6a2444494c32") || strings.Contains(s, "6a2452434734")
+}
+
 // firstInputPrevTxidFromRawHex returns the canonical prevout txid for the first non-coinbase input
 // (wire hash byte-reversed to match explorer / normalizeTxid form). Empty if not parseable.
 func firstInputPrevTxidFromRawHex(rawHex string) string {
@@ -79,14 +89,15 @@ func dogeP2PKHAddrFromH160(h160 []byte, testnet bool) string {
 // Counterparty and "your" address choices follow Dogecoin Wallet (bitcoinj) list semantics:
 //   - sent row address: first output that is not to the wallet (WalletUtils.getToAddressOfSent)
 //   - received row address: first output to the wallet (getWalletAddressOfReceived)
+//
 // CounterpartySats is the value of that first non-wallet P2PKH output (the payment line), not fee/change.
 // ExternalSats sums all external-facing value (multiple recipients + non-P2PKH) for spend detection.
 type rawTxFlow struct {
-	WalletSats        int64
-	ExternalSats      int64
-	CounterpartySats  int64 // first external P2PKH output value only; 0 if none
-	WalletAddr        string
-	ExternalAddr      string
+	WalletSats       int64
+	ExternalSats     int64
+	CounterpartySats int64 // first external P2PKH output value only; 0 if none
+	WalletAddr       string
+	ExternalAddr     string
 }
 
 func isOpReturnScript(script []byte) bool {
@@ -298,10 +309,8 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 				continue
 			}
 			if raw := strings.TrimSpace(byTxid[id]); raw != "" {
-				if signedRawHexMatchesTxid(raw, id) {
-					tx.RawHex = raw
-					changed = true
-				}
+				tx.RawHex = raw
+				changed = true
 			}
 		}
 	}
@@ -341,10 +350,8 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 							continue
 						}
 						if raw := strings.TrimSpace(byTxid[id]); raw != "" {
-							if signedRawHexMatchesTxid(raw, id) {
-								tx.RawHex = raw
-								changed = true
-							}
+							tx.RawHex = raw
+							changed = true
 						}
 					}
 					// Reuse the larger blob for prevout indexing below.
@@ -361,11 +368,6 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 		tx := &st.Transactions[i]
 		raw := strings.TrimSpace(tx.RawHex)
 		if raw == "" {
-			continue
-		}
-		if !signedRawHexMatchesTxid(raw, tx.Txid) {
-			tx.RawHex = ""
-			changed = true
 			continue
 		}
 		// Broadcast-time OUT rows already store the user-chosen amount + destination; raw decode can disagree
@@ -484,6 +486,21 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 		}
 		if tx.Source == "" {
 			tx.Source = "spv"
+			changed = true
+		}
+	}
+	for i := range st.Transactions {
+		tx := &st.Transactions[i]
+		raw := strings.TrimSpace(tx.RawHex)
+		if raw == "" {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(tx.Source), "manual") && strings.EqualFold(strings.TrimSpace(tx.Direction), "out") {
+			continue
+		}
+		want := phase1PQTaggedCommitInRawHex(raw)
+		if tx.PQHint != want {
+			tx.PQHint = want
 			changed = true
 		}
 	}

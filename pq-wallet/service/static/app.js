@@ -115,6 +115,11 @@ const state = {
   walletLocked: false,
   lastPendingDoge: 0,
   lastTxs: [],
+  txHasMore: false,
+  txTotal: 0,
+  txPageSize: 40,
+  txScrollIO: null,
+  txScrollDashIO: null,
   view: "dashboard",
   charts: { mempool: null },
   pollFast: null,
@@ -136,9 +141,6 @@ const state = {
   lastDashboard: null,
   spvHeaderFeed: [],
   pqSendMode: "txc_txr",
-  /** Dashboard tx list: how many rows to render (grows on scroll). */
-  dashTxVisibleCount: 25,
-  dashTxIO: null,
 };
 
 const CACHE_DB_NAME = "pq-wallet-ui-cache";
@@ -146,8 +148,76 @@ const CACHE_DB_VERSION = 1;
 const CACHE_STORE = "snapshots";
 const CACHE_KEY_DASHBOARD = "dashboard_v1";
 const CACHE_KEY_TXS = "txs_v1";
-/** Initial batch on dashboard; each scroll load adds this many more. */
-const DASH_TX_PAGE_SIZE = 25;
+
+function sortTxRowsDesc(a, b) {
+  const ta = new Date(a && a.seen_at ? a.seen_at : 0).getTime() || 0;
+  const tb = new Date(b && b.seen_at ? b.seen_at : 0).getTime() || 0;
+  if (tb !== ta) return tb - ta;
+  const ha = Number((a && a.block_height) || 0);
+  const hb = Number((b && b.block_height) || 0);
+  if (hb !== ha) return hb - ha;
+  const ca = Number((a && a.confirmations) || 0);
+  const cb = Number((b && b.confirmations) || 0);
+  if (cb !== ca) return cb - ca;
+  return String((b && b.txid) || "").localeCompare(String((a && a.txid) || ""));
+}
+
+function mergeTxRowsDedupe(existing, more) {
+  const by = new Map();
+  for (const t of existing || []) {
+    const id = String((t && t.txid) || "")
+      .trim()
+      .toLowerCase();
+    if (id) by.set(id, t);
+  }
+  for (const t of more || []) {
+    const id = String((t && t.txid) || "")
+      .trim()
+      .toLowerCase();
+    if (!id) continue;
+    if (!by.has(id)) by.set(id, t);
+  }
+  return Array.from(by.values()).sort(sortTxRowsDesc);
+}
+
+function teardownTxListScrollObserver() {
+  if (state.txScrollIO) {
+    try {
+      state.txScrollIO.disconnect();
+    } catch {
+      /* ignore */
+    }
+    state.txScrollIO = null;
+  }
+  if (state.txScrollDashIO) {
+    try {
+      state.txScrollDashIO.disconnect();
+    } catch {
+      /* ignore */
+    }
+    state.txScrollDashIO = null;
+  }
+}
+
+function initTxListScrollObserver() {
+  const onNear = (entries) => {
+    for (const e of entries) {
+      if (e.isIntersecting) loadMoreTxListPage().catch(() => {});
+    }
+  };
+  const tRoot = $("tx-list-scroll");
+  const tSent = $("tx-list-sentinel");
+  if (tRoot && tSent && !state.txScrollIO) {
+    state.txScrollIO = new IntersectionObserver(onNear, { root: tRoot, rootMargin: "140px", threshold: 0.01 });
+    state.txScrollIO.observe(tSent);
+  }
+  const dRoot = $("dash-tx-list-scroll");
+  const dSent = $("dash-tx-list-sentinel");
+  if (dRoot && dSent && !state.txScrollDashIO) {
+    state.txScrollDashIO = new IntersectionObserver(onNear, { root: dRoot, rootMargin: "140px", threshold: 0.01 });
+    state.txScrollDashIO.observe(dSent);
+  }
+}
 const LOCAL_KEY_PQ_SEND_MODE = "pq_send_mode_v1";
 const LOCAL_KEY_SEND_FEE_DOGE_PER_KB = "pq_send_fee_doge_per_kb_v1";
 const DEFAULT_FEE_PER_KB_DOGE = "0.01";
@@ -422,6 +492,14 @@ function showView(name) {
     refreshSpvDeepLog();
     state.pollSpvDeep = setInterval(refreshSpvDeepLog, 8000);
     refreshDashboard().catch(() => {});
+  }
+  if (name === "transactions") {
+    initTxListScrollObserver();
+    refreshTxList(false, { full: false }).catch(() => {});
+  }
+  if (name === "dashboard") {
+    initTxListScrollObserver();
+    refreshTxList(false, { full: false }).catch(() => {});
   }
   if (name === "tools") {
     setSendTab(typeof state.sendTabIndex === "number" ? state.sendTabIndex : 0);
@@ -753,6 +831,7 @@ function setOnboarding(w) {
     state.pollFast = null;
     state.pollTx = null;
     state.pollLogs = null;
+    teardownTxListScrollObserver();
   }
   $("view-onboarding").classList.toggle("hidden", has);
   const appEl = $("app");
@@ -956,12 +1035,6 @@ function fitWalletHeroBalance() {
   }
 }
 
-/** List row amount: always 2 decimal places for scanability. */
-function formatTxListAmountDoge(n, _dir) {
-  if (n == null || Number.isNaN(Number(n))) return null;
-  return Number(n).toFixed(2);
-}
-
 function buildTxExpandableCard(tx, includeSource) {
   const txidFull = String(tx.txid || "").trim();
   const conf = Number(tx.confirmations || 0);
@@ -972,8 +1045,7 @@ function buildTxExpandableCard(tx, includeSource) {
   if (dir === "out") sign = "-";
   else if (dir === "in") sign = "+";
   else if (nAmt != null && nAmt > 0) sign = "+";
-  const amtStr = formatTxListAmountDoge(nAmt, dir);
-  const amount = amtStr != null ? `${sign}${amtStr}` : "—";
+  const amount = nAmt != null ? `${sign}${nAmt.toFixed(2)}` : "—";
   const seen = tx.seen_at ? fmtTime(tx.seen_at) : "—";
   const isConfirmed = conf > 0;
   const short = txidFull ? txidFull.slice(0, 18) + (txidFull.length > 18 ? "…" : "") : "—";
@@ -1089,23 +1161,6 @@ function buildTxExpandableCard(tx, includeSource) {
   return card;
 }
 
-function sortTxRowsForDisplay(txs) {
-  const arr = Array.isArray(txs) ? txs.slice() : [];
-  arr.sort((a, b) => {
-    const ta = new Date(a && a.seen_at ? a.seen_at : 0).getTime() || 0;
-    const tb = new Date(b && b.seen_at ? b.seen_at : 0).getTime() || 0;
-    if (tb !== ta) return tb - ta;
-    const ha = Number((a && a.block_height) || 0);
-    const hb = Number((b && b.block_height) || 0);
-    if (hb !== ha) return hb - ha;
-    const ca = Number((a && a.confirmations) || 0);
-    const cb = Number((b && b.confirmations) || 0);
-    if (cb !== ca) return cb - ca;
-    return String((b && b.txid) || "").localeCompare(String((a && a.txid) || ""));
-  });
-  return arr;
-}
-
 function upsertTxList(container, txs, includeSource, emptyEl) {
   if (!container) return;
   const arr = Array.isArray(txs) ? txs : [];
@@ -1216,7 +1271,7 @@ async function refreshWallet() {
     renderAddresses(data.wallet);
     updateReceiveView();
     refreshDashboard().catch(() => {});
-    refreshTxList(false).catch(() => {});
+    refreshTxList(false, { full: true }).catch(() => {});
   }
 }
 
@@ -1558,8 +1613,6 @@ function applyDashboardSnapshot(dashboard) {
 function applyTxSnapshot(txs, refresh) {
   const rows = Array.isArray(txs) ? txs : [];
   state.lastTxs = rows;
-  state.dashTxVisibleCount =
-    rows.length === 0 ? DASH_TX_PAGE_SIZE : Math.min(DASH_TX_PAGE_SIZE, rows.length);
   const balBig = $("wallet-balance-big");
   const dashTotals = state.lastDashboard && state.lastDashboard.totals ? state.lastDashboard.totals : null;
   const spendHint = dashTotals && dashTotals.spendable_hint_doge != null ? Number(dashTotals.spendable_hint_doge) : NaN;
@@ -1603,88 +1656,23 @@ async function refreshDashboard() {
   }
 }
 
-function teardownDashTxInfiniteScroll() {
-  if (state.dashTxIO) {
-    try {
-      state.dashTxIO.disconnect();
-    } catch {
-      /* ignore */
-    }
-    state.dashTxIO = null;
-  }
-}
-
-function setupDashTxInfiniteScroll(listEl, totalCount, shownCount) {
-  teardownDashTxInfiniteScroll();
-  if (!listEl || shownCount >= totalCount || totalCount <= 0) return;
-  const sentinel = listEl.querySelector("#dash-tx-sentinel");
-  if (!sentinel) return;
-  if (typeof IntersectionObserver === "undefined") return;
-  const io = new IntersectionObserver(
-    (entries) => {
-      for (const e of entries) {
-        if (!e.isIntersecting) continue;
-        const cap = Array.isArray(state.lastTxs) ? state.lastTxs.length : 0;
-        if (cap <= 0) return;
-        const cur = Math.min(cap, Number(state.dashTxVisibleCount) || DASH_TX_PAGE_SIZE);
-        if (cur >= cap) return;
-        const next = Math.min(cap, cur + DASH_TX_PAGE_SIZE);
-        if (next <= cur) return;
-        state.dashTxVisibleCount = next;
-        renderDashboardTxPreview();
-        return;
-      }
-    },
-    { root: listEl, rootMargin: "160px", threshold: 0.01 }
-  );
-  io.observe(sentinel);
-  state.dashTxIO = io;
-}
-
 function renderDashboardTxPreview() {
   const list = $("dash-tx-list");
   if (!list) return;
-  teardownDashTxInfiniteScroll();
   const txs = Array.isArray(state.lastTxs) ? state.lastTxs : [];
   if (!txs.length) {
-    list.innerHTML = "";
-    const p = document.createElement("p");
-    p.className = "small muted dash-empty";
-    p.textContent = "No transactions yet.";
-    list.appendChild(p);
+    if (!list.querySelector(".dash-empty")) {
+      list.innerHTML = "";
+      const p = document.createElement("p");
+      p.className = "small muted dash-empty";
+      p.textContent = "No transactions yet.";
+      list.appendChild(p);
+    }
     return;
   }
-  const sorted = sortTxRowsForDisplay(txs);
-  const total = sorted.length;
-  let vis = Number(state.dashTxVisibleCount) || DASH_TX_PAGE_SIZE;
-  if (!Number.isFinite(vis) || vis < 1) vis = DASH_TX_PAGE_SIZE;
-  if (vis > total) vis = total;
-  if (typeof IntersectionObserver === "undefined") {
-    vis = total;
-  }
-  state.dashTxVisibleCount = vis;
-  const slice = sorted.slice(0, vis);
-  upsertTxList(list, slice, false, null);
-
-  const footer = document.createElement("div");
-  footer.className = "dash-tx-list-footer";
-  const hint = document.createElement("p");
-  hint.className = "small muted dash-tx-scroll-hint";
-  if (vis < total) {
-    hint.textContent = `Showing ${vis} of ${total} — scroll down to load more`;
-    const sentinel = document.createElement("div");
-    sentinel.id = "dash-tx-sentinel";
-    sentinel.className = "dash-tx-sentinel";
-    sentinel.setAttribute("aria-hidden", "true");
-    footer.appendChild(hint);
-    footer.appendChild(sentinel);
-  } else {
-    hint.textContent =
-      total === 1 ? "1 transaction" : `${total} transactions`;
-    footer.appendChild(hint);
-  }
-  list.appendChild(footer);
-  setupDashTxInfiniteScroll(list, total, vis);
+  const oldEmpty = list.querySelector(".dash-empty");
+  if (oldEmpty) oldEmpty.remove();
+  upsertTxList(list, txs, false, null);
 }
 
 ["btn-svc-spv-stop"].forEach((id) => $(id)?.addEventListener("click", () => postServiceControl({ spv_enabled: false })));
@@ -1692,16 +1680,49 @@ function renderDashboardTxPreview() {
 ["btn-svc-mtr-stop"].forEach((id) => $(id)?.addEventListener("click", () => postServiceControl({ memetracker_enabled: false })));
 ["btn-svc-mtr-start"].forEach((id) => $(id)?.addEventListener("click", () => postServiceControl({ memetracker_enabled: true })));
 
-async function refreshTxList(refresh) {
+async function loadMoreTxListPage() {
+  if (state.inFlightTx || !state.txHasMore) return;
+  const off = state.lastTxs.length;
+  const lim = state.txPageSize || 40;
+  state.inFlightTx = true;
+  try {
+    const data = await api(`/api/transactions?limit=${lim}&offset=${off}`, { timeout_ms: 18000 });
+    if (!data || data.error || !Array.isArray(data.transactions)) return;
+    const batch = (data.transactions || []).slice().sort(sortTxRowsDesc);
+    state.txHasMore = !!data.has_more;
+    state.txTotal = typeof data.total === "number" ? data.total : off + batch.length;
+    const merged = mergeTxRowsDedupe(state.lastTxs, batch);
+    applyTxSnapshot(merged, false);
+    cacheSet(CACHE_KEY_TXS, { transactions: merged });
+  } finally {
+    state.inFlightTx = false;
+  }
+}
+
+async function refreshTxList(refresh, opts) {
+  const o = opts || {};
+  const full = o.full === true;
   if (state.inFlightTx) return;
   state.inFlightTx = true;
   try {
-  const q = "";
-  const data = await api("/api/transactions" + q, { timeout_ms: 18000 });
-  if (!data || data.error || !Array.isArray(data.transactions)) return;
-  const txs = sortTxRowsForDisplay(data.transactions || []);
-  applyTxSnapshot(txs, !!refresh);
-  cacheSet(CACHE_KEY_TXS, { transactions: txs });
+    let data;
+    if (full) {
+      data = await api("/api/transactions", { timeout_ms: 18000 });
+    } else {
+      const lim = state.txPageSize || 40;
+      data = await api(`/api/transactions?limit=${lim}&offset=0`, { timeout_ms: 18000 });
+    }
+    if (!data || data.error || !Array.isArray(data.transactions)) return;
+    const txs = (data.transactions || []).slice().sort(sortTxRowsDesc);
+    if (full) {
+      state.txHasMore = false;
+      state.txTotal = typeof data.total === "number" ? data.total : txs.length;
+    } else {
+      state.txHasMore = !!data.has_more;
+      state.txTotal = typeof data.total === "number" ? data.total : txs.length;
+    }
+    applyTxSnapshot(txs, !!refresh);
+    cacheSet(CACHE_KEY_TXS, { transactions: txs });
   } finally {
     state.inFlightTx = false;
   }
@@ -2219,7 +2240,7 @@ document.getElementById("btn-new-addr").addEventListener("click", async () => {
 });
 
 document.getElementById("btn-sync-tx").addEventListener("click", async () => {
-  await refreshTxList(true);
+  await refreshTxList(true, { full: true });
 });
 
 const btnSpvRb = $("btn-spv-rollback");
@@ -2419,16 +2440,9 @@ document.getElementById("btn-send-pq-safe").addEventListener("click", async () =
     const sum = res && res.sendtx_summary ? res.sendtx_summary : null;
     if (out && sum) {
       const diag = Array.isArray(sum.sendtx_diagnostic_lines) ? sum.sendtx_diagnostic_lines : [];
-      const revealSkip =
-        res && res.pq_reveal_omitted_note
-          ? `\n\n⚠ ${res.pq_reveal_omitted_note}\n(${String(res.pq_reveal_skip_reason || "").slice(0, 500)})`
-          : res && res.pq_reveal_skip_reason
-            ? `\n\n⚠ PQ reveal skipped: ${String(res.pq_reveal_skip_reason).slice(0, 800)}`
-            : "";
       const lines = [
         `status: ${sum.status || "unknown"}`,
         `note: ${sum.human_note || "—"}`,
-        revealSkip ? revealSkip.trim() : "",
         `txid: ${res.txid || sum.broadcast_txid || "—"}`,
         `connected_nodes: ${sum.connected_nodes ?? 0}`,
         `informed_nodes: ${sum.informed_nodes ?? 0}`,
@@ -2580,7 +2594,7 @@ function startPollers() {
   state.pollTx = setInterval(async () => {
     if (!state.wallet) return;
     try {
-      await refreshTxList(false);
+      await refreshTxList(false, { full: true });
     } catch {
       /* tx poll failed */
     }

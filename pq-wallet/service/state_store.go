@@ -12,23 +12,23 @@ const maxMetricPoints = 400
 
 // TxRecord is a cached transaction row for the UI (merged from SPV hints and P2P mempool visibility).
 type TxRecord struct {
-	Txid          string    `json:"txid"`
-	Direction     string    `json:"direction"` // in | out | unknown
-	AmountDOGE    float64   `json:"amount_doge"`
-	RawHex        string    `json:"raw_hex,omitempty"`
-	SPVHeaderRaw  string    `json:"spv_header_raw,omitempty"`   // optional block header raw hex (when available from SPV evidence)
-	SPVMerkleRaw  string    `json:"spv_merkle_raw,omitempty"`   // optional merkle/proof raw hex (when available from SPV evidence)
-	SPVProofNote  string    `json:"spv_proof_note,omitempty"`   // concise SPV evidence line for tx detail/debug
-	SPVBlockHash  string    `json:"spv_block_hash,omitempty"`   // block hash associated with confirmation/proof
-	SPVBlockHeight int64    `json:"spv_block_height,omitempty"` // block height associated with confirmation/proof
-	Address       string    `json:"address,omitempty"`
-	FeeDOGE       float64   `json:"fee_doge,omitempty"`
-	Confirmations int       `json:"confirmations"`
-	BlockHeight   int64     `json:"block_height,omitempty"`
-	PQHint        bool      `json:"pq_hint"`
-	PQVerified    bool      `json:"pq_verified"`
-	Source        string    `json:"source"` // spv | memetracker | manual
-	SeenAt        time.Time `json:"seen_at"`
+	Txid           string    `json:"txid"`
+	Direction      string    `json:"direction"` // in | out | unknown
+	AmountDOGE     float64   `json:"amount_doge"`
+	RawHex         string    `json:"raw_hex,omitempty"`
+	SPVHeaderRaw   string    `json:"spv_header_raw,omitempty"`   // optional block header raw hex (when available from SPV evidence)
+	SPVMerkleRaw   string    `json:"spv_merkle_raw,omitempty"`   // optional merkle/proof raw hex (when available from SPV evidence)
+	SPVProofNote   string    `json:"spv_proof_note,omitempty"`   // concise SPV evidence line for tx detail/debug
+	SPVBlockHash   string    `json:"spv_block_hash,omitempty"`   // block hash associated with confirmation/proof
+	SPVBlockHeight int64     `json:"spv_block_height,omitempty"` // block height associated with confirmation/proof
+	Address        string    `json:"address,omitempty"`
+	FeeDOGE        float64   `json:"fee_doge,omitempty"`
+	Confirmations  int       `json:"confirmations"`
+	BlockHeight    int64     `json:"block_height,omitempty"`
+	PQHint         bool      `json:"pq_hint"`
+	PQVerified     bool      `json:"pq_verified"`
+	Source         string    `json:"source"` // spv | memetracker | manual
+	SeenAt         time.Time `json:"seen_at"`
 }
 
 // MetricPoint is one sample for charts (SPV tx visibility, mempool relay, etc.).
@@ -162,7 +162,7 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 					prev.Address = t.Address
 				}
 			}
-			if prev.RawHex == "" && t.RawHex != "" && signedRawHexMatchesTxid(t.RawHex, id) {
+			if prev.RawHex == "" && t.RawHex != "" {
 				prev.RawHex = t.RawHex
 			}
 			if prev.SPVHeaderRaw == "" && t.SPVHeaderRaw != "" {
@@ -183,24 +183,9 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 			if t.Direction != "" && t.Direction != "unknown" {
 				restHint := strings.TrimSpace(t.RawHex) == ""
 				enrichedFromRaw := strings.TrimSpace(prev.RawHex) != ""
-				// Heal ghost OUT rows (no raw) when REST later shows a small IN for the same txid (mis-linked spend hints).
-				spvRecvOverGhostOut := !manualSendPersisted &&
-					strings.EqualFold(strings.TrimSpace(prev.Source), "spv") &&
-					strings.EqualFold(strings.TrimSpace(prev.Direction), "out") &&
-					strings.TrimSpace(prev.RawHex) == "" &&
-					strings.EqualFold(strings.TrimSpace(t.Source), "spv") &&
-					strings.EqualFold(strings.TrimSpace(t.Direction), "in") &&
-					t.AmountDOGE > 0 && t.AmountDOGE < 1 &&
-					prev.AmountDOGE > t.AmountDOGE*3
 				// SPV REST rows are UTXO/spend-centric; enrichSPVTxFromRawHex applies bitcoinj-style net from raw hex.
 				// Never let a REST hint overwrite direction already reconciled from decoded raw tx.
-				if spvRecvOverGhostOut {
-					prev.Direction = "in"
-					prev.AmountDOGE = t.AmountDOGE
-					if prev.Address == "" && t.Address != "" {
-						prev.Address = t.Address
-					}
-				} else if enrichedFromRaw && restHint {
+				if enrichedFromRaw && restHint {
 					// keep prev.Direction
 				} else if manualSendPersisted && !strings.EqualFold(strings.TrimSpace(t.Source), "manual") {
 					// Local send row wins over SPV/REST (e.g. /getUTXOs lists change back to self as "in" same txid).
@@ -214,20 +199,7 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 			// Prefer confirmed-chain timestamp once available, instead of keeping a mempool seen time forever.
 			// Also replace placeholder wall times (e.g. log-seeded rows with no block height) when SPV supplies
 			// height-derived SeenAt.
-			// Manual broadcast rows record SeenAt at send time; SPV parsers sometimes attach an older mistaken
-			// wall time when confirmations increase — never regress SeenAt backward for those rows.
-			if manualSendPersisted {
-				if !t.SeenAt.IsZero() {
-					if prev.SeenAt.IsZero() {
-						prev.SeenAt = t.SeenAt
-					} else if !t.SeenAt.Before(prev.SeenAt) &&
-						(t.Confirmations > prev.Confirmations ||
-							t.BlockHeight > prev.BlockHeight ||
-							(t.BlockHeight > 0 && prev.BlockHeight == 0)) {
-						prev.SeenAt = t.SeenAt
-					}
-				}
-			} else if (prev.SeenAt.IsZero() && !t.SeenAt.IsZero()) ||
+			if (prev.SeenAt.IsZero() && !t.SeenAt.IsZero()) ||
 				(t.Confirmations > prev.Confirmations && !t.SeenAt.IsZero()) ||
 				(t.BlockHeight > 0 && !t.SeenAt.IsZero() && prev.BlockHeight == 0) {
 				prev.SeenAt = t.SeenAt

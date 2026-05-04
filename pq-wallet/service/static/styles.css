@@ -1039,6 +1039,22 @@ body {
   overflow: hidden;
 }
 
+.tx-list-scroll {
+  max-height: min(72vh, calc(100vh - 200px));
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.dash-tx-list-scroll {
+  max-height: min(42vh, 320px);
+}
+
+.tx-list-sentinel {
+  height: 2px;
+  margin: 0;
+  flex-shrink: 0;
+}
+
 .tx-list {
   display: flex;
   flex-direction: column;
@@ -2888,21 +2904,5 @@ a {
 
 .dash-latest-tx-card .tx-list {
   padding-top: 0.55rem;
-}
-
-.dash-tx-list-footer {
-  padding: 0.35rem 0.75rem 0.75rem;
-  flex-shrink: 0;
-}
-
-.dash-tx-scroll-hint {
-  margin: 0;
-  text-align: center;
-}
-
-.dash-tx-sentinel {
-  height: 4px;
-  width: 100%;
-  pointer-events: none;
 }
 

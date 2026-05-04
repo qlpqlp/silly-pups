@@ -118,6 +118,51 @@ body {
   }
 }
 
+/* Desktop + unlocked wallet: main column flex so Transactions / Dashboard lists can fill height */
+@media (min-width: 901px) {
+  #app.has-wallet .main-wrap {
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  #app.has-wallet .main-wrap > .content {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #view-dashboard:not(.hidden) {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  #view-dashboard .wallet-hero {
+    flex-shrink: 0;
+  }
+
+  #view-dashboard .dash-latest-tx-card {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    margin-bottom: 0;
+  }
+
+  #view-dashboard .dash-tx-list-scroll {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
 .sidebar-brand {
   display: flex;
   align-items: center;
@@ -1043,6 +1088,36 @@ body {
   max-height: min(72vh, calc(100vh - 200px));
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+/* Full transactions view: fill space under topbar; only the list scrolls */
+#view-transactions:not(.hidden) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#view-transactions .tx-toolbar-row {
+  flex-shrink: 0;
+}
+
+#view-transactions .tx-list-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+}
+
+#view-transactions .tx-list-scroll {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 .dash-tx-list-scroll {
@@ -2644,17 +2719,31 @@ a {
   #view-dashboard .dash-latest-tx-card .tx-list {
     flex: 1;
     min-height: 0;
-    overflow: auto;
-    -webkit-overflow-scrolling: touch;
+    overflow: visible;
   }
 
   #view-receive:not(.hidden),
-  #view-tools:not(.hidden) {
+  #view-tools:not(.hidden),
+  #view-transactions:not(.hidden) {
     flex: 1;
     min-height: 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;
+  }
+
+  /* Mobile: keep last tx row clear of bottom nav + home indicator */
+  #view-transactions .tx-list-scroll {
+    padding-bottom: max(0.45rem, env(safe-area-inset-bottom, 0px));
+  }
+
+  #view-dashboard .dash-tx-list-scroll {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
   }
 
   #view-receive .receive-card {

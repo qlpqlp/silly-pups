@@ -183,9 +183,23 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 			if t.Direction != "" && t.Direction != "unknown" {
 				restHint := strings.TrimSpace(t.RawHex) == ""
 				enrichedFromRaw := strings.TrimSpace(prev.RawHex) != ""
-				// SPV REST rows are UTXO/spend-centric; enrichSPVTxFromRawHex applies bitcoinj-style net from raw hex.
-				// Never let a REST hint overwrite direction already reconciled from decoded raw tx.
-				if enrichedFromRaw && restHint {
+				// Same-txid /getUTXOs "in" must win over a mistaken raw-hex "out" (batch payout mis-decode); never override manual sends.
+				spvInCorrectsOut := !manualSendPersisted &&
+					strings.EqualFold(strings.TrimSpace(t.Source), "spv") &&
+					strings.EqualFold(strings.TrimSpace(prev.Source), "spv") &&
+					strings.EqualFold(strings.TrimSpace(t.Direction), "in") &&
+					strings.EqualFold(strings.TrimSpace(prev.Direction), "out")
+				if spvInCorrectsOut {
+					prev.Direction = "in"
+					if t.AmountDOGE > 0 {
+						prev.AmountDOGE = t.AmountDOGE
+					}
+					if strings.TrimSpace(t.Address) != "" {
+						prev.Address = t.Address
+					}
+				} else if enrichedFromRaw && restHint {
+					// SPV REST rows are UTXO/spend-centric; enrichSPVTxFromRawHex applies bitcoinj-style net from raw hex.
+					// Never let a REST hint overwrite direction already reconciled from decoded raw tx.
 					// keep prev.Direction
 				} else if manualSendPersisted && !strings.EqualFold(strings.TrimSpace(t.Source), "manual") {
 					// Local send row wins over SPV/REST (e.g. /getUTXOs lists change back to self as "in" same txid).

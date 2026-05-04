@@ -385,12 +385,53 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 			fl = v
 		}
 		net, _, _, netOk := walletNetFromPrevoutIndex(raw, walletByHash160, testnet, prevIdx)
+		// True when no indexed input spends a wallet-owned prevout (third-party funding only on the known graph).
+		indexedDebit := int64(0)
+		if rawBytes, err := hex.DecodeString(strings.TrimSpace(strings.ToLower(raw))); err == nil {
+			if ins, err := parseLegacyTxPrevouts(rawBytes); err == nil {
+				for _, in := range ins {
+					if in.Txid == "" {
+						continue
+					}
+					m, ok := prevIdx[prevoutIndexKey(in.Txid, in.Vout)]
+					if !ok || !m.WalletRecv {
+						continue
+					}
+					indexedDebit += m.Value
+				}
+			}
+		}
 		if netOk && net != 0 {
 			amtSats := net
 			if amtSats < 0 {
 				amtSats = -amtSats
 			}
 			if net < 0 {
+				// Batch receives can decode as net-out when external outputs dominate; if no indexed spend of our UTXOs, trust our credit.
+				if indexedDebit == 0 && fl.WalletSats > 0 {
+					amt := round2(float64(fl.WalletSats) / 1e8)
+					if !strings.EqualFold(strings.TrimSpace(tx.Direction), "in") {
+						tx.Direction = "in"
+						changed = true
+					}
+					if tx.AmountDOGE != amt {
+						tx.AmountDOGE = amt
+						changed = true
+					}
+					if tx.Address == "" && fl.WalletAddr != "" {
+						tx.Address = fl.WalletAddr
+						changed = true
+					}
+					if tx.FeeDOGE != 0 {
+						tx.FeeDOGE = 0
+						changed = true
+					}
+					if tx.Source == "" {
+						tx.Source = "spv"
+						changed = true
+					}
+					continue
+				}
 				// Dogecoin Wallet style: OUT row amount is what was paid to counterparty (first external P2PKH output),
 				// not our change output and not net+fee when we can identify the payment line.
 				if fl.CounterpartySats > 0 {
@@ -439,10 +480,32 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 			}
 			continue
 		}
-		// When any input prevout is missing from the local index, output-side decode is unsafe: many
-		// third-party txs pay both us and unrelated P2PKH outputs (CounterpartySats is the first external
-		// output, not our credit). Do not flip REST rows to OUT here — keep merge hints (getUTXOs / getSpends).
+		// Incomplete prevout graph + external outputs: do not infer OUT from CounterpartySats. If no indexed
+		// spend of our UTXOs, classify as IN for our output sum (batch receives); else keep REST/merge hints.
 		if !netOk && fl.ExternalSats > 0 {
+			if indexedDebit == 0 && fl.WalletSats > 0 {
+				amt := round2(float64(fl.WalletSats) / 1e8)
+				if !strings.EqualFold(strings.TrimSpace(tx.Direction), "in") {
+					tx.Direction = "in"
+					changed = true
+				}
+				if tx.AmountDOGE != amt {
+					tx.AmountDOGE = amt
+					changed = true
+				}
+				if tx.Address == "" && fl.WalletAddr != "" {
+					tx.Address = fl.WalletAddr
+					changed = true
+				}
+				if tx.FeeDOGE != 0 {
+					tx.FeeDOGE = 0
+					changed = true
+				}
+				if tx.Source == "" {
+					tx.Source = "spv"
+					changed = true
+				}
+			}
 			continue
 		}
 		if fl.WalletSats == 0 && fl.ExternalSats == 0 {

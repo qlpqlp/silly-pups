@@ -798,21 +798,60 @@ int main(int argc, char* argv[]) {
             dogecoin_ecc_stop();
             return EXIT_FAILURE;
         } else {
-            if (spv_select_checkpoint) {
-                int loaded_start_height = -1;
+            /* Lowest on-disk header height (>0), or -1 if none / genesis-only. Used for -q and PQ_SPV_CHECKPOINT_HEIGHT. */
+            int loaded_chain_bottom_height = -1;
+            {
                 dogecoin_blockindex* loaded_tip = client->headers_db->getchaintip(client->headers_db_ctx);
                 if (loaded_tip) {
                     dogecoin_blockindex* start_cursor = loaded_tip;
                     while (start_cursor && start_cursor->prev) start_cursor = start_cursor->prev;
                     if (start_cursor && start_cursor->height > 0) {
-                        loaded_start_height = (int)start_cursor->height;
+                        loaded_chain_bottom_height = (int)start_cursor->height;
                     }
                 }
-                if (!in_memory_headers && loaded_start_height > 0) {
-                    printf("Ignoring checkpoint selection: existing headers are already loaded (start height %d).\n", loaded_start_height);
+            }
+            /* pq-wallet sets PQ_SPV_CHECKPOINT_HEIGHT when restoring from a bundled checkpoint row (see pq-wallet service). */
+            if (use_checkpoint && !spv_select_checkpoint && !in_memory_headers &&
+                !(loaded_chain_bottom_height > 0) &&
+                !client->headers_db->has_checkpoint_start(client->headers_db_ctx)) {
+                const char* env_ch = getenv("PQ_SPV_CHECKPOINT_HEIGHT");
+                if (env_ch && env_ch[0] != '\0') {
+                    unsigned long want_h = strtoul(env_ch, NULL, 10);
+                    if (want_h > 0UL && want_h <= 300000000UL) {
+                        const dogecoin_checkpoint* checkpoints = (chain == &dogecoin_chainparams_main) ?
+                            dogecoin_mainnet_checkpoint_array : dogecoin_testnet_checkpoint_array;
+                        int cp_count = (chain == &dogecoin_chainparams_main) ?
+                            (int)(sizeof(dogecoin_mainnet_checkpoint_array) / sizeof(dogecoin_mainnet_checkpoint_array[0])) :
+                            (int)(sizeof(dogecoin_testnet_checkpoint_array) / sizeof(dogecoin_testnet_checkpoint_array[0]));
+                        int found = -1;
+                        int ci;
+                        for (ci = 0; ci < cp_count; ci++) {
+                            if (checkpoints[ci].height == (uint32_t)want_h) {
+                                found = ci;
+                                break;
+                            }
+                        }
+                        if (found >= 0) {
+                            uint256_t hash;
+                            utils_uint256_sethex((char*)checkpoints[found].hash, (uint8_t*)&hash);
+                            client->headers_db->set_checkpoint_start(
+                                client->headers_db_ctx,
+                                hash,
+                                checkpoints[found].height,
+                                (uint8_t*)client->chainparams->minimumchainwork);
+                            printf("[spvnode] PQ_SPV_CHECKPOINT_HEIGHT anchored header sync at height %u\n", checkpoints[found].height);
+                        } else {
+                            fprintf(stderr, "[spvnode] PQ_SPV_CHECKPOINT_HEIGHT=%lu does not match a bundled checkpoint; using default checkpoint logic\n", want_h);
+                        }
+                    }
+                }
+            }
+            if (spv_select_checkpoint) {
+                if (!in_memory_headers && loaded_chain_bottom_height > 0) {
+                    printf("Ignoring checkpoint selection: existing headers are already loaded (start height %d).\n", loaded_chain_bottom_height);
                     printf("Checkpoint selection is only available for new headers storage or in-memory headers mode.\n");
                 } else {
-                    selected_checkpoint_index = spv_choose_checkpoint_index(chain, prompt, (prompt ? loaded_start_height : -1));
+                    selected_checkpoint_index = spv_choose_checkpoint_index(chain, prompt, (prompt ? loaded_chain_bottom_height : -1));
                     if (selected_checkpoint_index >= 0) {
                         const dogecoin_checkpoint* checkpoints = (chain == &dogecoin_chainparams_main) ?
                             dogecoin_mainnet_checkpoint_array : dogecoin_testnet_checkpoint_array;

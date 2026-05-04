@@ -439,6 +439,12 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 			}
 			continue
 		}
+		// When any input prevout is missing from the local index, output-side decode is unsafe: many
+		// third-party txs pay both us and unrelated P2PKH outputs (CounterpartySats is the first external
+		// output, not our credit). Do not flip REST rows to OUT here — keep merge hints (getUTXOs / getSpends).
+		if !netOk && fl.ExternalSats > 0 {
+			continue
+		}
 		if fl.WalletSats == 0 && fl.ExternalSats == 0 {
 			continue
 		}

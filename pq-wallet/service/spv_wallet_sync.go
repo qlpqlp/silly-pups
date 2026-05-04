@@ -8,17 +8,40 @@ import (
 	"time"
 )
 
-// mergeTransactionsFromSPVWalletDB would merge tx rows from a local wallet DB; libdogecoin ships a binary spv_wallet.db,
-// so transaction rows come from SPV REST and log enrichment instead.
-func (s *Server) mergeTransactionsFromSPVWalletDB(wf *WalletFile, st *WalletState) bool {
-	if wf == nil || st == nil {
+// shouldIngestSPVRESTTxHints returns whether to call mergeTransactionsFromSPVREST after the local wallet scan.
+// walletFileRowCount is -1 if spv_wallet.db could not be parsed; 0 if parsed but empty; >0 when txs were read.
+// PUP_SPV_REST_TX=0 disables REST hints; PUP_SPV_REST_TX=1 forces REST even when the wallet file lists txs.
+func (s *Server) shouldIngestSPVRESTTxHints(walletFileRowCount int) bool {
+	switch strings.TrimSpace(os.Getenv("PUP_SPV_REST_TX")) {
+	case "0":
 		return false
+	case "1":
+		return true
+	default:
+		return walletFileRowCount <= 0
+	}
+}
+
+// mergeTransactionsFromSPVWalletDB merges tx rows by scanning the local libdogecoin binary wallet (spv_wallet.db).
+// Layout matches vendors/libdogecoin/src/wallet.c (wtx records). Runs before REST merge so RawHex is available
+// for enrichSPVTxFromRawHex. Second return is tx rows read (-1 = parse/open layout error, 0 = none).
+func (s *Server) mergeTransactionsFromSPVWalletDB(wf *WalletFile, st *WalletState, tipHeight, tipUnix int64) (bool, int) {
+	if wf == nil || st == nil {
+		return false, -1
 	}
 	dbPath := filepath.Join(s.storageDir, "spv_wallet.db")
 	if _, err := os.Stat(dbPath); err != nil {
-		return false
+		return false, -1
 	}
-	return false
+	testnet := strings.EqualFold(wf.Network, "testnet")
+	rows, err := parseSPVWalletFileTxRows(dbPath, testnet)
+	if err != nil {
+		return false, -1
+	}
+	if len(rows) == 0 {
+		return false, 0
+	}
+	return s.mergeSPVHintRowsIntoState(st, rows, tipHeight, tipUnix), len(rows)
 }
 
 func parseIntDefault(s string, d int) int {

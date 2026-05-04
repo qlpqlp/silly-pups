@@ -23,6 +23,10 @@ type spvRESTTxRow struct {
 	Confirmations int
 	BlockHeight   int64
 	SeenAt        time.Time
+	// RawHex is set by local spv_wallet.db parsing (preferred) or other pipelines for enrichSPVTxFromRawHex.
+	RawHex string
+	// Source overrides TxRecord.Source when non-empty (e.g. "spv_wallet" vs default "spv").
+	Source string
 	// Optional lines from /getTransactions (spent UTXO blocks) — spending tx + Dogecoin Wallet-style payee.
 	SpendTxid            string
 	PayTo                string
@@ -700,8 +704,216 @@ func backfillSeenAtFromTip(txs []TxRecord, tipHeight, tipUnix int64) ([]TxRecord
 	return out, changed
 }
 
+// mergeSPVHintRowsIntoState merges REST- or wallet-file-shaped hint rows into wallet state transactions.
+func (s *Server) mergeSPVHintRowsIntoState(st *WalletState, rows []spvRESTTxRow, tipHeight, tipUnix int64) bool {
+	if st == nil {
+		return false
+	}
+	if len(rows) == 0 {
+		return false
+	}
+	if tipUnix > 0 && tipUnix < 1_000_000_000 {
+		tipUnix = 0
+	}
+	for i := range rows {
+		if rows[i].Confirmations == 0 && rows[i].BlockHeight > 0 && tipHeight > 0 {
+			d := tipHeight - rows[i].BlockHeight + 1
+			if d > 0 && d <= tipHeight+1 {
+				rows[i].Confirmations = int(d)
+			}
+		}
+		if rows[i].SeenAt.IsZero() && rows[i].BlockHeight > 0 && tipHeight > 0 && tipUnix > 0 {
+			if ts := seenAtApproxFromBlockHeight(rows[i].BlockHeight, tipHeight, tipUnix); !ts.IsZero() {
+				rows[i].SeenAt = ts
+			}
+		}
+	}
+	byTxid := map[string]TxRecord{}
+	var txOrder []string
+	testnet := false
+	if wf, err := s.loadWallet(); err == nil && wf != nil {
+		testnet = strings.EqualFold(wf.Network, "testnet")
+	}
+	tsLookups := 0
+	maxChainTimestampLookups := parseIntDefault(strings.TrimSpace(os.Getenv("PUP_SPV_CHAIN_TS_LOOKUPS")), 0)
+	if maxChainTimestampLookups < 0 {
+		maxChainTimestampLookups = 0
+	}
+	if maxChainTimestampLookups > 8 {
+		maxChainTimestampLookups = 8
+	}
+	for i := range rows {
+		r := &rows[i]
+		id := normalizeTxid(r.Txid)
+		if id == "" {
+			continue
+		}
+		if r.SeenAt.IsZero() && r.Confirmations > 0 && tsLookups < maxChainTimestampLookups {
+			if ts := s.fetchTxTimestampFromSoChain(id, testnet); !ts.IsZero() {
+				r.SeenAt = ts
+			}
+			tsLookups++
+		}
+		src := strings.TrimSpace(r.Source)
+		if src == "" {
+			src = "spv"
+		}
+		prev, ok := byTxid[id]
+		if !ok {
+			byTxid[id] = TxRecord{
+				Txid:          id,
+				Direction:     r.Direction,
+				AmountDOGE:    r.AmountDOGE,
+				Address:       r.Address,
+				Confirmations: r.Confirmations,
+				BlockHeight:   r.BlockHeight,
+				Source:        src,
+				SeenAt:        r.SeenAt,
+				RawHex:        strings.TrimSpace(r.RawHex),
+			}
+			txOrder = append(txOrder, id)
+			continue
+		}
+		// bitcoinj lists one Transaction per txid (Dogecoin Wallet transaction screen). libdogecoin REST may
+		// emit multiple lines per txid (one per spent output / vout). Do not sum those amounts.
+		if prev.AmountDOGE == 0 && r.AmountDOGE != 0 {
+			prev.AmountDOGE = r.AmountDOGE
+		}
+		if prev.Address == "" && r.Address != "" {
+			prev.Address = r.Address
+		}
+		if strings.TrimSpace(prev.RawHex) == "" && strings.TrimSpace(r.RawHex) != "" {
+			prev.RawHex = strings.TrimSpace(r.RawHex)
+		}
+		// Duplicate txids: do not force OUT over IN (mislabels receives listed under spent-output history).
+		if prev.Direction == "" || strings.EqualFold(prev.Direction, "unknown") {
+			if r.Direction != "" && !strings.EqualFold(r.Direction, "unknown") {
+				prev.Direction = r.Direction
+			}
+		}
+		if r.Confirmations > prev.Confirmations {
+			prev.Confirmations = r.Confirmations
+		}
+		if r.BlockHeight > prev.BlockHeight {
+			prev.BlockHeight = r.BlockHeight
+		}
+		if prev.SeenAt.IsZero() && !r.SeenAt.IsZero() {
+			prev.SeenAt = r.SeenAt
+		}
+		byTxid[id] = prev
+	}
+	// Spent-UTXO REST blocks are keyed by the *funding* txid; optional spend_txid + pay_* describe the actual
+	// OUT row (bitcoinj / Dogecoin Wallet semantics). Materialize one TxRecord per spending txid.
+	orderSeen := make(map[string]struct{}, len(txOrder))
+	for _, id := range txOrder {
+		orderSeen[id] = struct{}{}
+	}
+	for i := range rows {
+		r := &rows[i]
+		sid := normalizeTxid(r.SpendTxid)
+		if sid == "" {
+			continue
+		}
+		payTo := strings.TrimSpace(r.PayTo)
+		payAmt := r.PayAmountDOGE
+		if payTo == "" && payAmt <= 0 {
+			continue
+		}
+		spConf := r.SpendConfirmations
+		spBh := r.SpendBlockHeight
+		if spConf <= 0 {
+			spConf = r.Confirmations
+		}
+		if spBh <= 0 {
+			spBh = r.BlockHeight
+		}
+		prev, ok := byTxid[sid]
+		if !ok {
+			spSrc := strings.TrimSpace(r.Source)
+			if spSrc == "" {
+				spSrc = "spv"
+			}
+			byTxid[sid] = TxRecord{
+				Txid:          sid,
+				Direction:     "out",
+				AmountDOGE:    round2(payAmt),
+				Address:       payTo,
+				Confirmations: spConf,
+				BlockHeight:   spBh,
+				Source:        spSrc,
+				SeenAt:        r.SeenAt,
+				RawHex:        strings.TrimSpace(r.RawHex),
+			}
+			if _, dup := orderSeen[sid]; !dup {
+				txOrder = append(txOrder, sid)
+				orderSeen[sid] = struct{}{}
+			}
+			continue
+		}
+		if payTo != "" && strings.TrimSpace(prev.Address) == "" {
+			prev.Address = payTo
+		}
+		if payAmt > 0 && prev.AmountDOGE <= 0 {
+			prev.AmountDOGE = round2(payAmt)
+		}
+		if dir := strings.ToLower(strings.TrimSpace(prev.Direction)); dir == "" || dir == "unknown" || dir == "in" {
+			prev.Direction = "out"
+		}
+		if spConf > prev.Confirmations {
+			prev.Confirmations = spConf
+		}
+		if spBh > prev.BlockHeight {
+			prev.BlockHeight = spBh
+		}
+		if prev.SeenAt.IsZero() && !r.SeenAt.IsZero() {
+			prev.SeenAt = r.SeenAt
+		}
+		if strings.TrimSpace(prev.RawHex) == "" && strings.TrimSpace(r.RawHex) != "" {
+			prev.RawHex = strings.TrimSpace(r.RawHex)
+		}
+		byTxid[sid] = prev
+	}
+	if len(byTxid) == 0 {
+		return false
+	}
+	incoming := make([]TxRecord, 0, len(txOrder))
+	for _, id := range txOrder {
+		incoming = append(incoming, byTxid[id])
+	}
+	before := len(st.Transactions)
+	merged := mergeTxRecords(st.Transactions, incoming)
+	if tipHeight > 0 && tipUnix > 0 {
+		if patched, ok := backfillSeenAtFromTip(merged, tipHeight, tipUnix); ok {
+			merged = patched
+		}
+	}
+	changed := len(merged) != before
+	if !changed {
+		oldByID := map[string]TxRecord{}
+		for _, t := range st.Transactions {
+			id := normalizeTxid(t.Txid)
+			if id != "" {
+				oldByID[id] = t
+			}
+		}
+		for _, t := range merged {
+			id := normalizeTxid(t.Txid)
+			o, ok := oldByID[id]
+			if !ok || t.AmountDOGE != o.AmountDOGE || t.Direction != o.Direction || t.Address != o.Address || t.Confirmations != o.Confirmations || t.BlockHeight != o.BlockHeight || !t.SeenAt.Equal(o.SeenAt) || t.PQHint != o.PQHint || strings.TrimSpace(t.RawHex) != strings.TrimSpace(o.RawHex) {
+				changed = true
+				break
+			}
+		}
+	}
+	if changed {
+		st.Transactions = merged
+	}
+	return changed
+}
+
 // mergeTransactionsFromSPVREST uses the spvnode REST API when available.
-// It gives richer details for binary libdogecoin wallet files.
+// Callers typically gate with shouldIngestSPVRESTTxHints: default skips REST when the local wallet file lists txs;
+// PUP_SPV_REST_TX=1 forces REST; PUP_SPV_REST_TX=0 disables REST entirely.
 // tipHeight/tipUnix from readSPVStatus improve SeenAt when REST rows lack times.
 func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUnix int64) bool {
 	if st == nil {
@@ -765,185 +977,8 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 		}
 		rows = append(rows, r)
 	}
-	for i := range rows {
-		if rows[i].Confirmations == 0 && rows[i].BlockHeight > 0 && tipHeight > 0 {
-			d := tipHeight - rows[i].BlockHeight + 1
-			if d > 0 && d <= tipHeight+1 {
-				rows[i].Confirmations = int(d)
-			}
-		}
-		if rows[i].SeenAt.IsZero() && rows[i].BlockHeight > 0 && tipHeight > 0 && tipUnix > 0 {
-			if ts := seenAtApproxFromBlockHeight(rows[i].BlockHeight, tipHeight, tipUnix); !ts.IsZero() {
-				rows[i].SeenAt = ts
-			}
-		}
-	}
 	if len(rows) == 0 {
 		return false
 	}
-	byTxid := map[string]TxRecord{}
-	var txOrder []string
-	testnet := false
-	if wf, err := s.loadWallet(); err == nil && wf != nil {
-		testnet = strings.EqualFold(wf.Network, "testnet")
-	}
-	tsLookups := 0
-	maxChainTimestampLookups := parseIntDefault(strings.TrimSpace(os.Getenv("PUP_SPV_CHAIN_TS_LOOKUPS")), 0)
-	if maxChainTimestampLookups < 0 {
-		maxChainTimestampLookups = 0
-	}
-	if maxChainTimestampLookups > 8 {
-		maxChainTimestampLookups = 8
-	}
-	for i := range rows {
-		r := &rows[i]
-		id := normalizeTxid(r.Txid)
-		if id == "" {
-			continue
-		}
-		if r.SeenAt.IsZero() && r.Confirmations > 0 && tsLookups < maxChainTimestampLookups {
-			if ts := s.fetchTxTimestampFromSoChain(id, testnet); !ts.IsZero() {
-				r.SeenAt = ts
-			}
-			tsLookups++
-		}
-		prev, ok := byTxid[id]
-		if !ok {
-			byTxid[id] = TxRecord{
-				Txid:          id,
-				Direction:     r.Direction,
-				AmountDOGE:    r.AmountDOGE,
-				Address:       r.Address,
-				Confirmations: r.Confirmations,
-				BlockHeight:   r.BlockHeight,
-				Source:        "spv",
-				SeenAt:        r.SeenAt,
-			}
-			txOrder = append(txOrder, id)
-			continue
-		}
-		// bitcoinj lists one Transaction per txid (Dogecoin Wallet transaction screen). libdogecoin REST may
-		// emit multiple lines per txid (one per spent output / vout). Do not sum those amounts.
-		if prev.AmountDOGE == 0 && r.AmountDOGE != 0 {
-			prev.AmountDOGE = r.AmountDOGE
-		}
-		if prev.Address == "" && r.Address != "" {
-			prev.Address = r.Address
-		}
-		// Duplicate txids: do not force OUT over IN (mislabels receives listed under spent-output history).
-		if prev.Direction == "" || strings.EqualFold(prev.Direction, "unknown") {
-			if r.Direction != "" && !strings.EqualFold(r.Direction, "unknown") {
-				prev.Direction = r.Direction
-			}
-		}
-		if r.Confirmations > prev.Confirmations {
-			prev.Confirmations = r.Confirmations
-		}
-		if r.BlockHeight > prev.BlockHeight {
-			prev.BlockHeight = r.BlockHeight
-		}
-		if prev.SeenAt.IsZero() && !r.SeenAt.IsZero() {
-			prev.SeenAt = r.SeenAt
-		}
-		byTxid[id] = prev
-	}
-	// Spent-UTXO REST blocks are keyed by the *funding* txid; optional spend_txid + pay_* describe the actual
-	// OUT row (bitcoinj / Dogecoin Wallet semantics). Materialize one TxRecord per spending txid.
-	orderSeen := make(map[string]struct{}, len(txOrder))
-	for _, id := range txOrder {
-		orderSeen[id] = struct{}{}
-	}
-	for i := range rows {
-		r := &rows[i]
-		sid := normalizeTxid(r.SpendTxid)
-		if sid == "" {
-			continue
-		}
-		payTo := strings.TrimSpace(r.PayTo)
-		payAmt := r.PayAmountDOGE
-		if payTo == "" && payAmt <= 0 {
-			continue
-		}
-		spConf := r.SpendConfirmations
-		spBh := r.SpendBlockHeight
-		if spConf <= 0 {
-			spConf = r.Confirmations
-		}
-		if spBh <= 0 {
-			spBh = r.BlockHeight
-		}
-		prev, ok := byTxid[sid]
-		if !ok {
-			byTxid[sid] = TxRecord{
-				Txid:          sid,
-				Direction:     "out",
-				AmountDOGE:    round2(payAmt),
-				Address:       payTo,
-				Confirmations: spConf,
-				BlockHeight:   spBh,
-				Source:        "spv",
-				SeenAt:        r.SeenAt,
-			}
-			if _, dup := orderSeen[sid]; !dup {
-				txOrder = append(txOrder, sid)
-				orderSeen[sid] = struct{}{}
-			}
-			continue
-		}
-		if payTo != "" && strings.TrimSpace(prev.Address) == "" {
-			prev.Address = payTo
-		}
-		if payAmt > 0 && prev.AmountDOGE <= 0 {
-			prev.AmountDOGE = round2(payAmt)
-		}
-		if dir := strings.ToLower(strings.TrimSpace(prev.Direction)); dir == "" || dir == "unknown" || dir == "in" {
-			prev.Direction = "out"
-		}
-		if spConf > prev.Confirmations {
-			prev.Confirmations = spConf
-		}
-		if spBh > prev.BlockHeight {
-			prev.BlockHeight = spBh
-		}
-		if prev.SeenAt.IsZero() && !r.SeenAt.IsZero() {
-			prev.SeenAt = r.SeenAt
-		}
-		byTxid[sid] = prev
-	}
-	if len(byTxid) == 0 {
-		return false
-	}
-	incoming := make([]TxRecord, 0, len(txOrder))
-	for _, id := range txOrder {
-		incoming = append(incoming, byTxid[id])
-	}
-	before := len(st.Transactions)
-	merged := mergeTxRecords(st.Transactions, incoming)
-	if tipHeight > 0 && tipUnix > 0 {
-		if patched, ok := backfillSeenAtFromTip(merged, tipHeight, tipUnix); ok {
-			merged = patched
-		}
-	}
-	changed := len(merged) != before
-	if !changed {
-		oldByID := map[string]TxRecord{}
-		for _, t := range st.Transactions {
-			id := normalizeTxid(t.Txid)
-			if id != "" {
-				oldByID[id] = t
-			}
-		}
-		for _, t := range merged {
-			id := normalizeTxid(t.Txid)
-			o, ok := oldByID[id]
-			if !ok || t.AmountDOGE != o.AmountDOGE || t.Direction != o.Direction || t.Address != o.Address || t.Confirmations != o.Confirmations || t.BlockHeight != o.BlockHeight || !t.SeenAt.Equal(o.SeenAt) || t.PQHint != o.PQHint {
-				changed = true
-				break
-			}
-		}
-	}
-	if changed {
-		st.Transactions = merged
-	}
-	return changed
+	return s.mergeSPVHintRowsIntoState(st, rows, tipHeight, tipUnix)
 }

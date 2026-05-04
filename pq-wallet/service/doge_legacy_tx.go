@@ -203,6 +203,97 @@ func parseLegacyTxOutputs(raw []byte) ([]txOutWire, error) {
 	return outs, nil
 }
 
+// legacyTxWireLen returns the serialized byte length of a transaction starting at raw[0],
+// matching libdogecoin dogecoin_tx_deserialize (including optional witness extension).
+func legacyTxWireLen(raw []byte) (int, error) {
+	off := 0
+	if len(raw) < 4 {
+		return 0, fmt.Errorf("tx too short")
+	}
+	off += 4 // version (int32 LE)
+	vinCount, err := readCompactSize(raw, &off)
+	if err != nil {
+		return 0, err
+	}
+	flags := byte(0)
+	if vinCount == 0 {
+		if off >= len(raw) {
+			return 0, fmt.Errorf("witness marker eof")
+		}
+		flags = raw[off]
+		off++
+		if flags != 0 {
+			vinCount, err = readCompactSize(raw, &off)
+			if err != nil {
+				return 0, err
+			}
+		}
+	}
+	for i := 0; i < int(vinCount); i++ {
+		if off+36 > len(raw) {
+			return 0, fmt.Errorf("truncated txin %d", i)
+		}
+		off += 36
+		slen, err := readCompactSize(raw, &off)
+		if err != nil {
+			return 0, err
+		}
+		if int64(slen) > int64(len(raw)-off) {
+			return 0, fmt.Errorf("truncated scriptsig %d", i)
+		}
+		off += int(slen)
+		if off+4 > len(raw) {
+			return 0, fmt.Errorf("truncated sequence %d", i)
+		}
+		off += 4
+	}
+	nout, err := readCompactSize(raw, &off)
+	if err != nil {
+		return 0, err
+	}
+	for i := 0; i < int(nout); i++ {
+		if off+8 > len(raw) {
+			return 0, fmt.Errorf("truncated output value %d", i)
+		}
+		off += 8
+		pklen, err := readCompactSize(raw, &off)
+		if err != nil {
+			return 0, err
+		}
+		if int64(pklen) > int64(len(raw)-off) {
+			return 0, fmt.Errorf("truncated pkscript %d", i)
+		}
+		off += int(pklen)
+	}
+	if flags&1 != 0 {
+		flags ^= 1
+		for i := 0; i < int(vinCount); i++ {
+			wc, err := readCompactSize(raw, &off)
+			if err != nil {
+				return 0, err
+			}
+			for j := 0; j < int(wc); j++ {
+				itemLen, err := readCompactSize(raw, &off)
+				if err != nil {
+					return 0, err
+				}
+				if int64(itemLen) > int64(len(raw)-off) {
+					return 0, fmt.Errorf("truncated witness item %d:%d", i, j)
+				}
+				off += int(itemLen)
+			}
+		}
+	}
+	if flags != 0 {
+		return 0, fmt.Errorf("unsupported tx witness flags")
+	}
+	if off+4 > len(raw) {
+		return 0, fmt.Errorf("truncated locktime")
+	}
+	off += 4
+	return off, nil
+}
+
 func findOutputIndexByPkScript(outs []txOutWire, want []byte) int {
 	for i := range outs {
 		if len(outs[i].PkScript) == len(want) && bytes.Equal(outs[i].PkScript, want) {

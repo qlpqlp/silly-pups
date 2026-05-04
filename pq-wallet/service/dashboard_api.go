@@ -154,10 +154,13 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		confirmChanged = s.applySPVConfirmations(st, logTail)
 		proofMetaChanged = s.applySPVProofMeta(st, logTail)
 	}
-	restChanged := s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
+	dbChanged, walletFileRows := s.mergeTransactionsFromSPVWalletDB(wf, st, tipHeight, tipUnix)
+	restChanged := false
+	if s.shouldIngestSPVRESTTxHints(walletFileRows) {
+		restChanged = s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
+	}
 	bcChanged := s.mergeTransactionsFromBroadcastLog(st)
 	bcRawChanged := s.mergeRawHexFromBroadcastLog(st)
-	dbChanged := s.mergeTransactionsFromSPVWalletDB(wf, st)
 	suchChanged := false
 	if s.shouldRunSuchMerge(20 * time.Second) {
 		suchChanged = s.mergeTransactionsFromSuchListUnspent(wf, st)
@@ -495,10 +498,13 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 		confirmChanged = s.applySPVConfirmations(st, logTail)
 		proofMetaChanged = s.applySPVProofMeta(st, logTail)
 	}
-	restChanged := s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
+	dbChanged, walletFileRows := s.mergeTransactionsFromSPVWalletDB(wf, st, tipHeight, tipUnix)
+	restChanged := false
+	if s.shouldIngestSPVRESTTxHints(walletFileRows) {
+		restChanged = s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
+	}
 	bcChanged := s.mergeTransactionsFromBroadcastLog(st)
 	bcRawChanged := s.mergeRawHexFromBroadcastLog(st)
-	dbChanged := s.mergeTransactionsFromSPVWalletDB(wf, st)
 	suchChanged := false
 	if s.shouldRunSuchMerge(20 * time.Second) {
 		suchChanged = s.mergeTransactionsFromSuchListUnspent(wf, st)
@@ -1079,10 +1085,12 @@ func (s *Server) backgroundMetricsLoop() {
 		_ = s.applySPVConfirmations(st, logTail)
 		_ = s.applySPVProofMeta(st, logTail)
 		_ = s.applySPVRawHex(st, logTail)
-		_ = s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
+		_, wRows := s.mergeTransactionsFromSPVWalletDB(wf, st, tipHeight, tipUnix)
+		if s.shouldIngestSPVRESTTxHints(wRows) {
+			_ = s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
+		}
 		_ = s.mergeTransactionsFromBroadcastLog(st)
 		_ = s.mergeRawHexFromBroadcastLog(st)
-		_ = s.mergeTransactionsFromSPVWalletDB(wf, st)
 		_ = s.mergeTransactionsFromSuchListUnspent(wf, st)
 		_ = s.enrichSPVTxFromRawHex(st, wf)
 		mempoolRelay := 0

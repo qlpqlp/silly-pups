@@ -883,6 +883,7 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 				BlockHeight:   spBh,
 				Source:        "spv",
 				SeenAt:        r.SeenAt,
+				PQHint:        true,
 			}
 			if _, dup := orderSeen[sid]; !dup {
 				txOrder = append(txOrder, sid)
@@ -908,6 +909,7 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 		if prev.SeenAt.IsZero() && !r.SeenAt.IsZero() {
 			prev.SeenAt = r.SeenAt
 		}
+		prev.PQHint = true
 		byTxid[sid] = prev
 	}
 	if len(byTxid) == 0 {

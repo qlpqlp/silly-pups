@@ -231,9 +231,8 @@ void dogecoin_http_request_cb(struct evhttp_request *req, void *arg) {
                 int64_t fee = (debit_in > 0 && debit_in >= total_out) ? (debit_in - total_out) : 0;
 
                 char txid_hex[65] = {0};
-                /* Wire-order hash in tx_hash_cache; reverse hex pairs for display (same as getUTXOs txid, spend_txid, exportTxRaw). */
+                /* Same byte order as dogecoin_tx_hash + spend_txid in /getTransactions (do not reverse). */
                 utils_bin_to_hex((unsigned char*)wtx->tx_hash_cache, sizeof(wtx->tx_hash_cache), txid_hex);
-                utils_reverse_hex(txid_hex, 64);
 
                 char debit_str[KOINU_STRINGLEN] = {0};
                 char total_str[KOINU_STRINGLEN] = {0};

@@ -115,11 +115,6 @@ const state = {
   walletLocked: false,
   lastPendingDoge: 0,
   lastTxs: [],
-  txHasMore: false,
-  txTotal: 0,
-  txPageSize: 40,
-  txScrollIO: null,
-  txScrollDashIO: null,
   view: "dashboard",
   charts: { mempool: null },
   pollFast: null,
@@ -148,76 +143,6 @@ const CACHE_DB_VERSION = 1;
 const CACHE_STORE = "snapshots";
 const CACHE_KEY_DASHBOARD = "dashboard_v1";
 const CACHE_KEY_TXS = "txs_v1";
-
-function sortTxRowsDesc(a, b) {
-  const ta = new Date(a && a.seen_at ? a.seen_at : 0).getTime() || 0;
-  const tb = new Date(b && b.seen_at ? b.seen_at : 0).getTime() || 0;
-  if (tb !== ta) return tb - ta;
-  const ha = Number((a && a.block_height) || 0);
-  const hb = Number((b && b.block_height) || 0);
-  if (hb !== ha) return hb - ha;
-  const ca = Number((a && a.confirmations) || 0);
-  const cb = Number((b && b.confirmations) || 0);
-  if (cb !== ca) return cb - ca;
-  return String((b && b.txid) || "").localeCompare(String((a && a.txid) || ""));
-}
-
-function mergeTxRowsDedupe(existing, more) {
-  const by = new Map();
-  for (const t of existing || []) {
-    const id = String((t && t.txid) || "")
-      .trim()
-      .toLowerCase();
-    if (id) by.set(id, t);
-  }
-  for (const t of more || []) {
-    const id = String((t && t.txid) || "")
-      .trim()
-      .toLowerCase();
-    if (!id) continue;
-    if (!by.has(id)) by.set(id, t);
-  }
-  return Array.from(by.values()).sort(sortTxRowsDesc);
-}
-
-function teardownTxListScrollObserver() {
-  if (state.txScrollIO) {
-    try {
-      state.txScrollIO.disconnect();
-    } catch {
-      /* ignore */
-    }
-    state.txScrollIO = null;
-  }
-  if (state.txScrollDashIO) {
-    try {
-      state.txScrollDashIO.disconnect();
-    } catch {
-      /* ignore */
-    }
-    state.txScrollDashIO = null;
-  }
-}
-
-function initTxListScrollObserver() {
-  const onNear = (entries) => {
-    for (const e of entries) {
-      if (e.isIntersecting) loadMoreTxListPage().catch(() => {});
-    }
-  };
-  const tRoot = $("tx-list-scroll");
-  const tSent = $("tx-list-sentinel");
-  if (tRoot && tSent && !state.txScrollIO) {
-    state.txScrollIO = new IntersectionObserver(onNear, { root: tRoot, rootMargin: "140px", threshold: 0.01 });
-    state.txScrollIO.observe(tSent);
-  }
-  const dRoot = $("dash-tx-list-scroll");
-  const dSent = $("dash-tx-list-sentinel");
-  if (dRoot && dSent && !state.txScrollDashIO) {
-    state.txScrollDashIO = new IntersectionObserver(onNear, { root: dRoot, rootMargin: "140px", threshold: 0.01 });
-    state.txScrollDashIO.observe(dSent);
-  }
-}
 const LOCAL_KEY_PQ_SEND_MODE = "pq_send_mode_v1";
 const LOCAL_KEY_SEND_FEE_DOGE_PER_KB = "pq_send_fee_doge_per_kb_v1";
 const DEFAULT_FEE_PER_KB_DOGE = "0.01";
@@ -492,14 +417,6 @@ function showView(name) {
     refreshSpvDeepLog();
     state.pollSpvDeep = setInterval(refreshSpvDeepLog, 8000);
     refreshDashboard().catch(() => {});
-  }
-  if (name === "transactions") {
-    initTxListScrollObserver();
-    refreshTxList(false, { full: false }).catch(() => {});
-  }
-  if (name === "dashboard") {
-    initTxListScrollObserver();
-    refreshTxList(false, { full: false }).catch(() => {});
   }
   if (name === "tools") {
     setSendTab(typeof state.sendTabIndex === "number" ? state.sendTabIndex : 0);
@@ -831,7 +748,6 @@ function setOnboarding(w) {
     state.pollFast = null;
     state.pollTx = null;
     state.pollLogs = null;
-    teardownTxListScrollObserver();
   }
   $("view-onboarding").classList.toggle("hidden", has);
   const appEl = $("app");
@@ -1271,7 +1187,7 @@ async function refreshWallet() {
     renderAddresses(data.wallet);
     updateReceiveView();
     refreshDashboard().catch(() => {});
-    refreshTxList(false, { full: true }).catch(() => {});
+    refreshTxList(false).catch(() => {});
   }
 }
 
@@ -1672,7 +1588,8 @@ function renderDashboardTxPreview() {
   }
   const oldEmpty = list.querySelector(".dash-empty");
   if (oldEmpty) oldEmpty.remove();
-  upsertTxList(list, txs, false, null);
+  const max = Math.min(6, txs.length);
+  upsertTxList(list, txs.slice(0, max), false, null);
 }
 
 ["btn-svc-spv-stop"].forEach((id) => $(id)?.addEventListener("click", () => postServiceControl({ spv_enabled: false })));
@@ -1680,49 +1597,27 @@ function renderDashboardTxPreview() {
 ["btn-svc-mtr-stop"].forEach((id) => $(id)?.addEventListener("click", () => postServiceControl({ memetracker_enabled: false })));
 ["btn-svc-mtr-start"].forEach((id) => $(id)?.addEventListener("click", () => postServiceControl({ memetracker_enabled: true })));
 
-async function loadMoreTxListPage() {
-  if (state.inFlightTx || !state.txHasMore) return;
-  const off = state.lastTxs.length;
-  const lim = state.txPageSize || 40;
-  state.inFlightTx = true;
-  try {
-    const data = await api(`/api/transactions?limit=${lim}&offset=${off}`, { timeout_ms: 18000 });
-    if (!data || data.error || !Array.isArray(data.transactions)) return;
-    const batch = (data.transactions || []).slice().sort(sortTxRowsDesc);
-    state.txHasMore = !!data.has_more;
-    state.txTotal = typeof data.total === "number" ? data.total : off + batch.length;
-    const merged = mergeTxRowsDedupe(state.lastTxs, batch);
-    applyTxSnapshot(merged, false);
-    cacheSet(CACHE_KEY_TXS, { transactions: merged });
-  } finally {
-    state.inFlightTx = false;
-  }
-}
-
-async function refreshTxList(refresh, opts) {
-  const o = opts || {};
-  const full = o.full === true;
+async function refreshTxList(refresh) {
   if (state.inFlightTx) return;
   state.inFlightTx = true;
   try {
-    let data;
-    if (full) {
-      data = await api("/api/transactions", { timeout_ms: 18000 });
-    } else {
-      const lim = state.txPageSize || 40;
-      data = await api(`/api/transactions?limit=${lim}&offset=0`, { timeout_ms: 18000 });
-    }
-    if (!data || data.error || !Array.isArray(data.transactions)) return;
-    const txs = (data.transactions || []).slice().sort(sortTxRowsDesc);
-    if (full) {
-      state.txHasMore = false;
-      state.txTotal = typeof data.total === "number" ? data.total : txs.length;
-    } else {
-      state.txHasMore = !!data.has_more;
-      state.txTotal = typeof data.total === "number" ? data.total : txs.length;
-    }
-    applyTxSnapshot(txs, !!refresh);
-    cacheSet(CACHE_KEY_TXS, { transactions: txs });
+  const q = "";
+  const data = await api("/api/transactions" + q, { timeout_ms: 18000 });
+  if (!data || data.error || !Array.isArray(data.transactions)) return;
+  const txs = (data.transactions || []).slice().sort((a, b) => {
+    const ta = new Date(a && a.seen_at ? a.seen_at : 0).getTime() || 0;
+    const tb = new Date(b && b.seen_at ? b.seen_at : 0).getTime() || 0;
+    if (tb !== ta) return tb - ta;
+    const ha = Number(a && a.block_height || 0);
+    const hb = Number(b && b.block_height || 0);
+    if (hb !== ha) return hb - ha;
+    const ca = Number(a && a.confirmations || 0);
+    const cb = Number(b && b.confirmations || 0);
+    if (cb !== ca) return cb - ca;
+    return String((b && b.txid) || "").localeCompare(String((a && a.txid) || ""));
+  });
+  applyTxSnapshot(txs, !!refresh);
+  cacheSet(CACHE_KEY_TXS, { transactions: txs });
   } finally {
     state.inFlightTx = false;
   }
@@ -2240,7 +2135,7 @@ document.getElementById("btn-new-addr").addEventListener("click", async () => {
 });
 
 document.getElementById("btn-sync-tx").addEventListener("click", async () => {
-  await refreshTxList(true, { full: true });
+  await refreshTxList(true);
 });
 
 const btnSpvRb = $("btn-spv-rollback");
@@ -2594,7 +2489,7 @@ function startPollers() {
   state.pollTx = setInterval(async () => {
     if (!state.wallet) return;
     try {
-      await refreshTxList(false, { full: true });
+      await refreshTxList(false);
     } catch {
       /* tx poll failed */
     }

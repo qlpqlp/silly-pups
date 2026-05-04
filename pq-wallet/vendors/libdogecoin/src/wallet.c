@@ -1502,11 +1502,14 @@ dogecoin_bool dogecoin_wallet_sent_payment_hints_for_prevout(dogecoin_wallet* wa
 
             {
                 uint256_t spendh;
+                const char* hx;
                 unsigned int j;
                 dogecoin_tx_hash(wtx->tx, spendh);
-                utils_bin_to_hex((unsigned char*)spendh, sizeof(spendh), spend_txid_hex65);
+                hx = utils_uint8_to_hex(spendh, 32);
+                if (!hx)
+                    return false;
+                memcpy_safe(spend_txid_hex65, hx, 64);
                 spend_txid_hex65[64] = 0;
-                utils_reverse_hex(spend_txid_hex65, 64);
 
                 for (j = 0; j < wtx->tx->vout->len; j++) {
                     dogecoin_tx_out* tx_out = vector_idx(wtx->tx->vout, j);

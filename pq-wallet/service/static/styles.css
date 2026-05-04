@@ -1039,22 +1039,6 @@ body {
   overflow: hidden;
 }
 
-.tx-list-scroll {
-  max-height: min(72vh, calc(100vh - 200px));
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
-.dash-tx-list-scroll {
-  max-height: min(42vh, 320px);
-}
-
-.tx-list-sentinel {
-  height: 2px;
-  margin: 0;
-  flex-shrink: 0;
-}
-
 .tx-list {
   display: flex;
   flex-direction: column;

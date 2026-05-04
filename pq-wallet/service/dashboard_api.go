@@ -518,7 +518,39 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	out := s.mergeTxListWithMemeTracker(wf, st)
-	writeJSON(w, http.StatusOK, map[string]any{"transactions": out})
+	total := len(out)
+	q := r.URL.Query()
+	limStr := strings.TrimSpace(q.Get("limit"))
+	if limStr == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"transactions": out, "total": total})
+		return
+	}
+	limit, err := strconv.Atoi(limStr)
+	if err != nil || limit <= 0 {
+		limit = 40
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	offset, _ := strconv.Atoi(strings.TrimSpace(q.Get("offset")))
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > total {
+		offset = total
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	page := out[offset:end]
+	writeJSON(w, http.StatusOK, map[string]any{
+		"transactions": page,
+		"total":        total,
+		"limit":        limit,
+		"offset":       offset,
+		"has_more":     end < total,
+	})
 }
 
 func syncLagSeconds(headerUnix int64) int64 {

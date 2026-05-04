@@ -722,8 +722,12 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 	// - /getTransactions is the primary receive + external-spent history source
 	// - /getUTXOs fills gaps for receive-side rows some SPV builds omit from tx history
 	//
-	// Guardrail: if a txid exists in /getTransactions, do not merge /getUTXOs rows for
-	// that same txid (prevents UTXO/change rows from mutating OUT tx history).
+	// Guardrail: libdogecoin /getTransactions only lists *spent* wallet UTXOs (see rest.c). Unspent outputs
+	// for the same funding txid only appear under /getUTXOs. Do not mark funding txids from /getTransactions
+	// here — that would drop still-unspent vouts when another vout from the same tx was already spent.
+	//
+	// Do mark spending txids (spend_txid) and /getSpends txids so /getUTXOs does not add change outputs
+	// for our own sends (Dogecoin Wallet–style OUT row stays authoritative).
 	spendRows := parseSPVRESTGetSpends(spendRaw)
 	txRows := parseSPVRESTRows(txRaw, "unknown")
 	utxoRows := parseSPVRESTRows(utxoRaw, "in")
@@ -737,11 +741,7 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 		}
 	}
 	for _, r := range txRows {
-		if id := normalizeTxid(r.Txid); id != "" {
-			txSeen[id] = struct{}{}
-		}
 		if sid := normalizeTxid(r.SpendTxid); sid != "" {
-			// Spending txids appear in spent-UTXO hints; do not also ingest /getUTXOs change rows for that txid.
 			txSeen[sid] = struct{}{}
 		}
 	}
@@ -883,7 +883,6 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 				BlockHeight:   spBh,
 				Source:        "spv",
 				SeenAt:        r.SeenAt,
-				PQHint:        true,
 			}
 			if _, dup := orderSeen[sid]; !dup {
 				txOrder = append(txOrder, sid)
@@ -909,7 +908,6 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 		if prev.SeenAt.IsZero() && !r.SeenAt.IsZero() {
 			prev.SeenAt = r.SeenAt
 		}
-		prev.PQHint = true
 		byTxid[sid] = prev
 	}
 	if len(byTxid) == 0 {

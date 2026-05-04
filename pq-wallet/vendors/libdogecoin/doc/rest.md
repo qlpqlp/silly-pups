@@ -230,11 +230,20 @@ Total Unspent: 75.00000000
 
 Retrieves the wallet's outgoing transaction history with per-output recipient
 breakdown. Iterates `wallet->vec_wtxes`, filters to transactions the wallet
-funded (`is_from_me`), and for each one decodes every vout's destination address.
+funded (`is_from_me`), skips duplicate wtx entries that share the same internal
+`tx_hash_cache`, and omits transactions that send only to wallet-owned outputs
+(no value leaving the wallet). For each remaining tx, `sent` is the sum of
+non-wallet vout values (external spend); `change` is the sum of wallet-owned
+vouts.
 
-For each output the response flags `is_mine` so external recipients are
-distinguishable from change. Per-tx totals (`total_in`, `total_out`, `sent`,
-`change`, `fee`) are computed from the wtx vins/vouts.
+Only **non-wallet** vouts with **positive value** appear as `output:` blocks
+(OP_RETURN / zero-value outputs are omitted so bogus “addresses” are not
+listed). Each block has `is_mine: 0`, plus `vout`, `address`, `amount`. The
+`txid` line uses **display** byte order (hex of `tx_hash_cache` then
+`utils_reverse_hex`), matching `spend_txid` from `/getTransactions`, `txid` on
+`/getUTXOs`, and block explorers (see `/exportTxRaw`). Per-tx totals
+(`total_in`, `total_out`, `sent`, `change`, `fee`) use the full wtx vins/vouts;
+`sent` sums non-wallet vouts with positive value, excluding OP_RETURN.
 
 #### **Request**
 

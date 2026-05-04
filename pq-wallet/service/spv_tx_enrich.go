@@ -11,6 +11,16 @@ import (
 // SPV log tail for raw hex backfill + prevout index: older parent txs must be present here for bitcoinj-style net.
 const spvLogTailForEnrich = 64 << 20
 
+// phase1PQTaggedCommitInRawHex is true when serialized tx hex contains canonical Phase-1 OP_RETURN:
+// 0x6a 0x24 TAG4 (FLC1 / DIL2 / RCG4) + 32-byte commitment.
+func phase1PQTaggedCommitInRawHex(rawHex string) bool {
+	s := strings.TrimSpace(strings.ToLower(rawHex))
+	if len(s) < 40 {
+		return false
+	}
+	return strings.Contains(s, "6a24464c4331") || strings.Contains(s, "6a2444494c32") || strings.Contains(s, "6a2452434734")
+}
+
 // firstInputPrevTxidFromRawHex returns the canonical prevout txid for the first non-coinbase input
 // (wire hash byte-reversed to match explorer / normalizeTxid form). Empty if not parseable.
 func firstInputPrevTxidFromRawHex(rawHex string) string {
@@ -476,6 +486,21 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 		}
 		if tx.Source == "" {
 			tx.Source = "spv"
+			changed = true
+		}
+	}
+	for i := range st.Transactions {
+		tx := &st.Transactions[i]
+		raw := strings.TrimSpace(tx.RawHex)
+		if raw == "" {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(tx.Source), "manual") && strings.EqualFold(strings.TrimSpace(tx.Direction), "out") {
+			continue
+		}
+		want := phase1PQTaggedCommitInRawHex(raw)
+		if tx.PQHint != want {
+			tx.PQHint = want
 			changed = true
 		}
 	}

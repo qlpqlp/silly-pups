@@ -463,33 +463,53 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 								if revealVal <= dustLimitKoinu {
 									txRErr = "TX_R would leave dust after fee; increase balance, raise fee rate slightly, or lower PUP_PQ_TXR_FEE_KOINU floor"
 								} else {
-									unsignedR, errB := buildUnsignedCarrierRevealTxMulti(txCTxid, vouts, revealVal, changeScript)
-									if errB != nil {
-										txRErr = errB.Error()
-									} else {
+									maxAttempts := 8
+									if v, err := strconv.Atoi(strings.TrimSpace(os.Getenv("PUP_PQ_TXR_RETRIES"))); err == nil && v > 0 {
+										maxAttempts = v
+									}
+									retryStep := 800 * time.Millisecond
+									if ms, err := strconv.Atoi(strings.TrimSpace(os.Getenv("PUP_PQ_TXR_RETRY_MS"))); err == nil && ms > 0 {
+										retryStep = time.Duration(ms) * time.Millisecond
+									}
+									for attempt := 0; attempt < maxAttempts; attempt++ {
+										if attempt == 0 {
+											time.Sleep(450 * time.Millisecond)
+										} else {
+											time.Sleep(retryStep)
+											log.Printf("[pq-wallet] send_pq_safe TX_R retry attempt=%d/%d after TX_C=%s", attempt+1, maxAttempts, txCTxid)
+										}
+										unsignedR, errB := buildUnsignedCarrierRevealTxMulti(txCTxid, vouts, revealVal, changeScript)
+										if errB != nil {
+											txRErr = errB.Error()
+											break
+										}
 										rHex, errSS := s.runSuchSetScriptSigMulti(hexMsgTx(unsignedR), scriptSigs, testnet)
 										if errSS != nil {
 											txRErr = errSS.Error()
-										} else {
-											sendOutR, errST := s.runSendtx(rHex, testnet, "")
-											sumR := summarizeSendtxOutput(sendOutR)
-											if errST != nil {
-												s.logBroadcastDetails("send_pq_safe_txr", sumR.BroadcastTxID, rHex, sendOutR, errST)
-												txRErr = errST.Error()
-											} else if sumR.ConnectedNodes == 0 {
-												s.logBroadcastDetails("send_pq_safe_txr", sumR.BroadcastTxID, rHex, sendOutR, nil)
-												txRErr = "sendtx TX_R connected to 0 peers"
-											} else {
-												txRID = normalizeTxid(sumR.BroadcastTxID)
-												if txRID == "" {
-													if rb, errR := hex.DecodeString(strings.TrimSpace(rHex)); errR == nil {
-														txRID = dogeLegacyTxidHex(rb)
-													}
-												}
-												s.logBroadcastDetails("send_pq_safe_txr", txRID, rHex, sendOutR, nil)
-												log.Printf("[pq-wallet] send_pq_safe TX_R ok txid=%s parts=%d", txRID, len(scriptSigs))
+											break
+										}
+										sendOutR, errST := s.runSendtx(rHex, testnet, "")
+										sumR := summarizeSendtxOutput(sendOutR)
+										if errST != nil {
+											s.logBroadcastDetails("send_pq_safe_txr", sumR.BroadcastTxID, rHex, sendOutR, errST)
+											txRErr = errST.Error()
+											continue
+										}
+										if sumR.ConnectedNodes == 0 {
+											s.logBroadcastDetails("send_pq_safe_txr", sumR.BroadcastTxID, rHex, sendOutR, nil)
+											txRErr = "sendtx TX_R connected to 0 peers"
+											continue
+										}
+										txRID = normalizeTxid(sumR.BroadcastTxID)
+										if txRID == "" {
+											if rb, errR := hex.DecodeString(strings.TrimSpace(rHex)); errR == nil {
+												txRID = dogeLegacyTxidHex(rb)
 											}
 										}
+										s.logBroadcastDetails("send_pq_safe_txr", txRID, rHex, sendOutR, nil)
+										log.Printf("[pq-wallet] send_pq_safe TX_R ok txid=%s parts=%d", txRID, len(scriptSigs))
+										txRErr = ""
+										break
 									}
 								}
 							}

@@ -29,7 +29,7 @@ var staticFS embed.FS
 const pqWalletAppVersion = "0.0.51"
 
 // pqWalletBuildHash is a release fingerprint (SHA-256 hex of "pq-wallet-<version>"); bump when cutting a release.
-const pqWalletBuildHash = "ea229719e50cdf9fdf3383851ae7e3947ed5d31f934b2b2525556063dedcdc08"
+const pqWalletBuildHash = "a594a2bba8c5cc3deab919bd8fa96cefd7881071f6627cd692f56802a86e384c"
 
 type Server struct {
 	mu                    sync.Mutex

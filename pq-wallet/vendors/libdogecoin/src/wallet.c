@@ -1502,19 +1502,20 @@ dogecoin_bool dogecoin_wallet_sent_payment_hints_for_prevout(dogecoin_wallet* wa
 
             {
                 uint256_t spendh;
-                const char* hx;
                 unsigned int j;
                 dogecoin_tx_hash(wtx->tx, spendh);
-                hx = utils_uint8_to_hex(spendh, 32);
-                if (!hx)
-                    return false;
-                memcpy_safe(spend_txid_hex65, hx, 64);
+                utils_bin_to_hex((unsigned char*)spendh, sizeof(spendh), spend_txid_hex65);
                 spend_txid_hex65[64] = 0;
+                utils_reverse_hex(spend_txid_hex65, 64);
 
                 for (j = 0; j < wtx->tx->vout->len; j++) {
                     dogecoin_tx_out* tx_out = vector_idx(wtx->tx->vout, j);
                     char p2pkh_from_script_pubkey[P2PKHLEN];
                     if (!tx_out || !tx_out->script_pubkey)
+                        continue;
+                    if (tx_out->value <= 0)
+                        continue;
+                    if (tx_out->script_pubkey->len > 0 && (unsigned char)tx_out->script_pubkey->str[0] == 0x6a)
                         continue;
                     if (dogecoin_wallet_txout_is_mine(wallet, tx_out))
                         continue;

@@ -23,9 +23,9 @@ type spvRESTTxRow struct {
 	Confirmations int
 	BlockHeight   int64
 	SeenAt        time.Time
-	// RawHex is set by local spv_wallet.db parsing (preferred) or other pipelines for enrichSPVTxFromRawHex.
+	// RawHex is set when REST or logs supply full tx hex for enrichSPVTxFromRawHex.
 	RawHex string
-	// Source overrides TxRecord.Source when non-empty (e.g. "spv_wallet" vs default "spv").
+	// Source overrides TxRecord.Source when non-empty (e.g. "manual" vs default "spv").
 	Source string
 	// Optional lines from /getTransactions (spent UTXO blocks) — spending tx + Dogecoin Wallet-style payee.
 	SpendTxid            string
@@ -912,8 +912,7 @@ func (s *Server) mergeSPVHintRowsIntoState(st *WalletState, rows []spvRESTTxRow,
 }
 
 // mergeTransactionsFromSPVREST uses the spvnode REST API when available.
-// Callers typically gate with shouldIngestSPVRESTTxHints: default skips REST when the local wallet file lists txs;
-// PUP_SPV_REST_TX=1 forces REST; PUP_SPV_REST_TX=0 disables REST entirely.
+// Gated by shouldIngestSPVRESTTxHints (PUP_SPV_REST_TX=0 disables).
 // tipHeight/tipUnix from readSPVStatus improve SeenAt when REST rows lack times.
 func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUnix int64) bool {
 	if st == nil {

@@ -155,9 +155,8 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		confirmChanged = s.applySPVConfirmations(st, logTail)
 		proofMetaChanged = s.applySPVProofMeta(st, logTail)
 	}
-	dbChanged, walletFileRows := s.mergeTransactionsFromSPVWalletDB(wf, st, tipHeight, tipUnix)
 	restChanged := false
-	if s.shouldIngestSPVRESTTxHints(walletFileRows) {
+	if s.shouldIngestSPVRESTTxHints() {
 		restChanged = s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
 	}
 	bcChanged := s.mergeTransactionsFromBroadcastLog(st)
@@ -167,7 +166,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		suchChanged = s.mergeTransactionsFromSuchListUnspent(wf, st)
 	}
 	enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
-	if seenChanged || rawChanged || confirmChanged || proofMetaChanged || enrichedChanged || restChanged || bcChanged || bcRawChanged || dbChanged || suchChanged {
+	if seenChanged || rawChanged || confirmChanged || proofMetaChanged || enrichedChanged || restChanged || bcChanged || bcRawChanged || suchChanged {
 		_ = s.saveState(st)
 	}
 
@@ -499,9 +498,8 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 		confirmChanged = s.applySPVConfirmations(st, logTail)
 		proofMetaChanged = s.applySPVProofMeta(st, logTail)
 	}
-	dbChanged, walletFileRows := s.mergeTransactionsFromSPVWalletDB(wf, st, tipHeight, tipUnix)
 	restChanged := false
-	if s.shouldIngestSPVRESTTxHints(walletFileRows) {
+	if s.shouldIngestSPVRESTTxHints() {
 		restChanged = s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
 	}
 	bcChanged := s.mergeTransactionsFromBroadcastLog(st)
@@ -511,7 +509,7 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 		suchChanged = s.mergeTransactionsFromSuchListUnspent(wf, st)
 	}
 	enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
-	if changed || rawChanged || confirmChanged || proofMetaChanged || enrichedChanged || restChanged || bcChanged || bcRawChanged || dbChanged || suchChanged {
+	if changed || rawChanged || confirmChanged || proofMetaChanged || enrichedChanged || restChanged || bcChanged || bcRawChanged || suchChanged {
 		_ = s.saveState(st)
 	}
 	s.stateMergeMu.Unlock()
@@ -1129,8 +1127,7 @@ func (s *Server) backgroundMetricsLoop() {
 		_ = s.applySPVConfirmations(st, logTail)
 		_ = s.applySPVProofMeta(st, logTail)
 		_ = s.applySPVRawHex(st, logTail)
-		_, wRows := s.mergeTransactionsFromSPVWalletDB(wf, st, tipHeight, tipUnix)
-		if s.shouldIngestSPVRESTTxHints(wRows) {
+		if s.shouldIngestSPVRESTTxHints() {
 			_ = s.mergeTransactionsFromSPVREST(st, tipHeight, tipUnix)
 		}
 		_ = s.mergeTransactionsFromBroadcastLog(st)

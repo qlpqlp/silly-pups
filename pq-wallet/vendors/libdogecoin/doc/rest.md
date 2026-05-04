@@ -104,8 +104,7 @@ address: DQe1QeG4FxhEgvfuvGfC7oL5G2G87huuxU
 Spent external receipts: non-spendable UTXOs received from external senders.
 Change from the wallet's own outgoing txs (`is_from_me`) is skipped to avoid
 double-counting along the change chain. Complements `/getUTXOs` (still held)
-and `/getSpends` (outgoing). Optional `spend_*` / `pay_*` lines (when present)
-mirror Dogecoin Wallet-style metadata for the spending transaction.
+and `/getSpends` (outgoing).
 
 #### **Request**
 
@@ -128,11 +127,6 @@ mirror Dogecoin Wallet-style metadata for the spending transaction.
   height:         <height>
   spendable:      <spendable>
   solvable:       <solvable>
-  spend_txid:     <txid>   (optional — tx that spent this UTXO)
-  pay_to:         <address> (optional — first non-wallet P2PKH output on that spend)
-  pay_amount:     <amount>  (optional — value of that output)
-  spend_height:   <height>  (optional — block height of the spending tx)
-  spend_confirmations: <n> (optional — confirmations of the spending tx)
   ...
   Spent Balance: <total_spent_balance>
   ```
@@ -159,11 +153,6 @@ confirmations:  100
 height:         5123450
 spendable:      0
 solvable:       1
-spend_txid:     a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd
-pay_to:         DQe1QeG4FxhEgvfuvGfC7oL5G2G87huuxU
-pay_amount:     50.00000000
-spend_height:   5000000
-spend_confirmations: 42
 Spent Balance: 50.00000000
 ```
 
@@ -229,21 +218,14 @@ Total Unspent: 75.00000000
 ### GET **/getSpends**
 
 Retrieves the wallet's outgoing transaction history with per-output recipient
-breakdown. Iterates `wallet->vec_wtxes`, filters to transactions the wallet
-funded (`is_from_me`), skips duplicate wtx entries that share the same internal
-`tx_hash_cache`, and omits transactions that send only to wallet-owned outputs
-(no value leaving the wallet). For each remaining tx, `sent` is the sum of
-non-wallet vout values (external spend); `change` is the sum of wallet-owned
-vouts.
+breakdown. Iterates `wallet->vec_wtxes` (the wallet's transactions vector,
+populated during SPV rescan from a WIF + watch-addresses), filters to wtx's
+that the wallet funded (`is_from_me`), and for each one decodes every vout's
+destination address. Does not use any spends index/vector.
 
-Only **non-wallet** vouts with **positive value** appear as `output:` blocks
-(OP_RETURN / zero-value outputs are omitted so bogus “addresses” are not
-listed). Each block has `is_mine: 0`, plus `vout`, `address`, `amount`. The
-`txid` line uses **display** byte order (hex of `tx_hash_cache` then
-`utils_reverse_hex`), matching `spend_txid` from `/getTransactions`, `txid` on
-`/getUTXOs`, and block explorers (see `/exportTxRaw`). Per-tx totals
-(`total_in`, `total_out`, `sent`, `change`, `fee`) use the full wtx vins/vouts;
-`sent` sums non-wallet vouts with positive value, excluding OP_RETURN.
+For each output the response flags `is_mine` so external recipients are
+distinguishable from change. Per-tx totals (`total_in`, `total_out`, `sent`,
+`change`, `fee`) are computed from the wtx vins/vouts.
 
 #### **Request**
 
@@ -261,8 +243,8 @@ listed). Each block has `is_mine: 0`, plus `vout`, `address`, `amount`. The
   height:         <block_height>
   total_in:       <amount>
   total_out:      <amount>
-  sent:           <amount>
-  change:         <amount>
+  sent:           <amount>   # to external recipients
+  change:         <amount>   # back to our addresses
   fee:            <amount>
     output:
       vout:           <index>
@@ -280,6 +262,32 @@ listed). Each block has `is_mine: 0`, plus `vout`, `address`, `amount`. The
 
 ```bash
 curl http://localhost:<port>/getSpends
+```
+
+#### **Sample Response**
+
+```
+----------------------
+txid:           a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90
+height:         5123456
+total_in:       100.00000000
+total_out:      99.99000000
+sent:           60.00000000
+change:         39.99000000
+fee:            0.01000000
+  output:
+    vout:           0
+    address:        DQe1QeG4FxhEgvfuvGfC7oL5G2G87huuxU
+    amount:         60.00000000
+    is_mine:        0
+  output:
+    vout:           1
+    address:        DH1ApGRY3p2Q6S9HpkjJjqg1JpyZ9HMyaR
+    amount:         39.99000000
+    is_mine:        1
+----------------------
+Outgoing transactions: 1
+Total Sent (excl. change): 60.00000000
 ```
 
 ---

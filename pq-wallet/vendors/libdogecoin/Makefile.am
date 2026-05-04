@@ -78,7 +78,8 @@ noinst_HEADERS = \
     include/dogecoin/validation.h \
     include/dogecoin/vector.h \
     include/dogecoin/version.h \
-    include/dogecoin/wow.h
+    include/dogecoin/wow.h \
+    include/dogecoin/zk_carrier.h
 
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = libdogecoin.pc
@@ -129,14 +130,38 @@ libdogecoin_la_SOURCES = \
 
 if USE_LIBOQS
 libdogecoin_la_SOURCES += \
-    src/pqc_carrier.c \
-    src/pqc_dilithium.c \
+    src/pqc_dilithium.c
+endif
+
+# pqc_falcon.c: built for USE_PQC_CARRIER_HELPERS; defines dogecoin_tx_sighash32 (needed by ZK carrier) + Falcon-specific logic guarded by USE_LIBOQS.
+if USE_PQC_CARRIER_HELPERS
+libdogecoin_la_SOURCES += \
     src/pqc_falcon.c
 endif
 
 if USE_LIBOQS_RACCOON
 libdogecoin_la_SOURCES += \
     src/pqc_raccoon.c
+endif
+
+# pqc_carrier.c: shared P2SH carrier helpers reused by PQ and ZK carriers.
+if USE_PQC_CARRIER_HELPERS
+libdogecoin_la_SOURCES += \
+    src/pqc_carrier.c
+endif
+
+if USE_ZK_CARRIER
+libdogecoin_la_SOURCES += \
+    src/zk_carrier/zk_carrier.c \
+    src/zk_carrier/zk_commit.c \
+    src/zk_carrier/zk_groth16.c \
+    src/zk_carrier/zk_plonk.c \
+    src/zk_carrier/zk_stark.c
+
+if HAVE_MCL
+# C++ verifier for Groth16 BN254 via herumi/mcl. Flags from configure.ac.
+libdogecoin_la_SOURCES += src/zk_carrier/zk_groth16_mcl.cpp
+endif
 endif
 
 
@@ -198,6 +223,14 @@ endif
 
 libdogecoin_la_CFLAGS = -I$(top_srcdir)/include -I$(top_srcdir)/src/logdb/include -fPIC
 libdogecoin_la_LIBADD = $(LIBSECP256K1) $(ASM_LIB_FILES)
+
+if HAVE_MCL
+# mcl BN254: C++ verifier flags.
+libdogecoin_la_CFLAGS    += @MCL_CFLAGS@
+libdogecoin_la_CXXFLAGS   = -I$(top_srcdir)/include -fPIC @MCL_CFLAGS@ -std=c++14
+libdogecoin_la_LIBADD    += @MCL_LIBS@
+endif
+
 noinst_PROGRAMS =
 
 if USE_TESTS
@@ -233,11 +266,16 @@ tests_SOURCES = \
     test/smpv_tests.c \
     test/tpm_tests.c \
     test/transaction_tests.c \
+    test/validation_tests.c \
     test/tx_tests.c \
     include/test/utest.h \
     test/unittester.c \
     test/utils_tests.c \
     test/vector_tests.c
+
+if USE_ZK_CARRIER
+tests_SOURCES += test/zk_carrier_tests.c
+endif
 
 tests_CFLAGS = $(libdogecoin_la_CFLAGS)
 tests_CPPFLAGS = -I$(top_srcdir)/src

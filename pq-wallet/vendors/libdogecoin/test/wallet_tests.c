@@ -24,11 +24,9 @@ static const char *wallettmpfile = "/tmp/dummy";
 #include <logdb/logdb.h>
 
 #include <dogecoin/base58.h>
-#include <dogecoin/buffer.h>
 #include <dogecoin/utils.h>
 #include <dogecoin/wallet.h>
 #include <dogecoin/script.h>
-#include <dogecoin/tx.h>
 #define is_spent(x) (((dogecoin_utxo*)x)->spendable == false)
 
 /* this are the tx_valid test vectors from Bitcoin Core 0.15, run through Bitcoin Core's SignatureHash function */

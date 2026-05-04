@@ -194,23 +194,14 @@ LIBDOGECOIN_API int64_t dogecoin_wallet_get_balance(dogecoin_wallet* wallet);
 LIBDOGECOIN_API int64_t dogecoin_wallet_wtx_get_credit(dogecoin_wallet* wallet, dogecoin_wtx* wtx);
 
 LIBDOGECOIN_API int64_t dogecoin_wallet_get_debit_tx(dogecoin_wallet *wallet, const dogecoin_tx *tx);
-/** true if the wallet contributed inputs to this tx (send / change-chain spend). */
-LIBDOGECOIN_API dogecoin_bool dogecoin_wallet_is_from_me(dogecoin_wallet *wallet, const dogecoin_tx *tx);
 LIBDOGECOIN_API int64_t dogecoin_wallet_wtx_get_available_credit(dogecoin_wallet* wallet, dogecoin_wtx* wtx);
 
 /** checks if a transaction outpoint is owned by the wallet */
 LIBDOGECOIN_API dogecoin_bool dogecoin_wallet_txout_is_mine(dogecoin_wallet* wallet, dogecoin_tx_out* tx_out);
 
-/**
- * For a spent prevout (UTXO txid + vout), find the wallet tx that spends it and derive Dogecoin-Wallet-style
- * payment metadata: spend txid (display hex), first non-wallet P2PKH recipient, and that output's amount.
- * Any of pay_to / pay_amount buffers may be NULL if the caller does not need them.
- * opt_spend_height / opt_spend_confirmations may be NULL.
- */
-LIBDOGECOIN_API dogecoin_bool dogecoin_wallet_sent_payment_hints_for_prevout(dogecoin_wallet* wallet, const uint256_t prev_txid, uint32_t prev_vout, char spend_txid_hex65[65], char pay_to[P2PKHLEN], char pay_amount[KOINU_STRINGLEN], int* opt_spend_height, int* opt_spend_confirmations);
-
 /** checks if a transaction outpoint is owned by the wallet */
 LIBDOGECOIN_API dogecoin_bool dogecoin_wallet_is_spent(dogecoin_wallet* wallet, uint256_t hash, uint32_t n);
+LIBDOGECOIN_API dogecoin_bool dogecoin_wallet_is_from_me(dogecoin_wallet *wallet, const dogecoin_tx *tx);
 LIBDOGECOIN_API dogecoin_bool dogecoin_wallet_get_unspents(dogecoin_wallet* wallet, vector_t* unspents);
 LIBDOGECOIN_API dogecoin_bool dogecoin_wallet_get_unspent(vector_t* unspents);
 

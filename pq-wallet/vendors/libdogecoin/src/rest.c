@@ -28,9 +28,7 @@
 #include <dogecoin/rest.h>
 
 #include <dogecoin/blockchain.h>
-#include <dogecoin/chainparams.h>
 #include <dogecoin/koinu.h>
-#include <dogecoin/tx.h>
 #include <dogecoin/headersdb_file.h>
 #include <dogecoin/spv.h>
 #include <dogecoin/smpv.h>
@@ -40,13 +38,6 @@
 
 #include <stdlib.h>   // qsort
 #include <stdint.h>   // uint64_t
-
-/** OP_RETURN / data carrier outputs are not spend destinations for REST listing. */
-static int dogecoin_rest_vout_is_op_return(const dogecoin_tx_out* o)
-{
-    return o && o->script_pubkey && o->script_pubkey->len > 0 &&
-           (unsigned char)o->script_pubkey->str[0] == 0x6a;
-}
 
 static int cmp_u64(const void *a, const void *b) {
     uint64_t va = *(const uint64_t*)a, vb = *(const uint64_t*)b;
@@ -81,10 +72,13 @@ void dogecoin_http_request_cb(struct evhttp_request *req, void *arg) {
     }
 
     if (strcmp(path, "/getBalance") == 0) {
+        /* Spendable balance across the wallet's wtx set, honoring coinbase
+         * maturity and the spends index. */
+        char wallet_total[21];
+        dogecoin_mem_zero(wallet_total, 21);
         int64_t balance = dogecoin_wallet_get_balance(wallet);
-        char balance_str[32] = {0};
-        koinu_to_coins_str(balance < 0 ? 0 : (uint64_t)balance, balance_str);
-        evbuffer_add_printf(evb, "Wallet balance: %s\n", balance_str);
+        koinu_to_coins_str(balance < 0 ? 0 : (uint64_t)balance, wallet_total);
+        evbuffer_add_printf(evb, "Wallet balance: %s\n", wallet_total);
     } else if (strcmp(path, "/getAddresses") == 0) {
         vector_t* addresses = vector_new(10, dogecoin_free);
         dogecoin_wallet_get_addresses(wallet, addresses);
@@ -94,6 +88,8 @@ void dogecoin_http_request_cb(struct evhttp_request *req, void *arg) {
         }
         vector_free(addresses, true);
     } else if (strcmp(path, "/getTransactions") == 0) {
+        /* Spent UTXOs received externally; skip change from our own txs to
+         * avoid double-counting re-spent coins along the change chain. */
         char wallet_total[21];
         dogecoin_mem_zero(wallet_total, 21);
         uint64_t wallet_total_u64 = 0;
@@ -105,14 +101,14 @@ void dogecoin_http_request_cb(struct evhttp_request *req, void *arg) {
                 if (!utxo->spendable) {
                     /* utxo->txid is reversed; wtx index uses natural order. */
                     uint256_t natural_txid;
-                    for (size_t k = 0; k < sizeof(natural_txid); k++) {
-                        natural_txid[k] = utxo->txid[sizeof(natural_txid) - 1 - k];
+                    for (size_t k = 0; k < DOGECOIN_HASH_LENGTH; k++) {
+                        natural_txid[k] = utxo->txid[DOGECOIN_HASH_LENGTH - 1 - k];
                     }
                     dogecoin_wtx* src_wtx = dogecoin_wallet_get_wtx(wallet, natural_txid);
-                    if (src_wtx && src_wtx->tx && dogecoin_wallet_is_from_me(wallet, src_wtx->tx)) {
+                    if (src_wtx && src_wtx->tx &&
+                        dogecoin_wallet_is_from_me(wallet, src_wtx->tx)) {
                         continue;
                     }
-                    // For spent UTXOs
                     evbuffer_add_printf(evb, "%s\n", "----------------------");
                     evbuffer_add_printf(evb, "txid:           %s\n", utils_uint8_to_hex(utxo->txid, sizeof(utxo->txid)));
                     evbuffer_add_printf(evb, "vout:           %d\n", utxo->vout);
@@ -123,27 +119,6 @@ void dogecoin_http_request_cb(struct evhttp_request *req, void *arg) {
                     evbuffer_add_printf(evb, "height:         %d\n", utxo->height);
                     evbuffer_add_printf(evb, "spendable:      %d\n", utxo->spendable);
                     evbuffer_add_printf(evb, "solvable:       %d\n", utxo->solvable);
-                    {
-                        char spend_hex[65];
-                        char pay_to[P2PKHLEN];
-                        char pay_amt[KOINU_STRINGLEN];
-                        int sh = 0, sc = 0;
-                        dogecoin_mem_zero(spend_hex, sizeof(spend_hex));
-                        dogecoin_mem_zero(pay_to, sizeof(pay_to));
-                        dogecoin_mem_zero(pay_amt, sizeof(pay_amt));
-                        if (dogecoin_wallet_sent_payment_hints_for_prevout(wallet, utxo->txid, (uint32_t)utxo->vout, spend_hex, pay_to, pay_amt, &sh, &sc)) {
-                            if (spend_hex[0])
-                                evbuffer_add_printf(evb, "spend_txid:     %s\n", spend_hex);
-                            if (pay_to[0])
-                                evbuffer_add_printf(evb, "pay_to:         %s\n", pay_to);
-                            if (pay_amt[0])
-                                evbuffer_add_printf(evb, "pay_amount:     %s\n", pay_amt);
-                            if (sh > 0)
-                                evbuffer_add_printf(evb, "spend_height:   %d\n", sh);
-                            if (sc > 0)
-                                evbuffer_add_printf(evb, "spend_confirmations: %d\n", sc);
-                        }
-                    }
                     wallet_total_u64 += coins_to_koinu_str(utxo->amount);
                 }
             }
@@ -182,111 +157,79 @@ void dogecoin_http_request_cb(struct evhttp_request *req, void *arg) {
         koinu_to_coins_str(wallet_total_u64_unspent, wallet_total);
         evbuffer_add_printf(evb, "Total Unspent: %s\n", wallet_total);
     } else if (strcmp(path, "/getSpends") == 0) {
+        /* Outgoing-tx history from vec_wtxes: for each is_from_me wtx, emit
+         * per-vout address/is_mine plus total_in/total_out/sent/change/fee. */
         int is_mainnet = (wallet->chain == &dogecoin_chainparams_main) ? 1 : 0;
         uint64_t total_sent_u64 = 0;
         unsigned int outgoing_count = 0;
 
-        if (wallet->vec_wtxes) {
-            for (unsigned int i = 0; i < wallet->vec_wtxes->len; i++) {
-                dogecoin_wtx* wtx = vector_idx(wallet->vec_wtxes, i);
-                if (!wtx || !wtx->tx || !wtx->tx->vout) {
-                    continue;
+        for (unsigned int i = 0; i < wallet->vec_wtxes->len; i++) {
+            dogecoin_wtx* wtx = vector_idx(wallet->vec_wtxes, i);
+            if (!wtx || !wtx->tx || !wtx->tx->vout) continue;
+            if (!dogecoin_wallet_is_from_me(wallet, wtx->tx)) continue;
+
+            int64_t total_out = 0, mine_out = 0, ext_out = 0;
+            for (unsigned int j = 0; j < wtx->tx->vout->len; j++) {
+                dogecoin_tx_out* o = vector_idx(wtx->tx->vout, j);
+                if (!o) continue;
+                total_out += o->value;
+                if (dogecoin_wallet_txout_is_mine(wallet, o)) {
+                    mine_out += o->value;
+                } else {
+                    ext_out += o->value;
                 }
-                if (!dogecoin_wallet_is_from_me(wallet, wtx->tx)) {
-                    continue;
-                }
-                /* Dedupe: vec_wtxes should be unique by txid, but compare internal hash (one byte order). */
-                int duplicate = 0;
-                for (unsigned int k = 0; k < i; k++) {
-                    dogecoin_wtx* prior = vector_idx(wallet->vec_wtxes, k);
-                    if (prior && memcmp(prior->tx_hash_cache, wtx->tx_hash_cache, sizeof(uint256_t)) == 0) {
-                        duplicate = 1;
-                        break;
-                    }
-                }
-                if (duplicate) {
-                    continue;
-                }
-
-                int64_t total_out = 0, mine_out = 0, ext_out = 0;
-                for (unsigned int j = 0; j < wtx->tx->vout->len; j++) {
-                    dogecoin_tx_out* o = vector_idx(wtx->tx->vout, j);
-                    if (!o) {
-                        continue;
-                    }
-                    total_out += o->value;
-                    if (dogecoin_wallet_txout_is_mine(wallet, o)) {
-                        mine_out += o->value;
-                    } else if (o->value > 0 && !dogecoin_rest_vout_is_op_return(o)) {
-                        ext_out += o->value;
-                    }
-                }
-
-                /* Only payments that actually leave the wallet (external outputs), not pure self-transfers. */
-                if (ext_out <= 0) {
-                    continue;
-                }
-
-                int64_t debit_in = dogecoin_wallet_get_debit_tx(wallet, wtx->tx);
-                int64_t fee = (debit_in > 0 && debit_in >= total_out) ? (debit_in - total_out) : 0;
-
-                char txid_hex[65] = {0};
-                /* Wire-order hash in tx_hash_cache; reverse hex pairs for display (same as getUTXOs txid, spend_txid, exportTxRaw). */
-                utils_bin_to_hex((unsigned char*)wtx->tx_hash_cache, sizeof(wtx->tx_hash_cache), txid_hex);
-                utils_reverse_hex(txid_hex, 64);
-
-                char debit_str[KOINU_STRINGLEN] = {0};
-                char total_str[KOINU_STRINGLEN] = {0};
-                char sent_str[KOINU_STRINGLEN] = {0};
-                char change_str[KOINU_STRINGLEN] = {0};
-                char fee_str[KOINU_STRINGLEN] = {0};
-                koinu_to_coins_str((uint64_t)debit_in, debit_str);
-                koinu_to_coins_str((uint64_t)total_out, total_str);
-                koinu_to_coins_str((uint64_t)ext_out, sent_str);
-                koinu_to_coins_str((uint64_t)mine_out, change_str);
-                koinu_to_coins_str((uint64_t)fee, fee_str);
-
-                evbuffer_add_printf(evb, "----------------------\n");
-                evbuffer_add_printf(evb, "txid:           %s\n", txid_hex);
-                evbuffer_add_printf(evb, "height:         %u\n", wtx->height);
-                evbuffer_add_printf(evb, "total_in:       %s\n", debit_str);
-                evbuffer_add_printf(evb, "total_out:      %s\n", total_str);
-                evbuffer_add_printf(evb, "sent:           %s\n", sent_str);
-                evbuffer_add_printf(evb, "change:         %s\n", change_str);
-                evbuffer_add_printf(evb, "fee:            %s\n", fee_str);
-
-                for (unsigned int j = 0; j < wtx->tx->vout->len; j++) {
-                    dogecoin_tx_out* o = vector_idx(wtx->tx->vout, j);
-                    if (!o) {
-                        continue;
-                    }
-                    if (dogecoin_wallet_txout_is_mine(wallet, o)) {
-                        continue;
-                    }
-                    if (o->value <= 0 || dogecoin_rest_vout_is_op_return(o)) {
-                        continue;
-                    }
-
-                    char addr[P2PKHLEN] = {0};
-                    const char* addr_out = addr;
-                    if (!dogecoin_tx_out_pubkey_hash_to_p2pkh_address(o, addr, is_mainnet)) {
-                        addr_out = "(non-p2pkh)";
-                    }
-
-                    char amt_str[KOINU_STRINGLEN] = {0};
-                    koinu_to_coins_str((uint64_t)o->value, amt_str);
-
-                    /* pq-wallet parseSPVRESTGetSpends: one "output:" block per external vout; keys address, is_mine. */
-                    evbuffer_add_printf(evb, "  output:\n");
-                    evbuffer_add_printf(evb, "    vout:           %u\n", j);
-                    evbuffer_add_printf(evb, "    address:        %s\n", addr_out);
-                    evbuffer_add_printf(evb, "    amount:         %s\n", amt_str);
-                    evbuffer_add_printf(evb, "    is_mine:        0\n");
-                }
-
-                outgoing_count++;
-                total_sent_u64 += (uint64_t)ext_out;
             }
+
+            int64_t debit_in = dogecoin_wallet_get_debit_tx(wallet, wtx->tx);
+            int64_t fee = (debit_in > 0 && debit_in >= total_out) ? (debit_in - total_out) : 0;
+
+            char txid_hex[65] = {0};
+            utils_bin_to_hex((unsigned char*)wtx->tx_hash_cache, DOGECOIN_HASH_LENGTH, txid_hex);
+            utils_reverse_hex(txid_hex, 64);
+
+            char debit_str[KOINU_STRINGLEN]  = {0};
+            char total_str[KOINU_STRINGLEN]  = {0};
+            char sent_str[KOINU_STRINGLEN]   = {0};
+            char change_str[KOINU_STRINGLEN] = {0};
+            char fee_str[KOINU_STRINGLEN]    = {0};
+            koinu_to_coins_str((uint64_t)debit_in,  debit_str);
+            koinu_to_coins_str((uint64_t)total_out, total_str);
+            koinu_to_coins_str((uint64_t)ext_out,   sent_str);
+            koinu_to_coins_str((uint64_t)mine_out,  change_str);
+            koinu_to_coins_str((uint64_t)fee,       fee_str);
+
+            evbuffer_add_printf(evb, "----------------------\n");
+            evbuffer_add_printf(evb, "txid:           %s\n", txid_hex);
+            evbuffer_add_printf(evb, "height:         %u\n", wtx->height);
+            evbuffer_add_printf(evb, "total_in:       %s\n", debit_str);
+            evbuffer_add_printf(evb, "total_out:      %s\n", total_str);
+            evbuffer_add_printf(evb, "sent:           %s\n", sent_str);
+            evbuffer_add_printf(evb, "change:         %s\n", change_str);
+            evbuffer_add_printf(evb, "fee:            %s\n", fee_str);
+
+            for (unsigned int j = 0; j < wtx->tx->vout->len; j++) {
+                dogecoin_tx_out* o = vector_idx(wtx->tx->vout, j);
+                if (!o) continue;
+                int mine = dogecoin_wallet_txout_is_mine(wallet, o) ? 1 : 0;
+
+                char addr[P2PKHLEN] = {0};
+                const char* addr_out = addr;
+                if (!dogecoin_tx_out_pubkey_hash_to_p2pkh_address(o, addr, is_mainnet)) {
+                    addr_out = "(non-p2pkh)";
+                }
+
+                char amt_str[KOINU_STRINGLEN] = {0};
+                koinu_to_coins_str((uint64_t)o->value, amt_str);
+
+                evbuffer_add_printf(evb, "  output:\n");
+                evbuffer_add_printf(evb, "    vout:           %u\n", j);
+                evbuffer_add_printf(evb, "    address:        %s\n", addr_out);
+                evbuffer_add_printf(evb, "    amount:         %s\n", amt_str);
+                evbuffer_add_printf(evb, "    is_mine:        %d\n", mine);
+            }
+
+            outgoing_count++;
+            total_sent_u64 += (uint64_t)ext_out;
         }
 
         char total_sent_str[KOINU_STRINGLEN] = {0};
@@ -524,6 +467,8 @@ void dogecoin_http_request_cb(struct evhttp_request *req, void *arg) {
     // aggregate from ring, newest -> older until cutoff or block limit hit
     uint64_t sum_txs = 0, sum_outputs = 0, sum_out_value = 0, sum_fees = 0, sum_size = 0;
     uint32_t blocks = 0;
+    uint32_t newest_ts = 0;
+    uint32_t oldest_ts = 0;
     uint64_t fees_buf[SPV_STATS_RING], fee_kb_buf[SPV_STATS_RING];
     size_t fees_n = 0;
     size_t fee_kb_n = 0;
@@ -536,6 +481,8 @@ void dogecoin_http_request_cb(struct evhttp_request *req, void *arg) {
         } else {
             if (blocks >= limit_blocks) break;          // last-N-blocks mode
         }
+        if (blocks == 0) newest_ts = s->ts;
+        oldest_ts = s->ts;
         blocks++;
         sum_txs      += s->txs;
         sum_outputs  += s->outputs;
@@ -548,7 +495,11 @@ void dogecoin_http_request_cb(struct evhttp_request *req, void *arg) {
         }
     }
 
-    double tps = window ? ((double)sum_txs / (double)window) : 0.0;
+    uint32_t observed_window = window;
+    if (blocks > 1 && newest_ts > oldest_ts) {
+        observed_window = newest_ts - oldest_ts;
+    }
+    double tps = observed_window ? ((double)sum_txs / (double)observed_window) : 0.0;
 
     // median/avg fee per block (in koinu)
     uint64_t median_fee = 0;

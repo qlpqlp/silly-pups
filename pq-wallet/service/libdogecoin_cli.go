@@ -30,9 +30,13 @@ var (
 	reSuchUTXOLine      = regexp.MustCompile(`(?i)\btxid[=: ]+([a-f0-9]{64})\b.*?\bvout[=: ]+(\d+)\b.*?\b(?:value|amount|koinu|satoshis)[=: ]+(-?\d+(?:\.\d+)?)`)
 	reSendtxStartTxid   = regexp.MustCompile(`(?i)start broadcasting transaction:\s*([a-f0-9]{64})`)
 	reSuchFlexibleTxHex = regexp.MustCompile(`(?i)(?:signed|unsigned|modified)\s+TX\s*:\s*([0-9a-f]+)`)
-	reSuchCarrierSPK    = regexp.MustCompile(`(?i)carrier_p2sh_scriptpubkey:\s*([0-9a-f]+)`)
-	reSuchCarrierMkSig  = regexp.MustCompile(`(?i)carrier_part_scriptsig\[(\d+)\]\s*:\s*([0-9a-f]+)`)
-	reSuchLongHex       = regexp.MustCompile(`\b([0-9a-f]{200,})\b`)
+	// falcon_add_commit_and_carrier_tx prints these before multi-kilobyte carrier_part_scriptsig lines — never use longest-hex
+	// fallback across the full buffer or we mis-parse scriptsig as a raw tx and such sign returns "Invalid tx hex".
+	reSuchTxCommitCarrier = regexp.MustCompile(`(?i)tx with commitment and carrier outputs:\s*([0-9a-f]+)`)
+	reSuchTxCommitOnly    = regexp.MustCompile(`(?i)tx with commitment:\s*([0-9a-f]+)`)
+	reSuchCarrierSPK      = regexp.MustCompile(`(?i)carrier_p2sh_scriptpubkey:\s*([0-9a-f]+)`)
+	reSuchCarrierMkSig    = regexp.MustCompile(`(?i)carrier_part_scriptsig\[(\d+)\]\s*:\s*([0-9a-f]+)`)
+	reSuchLongHex         = regexp.MustCompile(`\b([0-9a-f]{200,})\b`)
 )
 
 // runSuchP2PKHWallet runs `such -c generate_private_key` then `such -c generate_public_key -p <WIF>` (libdogecoin ECC + base58).
@@ -342,6 +346,12 @@ func (s *Server) runSuchFalconSign(msgHex, privHex string, testnet bool) (string
 // parseSuchTransactionHex extracts raw transaction hex from such stdout (sign / set_scriptsig / falcon_add_*).
 func parseSuchTransactionHex(text string) string {
 	text = strings.TrimSpace(text)
+	if m := reSuchTxCommitCarrier.FindStringSubmatch(text); len(m) >= 2 && len(m[1]) >= 120 {
+		return strings.ToLower(m[1])
+	}
+	if m := reSuchTxCommitOnly.FindStringSubmatch(text); len(m) >= 2 && len(m[1]) >= 120 {
+		return strings.ToLower(m[1])
+	}
 	if m := reSuchFlexibleTxHex.FindStringSubmatch(text); len(m) >= 2 && len(m[1]) >= 120 {
 		return strings.ToLower(m[1])
 	}
@@ -349,9 +359,15 @@ func parseSuchTransactionHex(text string) string {
 		return strings.ToLower(m[1])
 	}
 	best := ""
-	for _, m := range reSuchLongHex.FindAllStringSubmatch(text, -1) {
-		if len(m) >= 2 && len(m[1]) > len(best) {
-			best = strings.ToLower(m[1])
+	for _, ln := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+		low := strings.ToLower(strings.TrimSpace(ln))
+		if strings.Contains(low, "scriptsig") {
+			continue
+		}
+		for _, m := range reSuchLongHex.FindAllStringSubmatch(ln, -1) {
+			if len(m) >= 2 && len(m[1]) > len(best) {
+				best = strings.ToLower(m[1])
+			}
 		}
 	}
 	return best

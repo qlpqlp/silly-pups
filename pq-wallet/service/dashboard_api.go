@@ -890,6 +890,9 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 			if addr != "" {
 				if _, ok := walletAddrSet[addr]; !ok {
 					tr.Direction = "out"
+				} else if tr.AmountDOGE > 0 {
+					// SPV REST often omits direction on /getTransactions funding lines (credits to our P2PKH).
+					tr.Direction = "in"
 				}
 			} else if tr.AmountDOGE > 0 && strings.EqualFold(strings.TrimSpace(tr.Source), "memetracker") {
 				tr.Direction = "in"

@@ -317,6 +317,9 @@ func parseSPVRESTRows(raw, direction string) []spvRESTTxRow {
 }
 
 // parseSPVRESTGetSpends parses GET /getSpends (libdogecoin outgoing-tx blocks with nested "output:" sections).
+// rest.c defines total_in=wallet debit (koinu), sent=external vout sum, change=wallet (mine) vout sum, fee=debit-total_out.
+// Wallet net effect for the tx is (mine outputs - debit) == (change - total_in) in header units — matches explorer net pills.
+// When total_in is 0 (wallet debit not indexed), we emphasize wallet credits for mixed txs (SoChain-style small receives).
 func parseSPVRESTGetSpends(raw string) []spvRESTTxRow {
 	raw = strings.ReplaceAll(strings.TrimSpace(raw), "\r\n", "\n")
 	if raw == "" {
@@ -334,10 +337,11 @@ func parseSPVRESTGetSpends(raw string) []spvRESTTxRow {
 		}
 		var txid string
 		var height int64
-		var sent float64
+		var debit, sentHdr, changeHdr, feeHdr float64
 		type outRec struct {
 			addr string
 			mine bool
+			amt  float64
 		}
 		var outs []outRec
 		mode := "hdr"
@@ -374,8 +378,14 @@ func parseSPVRESTGetSpends(raw string) []spvRESTTxRow {
 					txid = normalizeTxid(v)
 				case "height":
 					height, _ = strconv.ParseInt(v, 10, 64)
+				case "total_in":
+					debit, _ = strconv.ParseFloat(v, 64)
 				case "sent":
-					sent, _ = strconv.ParseFloat(v, 64)
+					sentHdr, _ = strconv.ParseFloat(v, 64)
+				case "change":
+					changeHdr, _ = strconv.ParseFloat(v, 64)
+				case "fee":
+					feeHdr, _ = strconv.ParseFloat(v, 64)
 				}
 			case "out":
 				if !curOpen {
@@ -386,6 +396,10 @@ func parseSPVRESTGetSpends(raw string) []spvRESTTxRow {
 					cur.addr = v
 				case "is_mine":
 					cur.mine = (v == "1")
+				case "amount":
+					if f, err := strconv.ParseFloat(v, 64); err == nil {
+						cur.amt = math.Abs(f)
+					}
 				}
 			}
 		}
@@ -393,17 +407,75 @@ func parseSPVRESTGetSpends(raw string) []spvRESTTxRow {
 		if txid == "" {
 			continue
 		}
-		addr := ""
+		mineSum := changeHdr
+		extSum := sentHdr
+		var mineAddr, extAddr string
+		var mineFromOuts, extFromOuts float64
 		for _, o := range outs {
-			if !o.mine && o.addr != "" && o.addr != "(non-p2pkh)" {
-				addr = o.addr
-				break
+			if o.mine {
+				mineFromOuts += o.amt
+				if mineAddr == "" && o.addr != "" && o.addr != "(non-p2pkh)" {
+					mineAddr = o.addr
+				}
+			} else if o.addr != "" && o.addr != "(non-p2pkh)" {
+				extFromOuts += o.amt
+				if extAddr == "" {
+					extAddr = o.addr
+				}
 			}
+		}
+		if mineFromOuts > 0 {
+			mineSum = mineFromOuts
+		}
+		if extFromOuts > 0 {
+			extSum = extFromOuts
+		}
+		const eps = 1e-9
+		var dir string
+		var amt float64
+		addr := ""
+		if debit > eps {
+			net := mineSum - debit
+			if math.Abs(net) < eps {
+				continue
+			}
+			if net < 0 {
+				dir = "out"
+				amt = round2(math.Abs(net))
+				addr = extAddr
+			} else {
+				dir = "in"
+				amt = round2(net)
+				addr = mineAddr
+			}
+		} else {
+			if mineSum > eps && extSum > eps {
+				dir = "in"
+				amt = round2(mineSum)
+				addr = mineAddr
+			} else if extSum > eps && mineSum <= eps {
+				dir = "out"
+				amt = round2(extSum + feeHdr)
+				addr = extAddr
+			} else if mineSum > eps {
+				dir = "in"
+				amt = round2(mineSum)
+				addr = mineAddr
+			} else if extSum > eps {
+				dir = "out"
+				amt = round2(extSum + feeHdr)
+				addr = extAddr
+			} else {
+				continue
+			}
+		}
+		if amt <= 0 {
+			continue
 		}
 		rows = append(rows, spvRESTTxRow{
 			Txid:        txid,
-			Direction:   "out",
-			AmountDOGE:  absFloat(sent),
+			Direction:   dir,
+			AmountDOGE:  amt,
 			Address:     addr,
 			BlockHeight: height,
 		})
@@ -929,18 +1001,17 @@ func (s *Server) mergeTransactionsFromSPVREST(st *WalletState, tipHeight, tipUni
 		return false
 	}
 	// Use multiple sources for coverage:
-	// - /getSpends (when present) lists outgoing txs keyed by spend txid — merge first so OUT rows win.
-	// - /getTransactions is the primary receive + external-spent history source
+	// - /getSpends (when present) lists wallet-affecting txs with debit/mine outputs — net row per txid (in or out).
+	// - /getTransactions lists spent wallet UTXOs (historical receives); default direction "in".
 	// - /getUTXOs fills gaps for receive-side rows some SPV builds omit from tx history
 	//
 	// Guardrail: libdogecoin /getTransactions only lists *spent* wallet UTXOs (see rest.c). Unspent outputs
 	// for the same funding txid only appear under /getUTXOs. Do not mark funding txids from /getTransactions
 	// here — that would drop still-unspent vouts when another vout from the same tx was already spent.
 	//
-	// Do mark spending txids (spend_txid) and /getSpends txids so /getUTXOs does not add change outputs
-	// for our own sends (Dogecoin Wallet–style OUT row stays authoritative).
+	// Mark spending txids (spend_txid) so /getUTXOs does not duplicate the spending payment row.
 	spendRows := parseSPVRESTGetSpends(spendRaw)
-	txRows := parseSPVRESTRows(txRaw, "unknown")
+	txRows := parseSPVRESTRows(txRaw, "in")
 	utxoRows := parseSPVRESTRows(utxoRaw, "in")
 	rows := make([]spvRESTTxRow, 0, len(spendRows)+len(txRows)+len(utxoRows))
 	rows = append(rows, spendRows...)

@@ -12,6 +12,9 @@
   --sidebar-w: 260px;
   --sidebar-collapsed: 72px;
   --input-bg: #0e141c;
+  --scroll-track: rgba(17, 24, 34, 0.92);
+  --scroll-thumb: rgba(212, 184, 74, 0.6);
+  --scroll-thumb-hover: rgba(242, 203, 44, 0.85);
   font-family: "Comic Neue", "Comic Sans MS", "Segoe UI", cursive, sans-serif;
   color: var(--text);
   background: var(--bg);
@@ -1150,6 +1153,8 @@ body {
   max-height: min(72vh, calc(100vh - 200px));
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) var(--scroll-track);
 }
 
 /* Transactions / Receive / Send: column under topbar; inner panels scroll */
@@ -1190,6 +1195,29 @@ body {
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
+}
+
+.tx-list-scroll::-webkit-scrollbar,
+#view-dashboard .dash-tx-list-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+
+.tx-list-scroll::-webkit-scrollbar-track,
+#view-dashboard .dash-tx-list-scroll::-webkit-scrollbar-track {
+  background: var(--scroll-track);
+  border-radius: 999px;
+}
+
+.tx-list-scroll::-webkit-scrollbar-thumb,
+#view-dashboard .dash-tx-list-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--scroll-thumb), rgba(62, 207, 142, 0.55));
+  border-radius: 999px;
+  border: 2px solid var(--scroll-track);
+}
+
+.tx-list-scroll::-webkit-scrollbar-thumb:hover,
+#view-dashboard .dash-tx-list-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, var(--scroll-thumb-hover), rgba(62, 207, 142, 0.75));
 }
 
 .tx-list-sentinel {
@@ -2246,6 +2274,8 @@ a {
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) var(--scroll-track);
 }
 
 .wallet-sync-chip {

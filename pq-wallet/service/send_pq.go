@@ -22,7 +22,7 @@ var reAmountDoge = regexp.MustCompile(`^\d+(\.\d+)?$`)
 // Relay default floor is 0.001 DOGE/kB. See: https://github.com/dogecoin/dogecoin/blob/master/doc/fee-recommendation.md
 const (
 	dogeDefaultFeePerKbKoinu = int64(1_000_000) // 0.01 DOGE/kB
-	dogeMinFeePerKbKoinu     = int64(100_000)  // 0.001 DOGE/kB
+	dogeMinFeePerKbKoinu     = int64(100_000)   // 0.001 DOGE/kB
 	dogeMaxFeePerKbKoinu     = int64(100_000_000)
 )
 
@@ -227,6 +227,8 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	econDowngraded := false
 	var errUtx error
 	var unsignedBase []byte
+	// Per-part carrier value actually passed to libdogecoin (may be clamped below PUP_PQ_CARRIER_KOINU / default 1 DOGE).
+	carrierKoinuApplied := carrierKoinu
 
 	for econPass := 0; econPass < 3; econPass++ {
 		pqCarrierExtendErr = ""
@@ -340,6 +342,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		carrierWish := includePQReveal && !carrierEnvDisabled &&
 			includePQCommitment && pqCommitment32Hex != "" && falconSigHex != "" &&
 			pqMode != "legacy_pubkey_hash_fallback"
+		carrierKoinuApplied = carrierKoinu
 		if carrierWish {
 			// libdogecoin carrier-extend path expects output #0 to be the wallet change output.
 			// Our normal tx build is [pay_to, change], so for carrier extension use a transient base
@@ -349,17 +352,43 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 					carrierBaseHex = hexMsgTx(carrierBase)
 				}
 			}
-			extHex, errC := s.runSuchFalconAddCommitAndCarrierTx(carrierBaseHex, pqCommitment32Hex, strings.TrimSpace(wf.PQPublicHex), falconSigHex, carrierKoinu, testnet)
-			if errC != nil {
-				pqCarrierExtendErr = errC.Error()
-			} else if b, errH := hex.DecodeString(extHex); errH != nil {
-				pqCarrierExtendErr = "decode falcon_add_commit_and_carrier_tx hex: " + errH.Error()
-			} else if len(b) <= 80 {
-				pqCarrierExtendErr = "falcon_add_commit_and_carrier_tx produced tx too short for carrier layout"
+			// libdogecoin deducts part_total × per_part_koinu from vout 0; default 1 DOGE/part exceeds small change
+			// (common on 0.03 DOGE sends) and aborts TX_C carrier — clamp per-part value to funded change headroom.
+			eff := carrierKoinu
+			if changeOut <= dustLimitKoinu {
+				pqCarrierExtendErr = fmt.Sprintf("PQC carrier needs change above dust on vout 0 (changeOut=%d koinu)", changeOut)
 			} else {
-				unsignedForSign = b
-				carrierFlow = true
-				pqMode = pqMode + "_carrier_txc"
+				pt := estimateCarrierPartTotal(strings.TrimSpace(wf.PQPublicHex), falconSigHex)
+				if pt < 1 {
+					pt = 1
+				}
+				maxTotal := changeOut - dustLimitKoinu
+				if maxTotal < 1 {
+					pqCarrierExtendErr = fmt.Sprintf("PQC carrier: no headroom after dust (changeOut=%d)", changeOut)
+				} else {
+					maxPer := maxTotal / int64(pt)
+					if maxPer < dustLimitKoinu {
+						pqCarrierExtendErr = fmt.Sprintf("PQC carrier: change %d koinu cannot fund %d part(s) at dust floor %d koinu/part", changeOut, pt, dustLimitKoinu)
+					} else if carrierKoinu > maxPer {
+						eff = maxPer
+						log.Printf("[pq-wallet] send_pq_safe PQC carrier per-part koinu clamped %d -> %d (changeOut=%d parts=%d)", carrierKoinu, eff, changeOut, pt)
+					}
+				}
+			}
+			carrierKoinuApplied = eff
+			if pqCarrierExtendErr == "" {
+				extHex, errC := s.runSuchFalconAddCommitAndCarrierTx(carrierBaseHex, pqCommitment32Hex, strings.TrimSpace(wf.PQPublicHex), falconSigHex, eff, testnet)
+				if errC != nil {
+					pqCarrierExtendErr = errC.Error()
+				} else if b, errH := hex.DecodeString(extHex); errH != nil {
+					pqCarrierExtendErr = "decode falcon_add_commit_and_carrier_tx hex: " + errH.Error()
+				} else if len(b) <= 80 {
+					pqCarrierExtendErr = "falcon_add_commit_and_carrier_tx produced tx too short for carrier layout"
+				} else {
+					unsignedForSign = b
+					carrierFlow = true
+					pqMode = pqMode + "_carrier_txc"
+				}
 			}
 		}
 
@@ -401,11 +430,11 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[pq-wallet] send_pq_safe no peers txid=%q signed_hex_len=%d diagnostics=%v sendtx_output=%q",
 			sendSummary.BroadcastTxID, len(rawHex), sendSummary.SendtxDiagnosticLines, truncateStr(sendOut, 600))
 		writeJSON(w, http.StatusBadGateway, map[string]any{
-			"error":            "sendtx connected to 0 peers; transaction was not propagated",
-			"signed_raw_hex":   rawHex,
-			"sendtx_output":    sendOut,
-			"sendtx_summary":   sendSummary,
-			"txid":             sendSummary.BroadcastTxID,
+			"error":          "sendtx connected to 0 peers; transaction was not propagated",
+			"signed_raw_hex": rawHex,
+			"sendtx_output":  sendOut,
+			"sendtx_summary": sendSummary,
+			"txid":           sendSummary.BroadcastTxID,
 		})
 		return
 	}
@@ -531,27 +560,28 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := map[string]any{
-		"ok":               true,
-		"code":             "sent",
-		"txid":             sendSummary.BroadcastTxID,
-		"signed_raw_hex":   rawHex,
-		"sendtx_output":    sendOut,
-		"sendtx_summary":   sendSummary,
-		"fee_koinu":        fee,
-		"fee_per_kb_koinu": feePerKbKoinu,
-		"fee_doge_per_kb":  float64(feePerKbKoinu) / 1e8,
-		"change_koinu":     change,
-		"inputs_used":      len(selected),
-		"pq_commitment":    pqCommitment32Hex != "",
-		"pq_commitment_32": pqCommitment32Hex,
-		"pq_mode":          pqMode,
+		"ok":                              true,
+		"code":                            "sent",
+		"txid":                            sendSummary.BroadcastTxID,
+		"signed_raw_hex":                  rawHex,
+		"sendtx_output":                   sendOut,
+		"sendtx_summary":                  sendSummary,
+		"fee_koinu":                       fee,
+		"fee_per_kb_koinu":                feePerKbKoinu,
+		"fee_doge_per_kb":                 float64(feePerKbKoinu) / 1e8,
+		"change_koinu":                    change,
+		"inputs_used":                     len(selected),
+		"pq_commitment":                   pqCommitment32Hex != "",
+		"pq_commitment_32":                pqCommitment32Hex,
+		"pq_mode":                         pqMode,
 		"pq_carrier_flow":                 carrierFlow,
-		"carrier_koinu":                   carrierKoinu,
+		"carrier_koinu":                   carrierKoinuApplied,
+		"carrier_koinu_configured":        carrierKoinu,
 		"pq_reveal_requested":             includePQCommitment && includePQReveal,
 		"pq_carrier_economics_downgraded": econDowngraded,
 		"signing_note":                    "ECDSA P2PKH via such -c sign. With libdogecoin liboqs: TX_C adds FLC1 OP_RETURN + canonical P2SH carrier; TX_R reveals Falcon payload via pqc_carrier_mkpart (+ multi-part set_scriptsig when the payload spans several carrier outputs).",
-		"transport":        "libdogecoin_sendtx_p2p",
-		"transport_note":   "Same model as Dogecoin Wallet (Android): broadcast is wallet-to-network P2P (here libdogecoin sendtx), not JSON-RPC sendrawtransaction to a local Core node.",
+		"transport":                       "libdogecoin_sendtx_p2p",
+		"transport_note":                  "Same model as Dogecoin Wallet (Android): broadcast is wallet-to-network P2P (here libdogecoin sendtx), not JSON-RPC sendrawtransaction to a local Core node.",
 	}
 	if txRID != "" {
 		resp["tx_r_txid"] = txRID
@@ -580,6 +610,22 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logBroadcastPQSafeSummary("send_pq_safe", txCTxid, pqMode, pqCommitment32Hex != "", carrierFlow, pqRevealRequested, carrierEnvDisabled, falconSigHex != "", econDowngraded, pqCarrierExtendErr, txRID, txRErr, pqRevealSkipReason, pqMkParts)
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// estimateCarrierPartTotal mirrors libdogecoin such_tx_add_commit_and_carrier_outputs (see pqc_carrier.h).
+func estimateCarrierPartTotal(pubHex, sigHex string) int {
+	pubHex = strings.TrimSpace(pubHex)
+	sigHex = strings.TrimSpace(sigHex)
+	if len(pubHex)%2 != 0 || len(sigHex)%2 != 0 {
+		return 1
+	}
+	fullLen := len(pubHex)/2 + len(sigHex)/2
+	const partPayloadMax = 3 * 520 // DOGECOIN_PQC_CARRIER_MAX_CHUNKS * DOGECOIN_PQC_CARRIER_CHUNK_MAX
+	pt := (fullLen + partPayloadMax - 1) / partPayloadMax
+	if pt < 1 {
+		return 1
+	}
+	return pt
 }
 
 func (s *Server) recordOutgoingLocalTx(txid, to string, sendKoinu int64, rawHex string, pqHint bool) {

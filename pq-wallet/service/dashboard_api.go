@@ -841,7 +841,14 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 			continue
 		}
 		tr := txListRow{TxRecord: t, Pending: t.Confirmations == 0}
-		if len(walletH160) > 0 && strings.TrimSpace(tr.RawHex) != "" && prevIdx != nil {
+		txKey := normalizeTxid(t.Txid)
+		// MemeTracker rows and local broadcast sends carry authoritative amount/address; raw-hex prevout
+		// decoding can mis-estimate mempool receives (e.g. treat wallet debits as "inputs") or fight MTR totals.
+		// Live mempool overlay rows must match the pending balance path (UpsertTracking), not a re-decoded guess.
+		skipRawHexEnrich := strings.EqualFold(strings.TrimSpace(t.Source), "memetracker") ||
+			(strings.EqualFold(strings.TrimSpace(t.Source), "manual") && strings.EqualFold(strings.TrimSpace(t.Direction), "out")) ||
+			(txKey != "" && mtrOverlay[txKey])
+		if !skipRawHexEnrich && len(walletH160) > 0 && strings.TrimSpace(tr.RawHex) != "" && prevIdx != nil {
 			fl, err := decodeSPVRawTxFlow(tr.RawHex, walletH160, testnet)
 			if err == nil {
 				net, _, _, netOk := walletNetFromPrevoutIndex(tr.RawHex, walletH160, testnet, prevIdx)

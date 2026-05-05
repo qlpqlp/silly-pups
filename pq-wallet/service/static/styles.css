@@ -1314,6 +1314,27 @@ body {
   white-space: nowrap;
 }
 
+.tx-quantum-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.14rem 0.52rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid rgba(74, 222, 128, 0.42);
+  color: #88f4b8;
+  background: rgba(74, 222, 128, 0.14);
+}
+
+.tx-quantum-badge.off {
+  border-color: rgba(255, 255, 255, 0.22);
+  color: rgba(233, 240, 250, 0.74);
+  background: rgba(255, 255, 255, 0.06);
+}
+
 .tx-addr-inline {
   flex: 1 1 auto;
   min-width: 0;
@@ -2057,11 +2078,48 @@ textarea {
 .out {
   max-height: 220px;
   overflow: auto;
-  background: var(--bg);
-  padding: 0.65rem;
-  border-radius: 8px;
-  border: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(9, 13, 19, 0.96), rgba(6, 9, 13, 0.96));
+  padding: 0.75rem;
+  border-radius: 10px;
+  border: 1px solid rgba(242, 203, 44, 0.22);
   margin-top: 0.5rem;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+}
+
+.out::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.out::-webkit-scrollbar-track {
+  background: var(--scroll-track);
+  border-radius: 999px;
+}
+
+.out::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--scroll-thumb), rgba(62, 207, 142, 0.52));
+  border-radius: 999px;
+  border: 2px solid var(--scroll-track);
+}
+
+.out::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, var(--scroll-thumb-hover), rgba(62, 207, 142, 0.75));
+}
+
+.log-out-wrap {
+  margin-top: 0.45rem;
+}
+
+.log-out-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.25rem;
+}
+
+.log-copy-btn {
+  font-size: 0.78rem;
+  padding: 0.28rem 0.6rem;
 }
 
 .hidden {
@@ -2530,6 +2588,16 @@ a {
   max-width: min(640px, 100vw - 2rem);
   width: 100%;
   margin: 0;
+}
+
+#tx-detail-title {
+  margin: 0;
+  font-size: 1.02rem;
+  letter-spacing: 0.01em;
+}
+
+#tx-detail-sub {
+  margin: 0.28rem 0 0.7rem;
 }
 
 .tx-detail-actions {

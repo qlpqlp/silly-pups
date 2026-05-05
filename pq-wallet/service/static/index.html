@@ -248,7 +248,14 @@
                     <p class="small muted" id="send-fee-hint"></p>
                   </div>
                   <button type="button" class="btn primary" id="btn-send-pq-safe"><span class="material-symbols-outlined btn-ico">lock</span> Send post-quantum safe transaction</button>
-                  <pre id="send-pq-out" class="mono small out"></pre>
+                  <div class="log-out-wrap">
+                    <div class="log-out-actions">
+                      <button type="button" class="btn btn-sm log-copy-btn" data-copy-target="send-pq-out">
+                        <span class="material-symbols-outlined btn-ico">content_copy</span> Copy logs
+                      </button>
+                    </div>
+                    <pre id="send-pq-out" class="mono small out"></pre>
+                  </div>
                 </div>
               </div>
 
@@ -272,7 +279,14 @@
                         <input type="text" class="input-modern" id="manual-peers" placeholder="empty = DNS seeds" />
                       </label>
                       <button type="button" class="btn primary" id="btn-manual-broadcast"><span class="material-symbols-outlined btn-ico">send</span> Broadcast via P2P</button>
-                      <pre id="manual-bc-out" class="mono small out"></pre>
+                      <div class="log-out-wrap">
+                        <div class="log-out-actions">
+                          <button type="button" class="btn btn-sm log-copy-btn" data-copy-target="manual-bc-out">
+                            <span class="material-symbols-outlined btn-ico">content_copy</span> Copy logs
+                          </button>
+                        </div>
+                        <pre id="manual-bc-out" class="mono small out"></pre>
+                      </div>
                     </div>
                     <div class="card send-manual-card">
                       <h3 class="send-manual-card-title">Advanced: ECDSA sign (unsigned hex)</h3>
@@ -282,7 +296,14 @@
                         <input type="number" class="input-modern" id="vin-idx" value="0" min="0" />
                       </label>
                       <button type="button" class="btn" id="btn-sign"><span class="material-symbols-outlined btn-ico">draw</span> Sign with primary key</button>
-                      <pre id="sign-out" class="mono small out"></pre>
+                      <div class="log-out-wrap">
+                        <div class="log-out-actions">
+                          <button type="button" class="btn btn-sm log-copy-btn" data-copy-target="sign-out">
+                            <span class="material-symbols-outlined btn-ico">content_copy</span> Copy logs
+                          </button>
+                        </div>
+                        <pre id="sign-out" class="mono small out"></pre>
+                      </div>
                     </div>
                   </div>
                 </div>

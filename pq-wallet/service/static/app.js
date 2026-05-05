@@ -1047,6 +1047,7 @@ function buildTxExpandableCard(tx, includeSource) {
   else if (nAmt != null && nAmt > 0) sign = "+";
   const amount = nAmt != null ? `${sign}${nAmt.toFixed(2)}` : "—";
   const seen = tx.seen_at ? fmtTime(tx.seen_at) : "—";
+  const pqHint = !!tx.pq_hint;
   const isConfirmed = conf > 0;
   const short = txidFull ? txidFull.slice(0, 18) + (txidFull.length > 18 ? "…" : "") : "—";
   const addrLine = String(tx.address || "").trim() || "—";
@@ -1072,8 +1073,12 @@ function buildTxExpandableCard(tx, includeSource) {
   addrEl.className = "tx-addr-inline mono";
   addrEl.textContent = addrLine;
   addrEl.title = addrLine;
+  const pqBadge = document.createElement("span");
+  pqBadge.className = "tx-quantum-badge" + (pqHint ? "" : " off");
+  pqBadge.textContent = pqHint ? "Quantum" : "Classic";
   row1.appendChild(statusDot);
   row1.appendChild(timeEl);
+  row1.appendChild(pqBadge);
   row1.appendChild(addrEl);
   left.appendChild(row1);
   const meta = document.createElement("div");
@@ -1119,7 +1124,7 @@ function buildTxExpandableCard(tx, includeSource) {
   if (dir === "out") {
     addRow("Network fee", Number.isFinite(feeN) && feeN > 0 ? `${feeN.toFixed(4)} DOGE` : "—", false);
   }
-  addRow("PQ", tx.pq_hint ? "Yes" : "No", false);
+  addRow("Security", tx.pq_hint ? "Quantum transaction" : "Classic transaction", false);
   if (includeSource) addRow("Source", tx.source || "—", false);
   if (txidFull) {
     const row = document.createElement("div");
@@ -1820,6 +1825,38 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+function txDetailPrettyText(localSummary, localDetail) {
+  const directionRaw = String(localSummary.direction || "").toLowerCase();
+  const direction = directionRaw === "in" ? "Incoming" : directionRaw === "out" ? "Outgoing" : "Unknown";
+  const amount =
+    localSummary.amount_doge != null && Number.isFinite(localSummary.amount_doge)
+      ? `${Number(localSummary.amount_doge).toFixed(8)} DOGE`
+      : "—";
+  const conf = Number(localSummary.confirmations || 0);
+  const lines = [
+    "Overview",
+    "--------",
+    `Txid: ${localSummary.txid || "—"}`,
+    `Direction: ${direction}`,
+    `Amount: ${amount}`,
+    `Confirmations: ${conf > 0 ? conf : 0}`,
+    `Source: ${localSummary.source || "spv"}`,
+    `Security: ${localSummary.pq_hint ? "Quantum (commitment detected)" : "Classic (no PQ hint)"}`,
+  ];
+  if (localSummary.pq_verified) {
+    lines.push("Reveal verification: PASSED");
+  }
+  if (localDetail && localDetail.local_raw_hex) {
+    lines.push(`Raw hex: captured (${String(localDetail.local_raw_hex).length} chars)`);
+  } else {
+    lines.push("Raw hex: not captured yet");
+  }
+  if (localDetail) {
+    lines.push("", "Local JSON", "----------", JSON.stringify(localDetail, null, 2));
+  }
+  return lines.join("\n");
+}
+
 /** SoChain explorer URL for current wallet network */
 function sochainTxUrl(txid) {
   const raw = String(txid || "").trim();
@@ -1850,8 +1887,8 @@ async function openTxDetailModal(tx) {
     pq_verified: !!(tx && tx.pq_verified),
   };
   let localDetail = null;
-  body.textContent = JSON.stringify({ local_tx: localSummary }, null, 2);
-  if (sub) sub.textContent = "Local SPV/P2P wallet data only.";
+  body.textContent = txDetailPrettyText(localSummary, null);
+  if (sub) sub.textContent = "Clean summary first, then local JSON details.";
   if (ext) {
     ext.href = sochainTxUrl(txid);
     ext.textContent = "Open on SoChain";
@@ -1863,18 +1900,11 @@ async function openTxDetailModal(tx) {
       if (localRes.local_raw_hex && /^[0-9a-f]+$/i.test(String(localRes.local_raw_hex))) {
         state.txDetailHex = String(localRes.local_raw_hex).trim();
       }
-      body.textContent = JSON.stringify(
-        {
-          local_tx: localSummary,
-          local_detail: localRes,
-        },
-        null,
-        2
-      ).slice(0, 500000);
+      body.textContent = txDetailPrettyText(localSummary, localRes).slice(0, 500000);
       if (sub) {
         sub.textContent = state.txDetailHex
-          ? "Local SPV/P2P details with raw hex captured from P2P tx relay."
-          : "Local SPV/P2P details (raw hex not captured yet for this tx).";
+          ? "Modern summary with local SPV/P2P data (raw hex captured)."
+          : "Modern summary with local SPV/P2P data (raw hex not captured yet).";
       }
     }
   } catch {
@@ -1887,6 +1917,32 @@ async function openTxDetailModal(tx) {
 function closeTxDetailModal() {
   const modal = $("tx-detail-modal");
   if (modal) modal.classList.add("hidden");
+}
+
+function initLogCopyButtons() {
+  const buttons = document.querySelectorAll(".log-copy-btn[data-copy-target]");
+  buttons.forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const targetId = btn.getAttribute("data-copy-target");
+      if (!targetId) return;
+      const el = $(targetId);
+      const text = el ? String(el.textContent || "").trim() : "";
+      if (!text) {
+        alert("No logs to copy yet.");
+        return;
+      }
+      try {
+        await copyTextToClipboard(text);
+        const prev = btn.innerHTML;
+        btn.innerHTML = '<span class="material-symbols-outlined btn-ico">check</span> Copied';
+        setTimeout(() => {
+          btn.innerHTML = prev;
+        }, 1200);
+      } catch {
+        alert("Could not copy logs to clipboard.");
+      }
+    });
+  });
 }
 
 function getPrimaryAddress(w) {
@@ -2726,6 +2782,7 @@ if (btnTxCopyRaw) {
     await copyTextToClipboard(h);
   });
 }
+initLogCopyButtons();
 
 if (typeof Notification !== "undefined" && Notification.permission === "default") {
   Notification.requestPermission().catch(() => {});

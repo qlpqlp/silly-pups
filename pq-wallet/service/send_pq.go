@@ -218,6 +218,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	var toScript, changeScript []byte
 	var unsignedForSign []byte
 	var baseHex string
+	var carrierBaseHex string
 	var pqCommitment32Hex string
 	var pqMode string
 	var falconSigHex string
@@ -298,6 +299,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		baseHex = hexMsgTx(unsignedBase)
+		carrierBaseHex = baseHex
 
 		pqCommitment32Hex = ""
 		pqMode = "none"
@@ -339,7 +341,15 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 			includePQCommitment && pqCommitment32Hex != "" && falconSigHex != "" &&
 			pqMode != "legacy_pubkey_hash_fallback"
 		if carrierWish {
-			extHex, errC := s.runSuchFalconAddCommitAndCarrierTx(baseHex, pqCommitment32Hex, strings.TrimSpace(wf.PQPublicHex), falconSigHex, carrierKoinu, testnet)
+			// libdogecoin carrier-extend path expects output #0 to be the wallet change output.
+			// Our normal tx build is [pay_to, change], so for carrier extension use a transient base
+			// with [change, pay_to] to keep TX_R automation deterministic.
+			if changeOut > dustLimitKoinu && sendKoinu > 0 {
+				if carrierBase, errCarrierBase := buildUnsignedDogeP2PKH(selected, changeScript, changeOut, toScript, sendKoinu, ""); errCarrierBase == nil {
+					carrierBaseHex = hexMsgTx(carrierBase)
+				}
+			}
+			extHex, errC := s.runSuchFalconAddCommitAndCarrierTx(carrierBaseHex, pqCommitment32Hex, strings.TrimSpace(wf.PQPublicHex), falconSigHex, carrierKoinu, testnet)
 			if errC != nil {
 				pqCarrierExtendErr = errC.Error()
 			} else if b, errH := hex.DecodeString(extHex); errH != nil {

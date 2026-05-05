@@ -659,6 +659,10 @@ func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any
 		rawHex := strings.TrimSpace(jsonStringAny(m["raw_hex"]))
 		if idx, ok := byTxid[txid]; ok {
 			row := &st.Transactions[idx]
+			addrLive := strings.TrimSpace(jsonStringAny(m["address"]))
+			if addrLive == "" {
+				addrLive = strings.TrimSpace(jsonStringAny(m["tracked_address"]))
+			}
 			if row.AmountDOGE == 0 && amt > 0 {
 				row.AmountDOGE = amt
 				changed = true
@@ -671,11 +675,9 @@ func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any
 				row.Direction = "in"
 				changed = true
 			}
-			if row.Address == "" {
-				if addr := strings.TrimSpace(jsonStringAny(m["tracked_address"])); addr != "" {
-					row.Address = addr
-					changed = true
-				}
+			if row.Address == "" && addrLive != "" {
+				row.Address = addrLive
+				changed = true
 			}
 			if row.Source == "" || strings.EqualFold(row.Source, "spv") {
 				row.Source = "memetracker"
@@ -683,12 +685,16 @@ func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any
 			}
 			continue
 		}
+		addrNew := strings.TrimSpace(jsonStringAny(m["address"]))
+		if addrNew == "" {
+			addrNew = strings.TrimSpace(jsonStringAny(m["tracked_address"]))
+		}
 		incoming = append(incoming, TxRecord{
 			Txid:          txid,
 			Direction:     "in",
 			AmountDOGE:    amt,
 			RawHex:        rawHex,
-			Address:       strings.TrimSpace(jsonStringAny(m["tracked_address"])),
+			Address:       addrNew,
 			Source:        "memetracker",
 			Confirmations: 0,
 			SeenAt:        time.Now().UTC(),
@@ -866,7 +872,11 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 							tr.Address = fl.WalletAddr
 						}
 					}
-				} else if fl.ExternalSats > 0 {
+				} else if fl.ExternalSats > 0 && fl.WalletSats == 0 {
+					// Only treat as a pure outbound payment when this tx has no P2PKH credits to us.
+					// Incoming payments often include the sender's change output; with mempool txs the
+					// prevout graph is usually incomplete so netOk is false — do not rewrite as OUT using
+					// CounterpartySats (that can be the sender's change, not our receive).
 					tr.Direction = "out"
 					paySats := fl.CounterpartySats
 					if paySats <= 0 {

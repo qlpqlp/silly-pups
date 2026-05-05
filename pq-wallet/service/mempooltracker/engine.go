@@ -1494,11 +1494,12 @@ func (m *MetricsCollector) markTrackedHit(txid, address string, amountDoge float
 		}
 	}
 	row.TrackedMatch = true
-	if strings.TrimSpace(address) != "" {
-		row.Address = address
+	if a := strings.TrimSpace(address); a != "" && strings.TrimSpace(row.Address) == "" {
+		row.Address = a
 	}
 	if amountDoge > 0 {
-		row.AmountDoge = amountDoge
+		// One tx can pay multiple watched addresses in the same wallet; sum credits for dashboard/list rows.
+		row.AmountDoge += amountDoge
 	}
 	m.liveTxByID[txid] = row
 }

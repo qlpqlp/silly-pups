@@ -662,19 +662,19 @@ func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any
 		rawHex := strings.TrimSpace(jsonStringAny(m["raw_hex"]))
 		if idx, ok := byTxid[txid]; ok {
 			row := &st.Transactions[idx]
-			// Wallet-originated spends (manual or broadcast-log "out") must not be rewritten: MemeTracker
-			// also matches those txids from change outputs and would force direction "in" + wrong amount.
-			if strings.EqualFold(strings.TrimSpace(row.Direction), "out") &&
-				!strings.EqualFold(strings.TrimSpace(row.Source), "memetracker") {
+			addrLive := strings.TrimSpace(jsonStringAny(m["address"]))
+			if addrLive == "" {
+				addrLive = strings.TrimSpace(jsonStringAny(m["tracked_address"]))
+			}
+			// Wallet-recorded sends (broadcast / PQ) must not be overwritten by MemeTracker: it only sums
+			// credits to watched addresses (often change), and would flip direction to "in" — then change-echo
+			// heuristics can hide the row from the activity list entirely.
+			if strings.EqualFold(strings.TrimSpace(row.Source), "manual") && strings.EqualFold(strings.TrimSpace(row.Direction), "out") {
 				if row.RawHex == "" && rawHex != "" {
 					row.RawHex = rawHex
 					changed = true
 				}
 				continue
-			}
-			addrLive := strings.TrimSpace(jsonStringAny(m["address"]))
-			if addrLive == "" {
-				addrLive = strings.TrimSpace(jsonStringAny(m["tracked_address"]))
 			}
 			// For unconfirmed rows, MemeTracker is the authoritative mempool amount/address view.
 			// SPV REST can surface partial/decode-misaligned values before confirmation.
@@ -749,6 +749,9 @@ func coinbaseLikePrevout(txid string, vout uint32) bool {
 // third-party prevouts (not in the index as wallet-owned, or funded by a tx not in outTxids).
 func txIsLikelyWalletChangeEcho(t TxRecord, wf *WalletFile, testnet bool, walletH160 map[string]string, outTxids map[string]struct{}, prevIdx map[string]prevoutWalletMeta) bool {
 	if wf == nil || len(walletH160) == 0 || prevIdx == nil || len(prevIdx) == 0 {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(t.Source), "manual") && strings.EqualFold(strings.TrimSpace(t.Direction), "out") {
 		return false
 	}
 	if strings.EqualFold(strings.TrimSpace(t.Source), "memetracker") {
@@ -936,8 +939,8 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 		}
 		if mtrOverlay[normalizeTxid(t.Txid)] && t.Confirmations == 0 {
 			tr.Pending = true
-			if !(strings.EqualFold(strings.TrimSpace(t.Direction), "out") &&
-				!strings.EqualFold(strings.TrimSpace(t.Source), "memetracker")) {
+			// Keep local send rows labeled manual so list enrichment stays authoritative for payee + amount.
+			if !(strings.EqualFold(strings.TrimSpace(t.Source), "manual") && strings.EqualFold(strings.TrimSpace(t.Direction), "out")) {
 				tr.Source = "memetracker"
 			}
 		}

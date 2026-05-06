@@ -481,11 +481,9 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	var txMtrLive []map[string]any
 	if engTx != nil && engTxErr == nil {
-		_, mtrLive, _, _ := engTx.DashboardSnapshot()
-		if s.persistMemeTrackerTxs(st, mtrLive) {
-			_ = s.saveState(st)
-		}
+		_, txMtrLive, _, _ = engTx.DashboardSnapshot()
 	}
 	logTail, _ := spv["log_tail"].(string)
 	changed := false
@@ -509,7 +507,12 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 		suchChanged = s.mergeTransactionsFromSuchListUnspent(wf, st)
 	}
 	enrichedChanged := s.enrichSPVTxFromRawHex(st, wf)
-	if changed || rawChanged || confirmChanged || proofMetaChanged || enrichedChanged || restChanged || bcChanged || bcRawChanged || suchChanged {
+	// Keep MemeTracker authoritative for unconfirmed mempool tx rows after SPV/REST/raw enrich merges.
+	mtrChanged := false
+	if len(txMtrLive) > 0 {
+		mtrChanged = s.persistMemeTrackerTxs(st, txMtrLive)
+	}
+	if changed || rawChanged || confirmChanged || proofMetaChanged || enrichedChanged || restChanged || bcChanged || bcRawChanged || suchChanged || mtrChanged {
 		_ = s.saveState(st)
 	}
 	s.stateMergeMu.Unlock()

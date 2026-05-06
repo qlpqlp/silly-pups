@@ -663,7 +663,9 @@ func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any
 			if addrLive == "" {
 				addrLive = strings.TrimSpace(jsonStringAny(m["tracked_address"]))
 			}
-			if row.AmountDOGE == 0 && amt > 0 {
+			// For unconfirmed rows, MemeTracker is the authoritative mempool amount/address view.
+			// SPV REST can surface partial/decode-misaligned values before confirmation.
+			if row.Confirmations == 0 && amt > 0 && round2(row.AmountDOGE) != round2(amt) {
 				row.AmountDOGE = amt
 				changed = true
 			}
@@ -671,15 +673,19 @@ func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any
 				row.RawHex = rawHex
 				changed = true
 			}
-			if row.Direction == "" || strings.EqualFold(row.Direction, "unknown") {
+			if row.Confirmations == 0 && !strings.EqualFold(strings.TrimSpace(row.Direction), "in") {
 				row.Direction = "in"
 				changed = true
 			}
-			if row.Address == "" && addrLive != "" {
+			if row.Confirmations == 0 && addrLive != "" && !strings.EqualFold(strings.TrimSpace(row.Address), addrLive) {
 				row.Address = addrLive
 				changed = true
 			}
-			if row.Source == "" || strings.EqualFold(row.Source, "spv") {
+			if row.Confirmations == 0 && !strings.EqualFold(strings.TrimSpace(row.Source), "manual") &&
+				!strings.EqualFold(strings.TrimSpace(row.Source), "memetracker") {
+				row.Source = "memetracker"
+				changed = true
+			} else if row.Source == "" || strings.EqualFold(row.Source, "spv") {
 				row.Source = "memetracker"
 				changed = true
 			}

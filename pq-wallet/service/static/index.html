@@ -383,6 +383,11 @@
               <button type="button" class="btn btn-sm primary" id="btn-spv-rest-probe"><span class="material-symbols-outlined btn-ico">play_arrow</span> Fetch response</button>
             </div>
             <p class="small muted" id="spv-rest-probe-msg"></p>
+            <div class="log-out-actions">
+              <button type="button" class="btn btn-sm log-copy-btn" data-copy-target="spv-rest-probe-out">
+                <span class="material-symbols-outlined btn-ico">content_copy</span> Copy logs
+              </button>
+            </div>
             <pre class="dos-screen" id="spv-rest-probe-out" style="min-height:10rem;margin-top:.5rem">Unlock the wallet, choose an endpoint, then Fetch response.</pre>
             </div>
           </details>
@@ -414,15 +419,30 @@
             <div class="dos-grid dos-grid-3">
               <div class="card dos-panel">
                 <h3>MemeTracker (embedded P2P)</h3>
+                <div class="log-out-actions">
+                  <button type="button" class="btn btn-sm log-copy-btn" data-copy-target="log-mtr">
+                    <span class="material-symbols-outlined btn-ico">content_copy</span> Copy logs
+                  </button>
+                </div>
                 <pre class="dos-screen" id="log-mtr">…</pre>
               </div>
               <div class="card dos-panel">
                 <h3>broadcast.log</h3>
+                <div class="log-out-actions">
+                  <button type="button" class="btn btn-sm log-copy-btn" data-copy-target="log-bc">
+                    <span class="material-symbols-outlined btn-ico">content_copy</span> Copy logs
+                  </button>
+                </div>
                 <pre class="dos-screen" id="log-bc">…</pre>
               </div>
               <div class="card dos-panel">
                 <h3>SPV live tip (dashboard)</h3>
                 <p class="small muted" style="margin:.35rem 0 .5rem">Header height / best hash from <code class="mono">/api/dashboard</code> (refreshes with the dashboard).</p>
+                <div class="log-out-actions">
+                  <button type="button" class="btn btn-sm log-copy-btn" data-copy-target="log-spv-headers">
+                    <span class="material-symbols-outlined btn-ico">content_copy</span> Copy logs
+                  </button>
+                </div>
                 <pre class="dos-screen" id="log-spv-headers">…</pre>
                 <div class="toolbar toolbar-actions" style="margin-top:.65rem;flex-wrap:wrap;gap:.5rem">
                   <span class="small muted" style="flex:1 1 220px"><code class="mono">/api/logs/spv-deep</code> — classify spv.log + optional <code class="mono">headers.db</code> raw header bytes.</span>
@@ -470,10 +490,20 @@
                   <input type="text" class="input-modern spv-deep-height-input" id="spv-deep-height" placeholder="5912345" inputmode="numeric" spellcheck="false" autocomplete="off" />
                 </label>
                 <h3 class="chart-sub" style="margin-top:.25rem">SPV deep digest</h3>
+                <div class="log-out-actions">
+                  <button type="button" class="btn btn-sm log-copy-btn" data-copy-target="log-spv-deep">
+                    <span class="material-symbols-outlined btn-ico">content_copy</span> Copy logs
+                  </button>
+                </div>
                 <pre class="dos-screen" id="log-spv-deep" style="min-height:9rem">Enable options above and press Refresh deep (or open Settings — it auto-refreshes).</pre>
                 <div class="toolbar toolbar-actions" style="margin-top:.75rem;flex-wrap:wrap;gap:.5rem">
                   <span class="small muted" style="flex:1 1 240px"><code class="mono">/api/debug/spv-ledger</code> — JSON snapshot: SPV REST raw bodies, parsed tx rows, <code class="mono">headers.db</code> probe, <code class="mono">state.json</code> tx sample, broadcast txids.</span>
                   <button type="button" class="btn btn-sm" id="btn-spv-ledger-refresh"><span class="material-symbols-outlined btn-ico">database</span> Fetch ledger snapshot</button>
+                </div>
+                <div class="log-out-actions">
+                  <button type="button" class="btn btn-sm log-copy-btn" data-copy-target="log-spv-ledger">
+                    <span class="material-symbols-outlined btn-ico">content_copy</span> Copy logs
+                  </button>
                 </div>
                 <pre class="dos-screen" id="log-spv-ledger" style="min-height:6rem;margin-top:.45rem">Press Fetch ledger snapshot (wallet must be unlocked).</pre>
               </div>

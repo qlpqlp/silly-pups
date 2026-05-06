@@ -17,6 +17,7 @@ import (
 )
 
 var reAmountDoge = regexp.MustCompile(`^\d+(\.\d+)?$`)
+var reCarrierTooSmall = regexp.MustCompile(`change output \((\d+)\) too small for carrier total \((\d+)\)`)
 
 // Dogecoin Core wallet recommendation: 0.01 DOGE per kilobyte; fee = rate × (tx_vbytes / 1000) rounded up.
 // Relay default floor is 0.001 DOGE/kB. See: https://github.com/dogecoin/dogecoin/blob/master/doc/fee-recommendation.md
@@ -380,14 +381,41 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 				extHex, errC := s.runSuchFalconAddCommitAndCarrierTx(carrierBaseHex, pqCommitment32Hex, strings.TrimSpace(wf.PQPublicHex), falconSigHex, eff, testnet)
 				if errC != nil {
 					pqCarrierExtendErr = errC.Error()
-				} else if b, errH := hex.DecodeString(extHex); errH != nil {
-					pqCarrierExtendErr = "decode falcon_add_commit_and_carrier_tx hex: " + errH.Error()
-				} else if len(b) <= 80 {
-					pqCarrierExtendErr = "falcon_add_commit_and_carrier_tx produced tx too short for carrier layout"
-				} else {
-					unsignedForSign = b
-					carrierFlow = true
-					pqMode = pqMode + "_carrier_txc"
+					// Safety net: if libdogecoin still reports "change output too small", parse values and retry once
+					// with a reduced per-part carrier koinu. This helps when stale binaries/config kept default 1 DOGE.
+					if m := reCarrierTooSmall.FindStringSubmatch(pqCarrierExtendErr); len(m) >= 3 && eff > 0 {
+						chgParsed, _ := strconv.ParseInt(strings.TrimSpace(m[1]), 10, 64)
+						totalParsed, _ := strconv.ParseInt(strings.TrimSpace(m[2]), 10, 64)
+						if chgParsed > dustLimitKoinu && totalParsed > 0 {
+							parts := int64(totalParsed / eff)
+							if parts < 1 {
+								parts = 1
+							}
+							maxPer := (chgParsed - dustLimitKoinu) / parts
+							if maxPer >= dustLimitKoinu && maxPer < eff {
+								log.Printf("[pq-wallet] send_pq_safe carrier retry with reduced per-part koinu %d -> %d (parsed change=%d total=%d parts=%d)",
+									eff, maxPer, chgParsed, totalParsed, parts)
+								if extHex2, errC2 := s.runSuchFalconAddCommitAndCarrierTx(carrierBaseHex, pqCommitment32Hex, strings.TrimSpace(wf.PQPublicHex), falconSigHex, maxPer, testnet); errC2 == nil {
+									carrierKoinuApplied = maxPer
+									extHex = extHex2
+									pqCarrierExtendErr = ""
+								} else {
+									pqCarrierExtendErr = errC2.Error()
+								}
+							}
+						}
+					}
+				}
+				if pqCarrierExtendErr == "" {
+					if b, errH := hex.DecodeString(extHex); errH != nil {
+						pqCarrierExtendErr = "decode falcon_add_commit_and_carrier_tx hex: " + errH.Error()
+					} else if len(b) <= 80 {
+						pqCarrierExtendErr = "falcon_add_commit_and_carrier_tx produced tx too short for carrier layout"
+					} else {
+						unsignedForSign = b
+						carrierFlow = true
+						pqMode = pqMode + "_carrier_txc"
+					}
 				}
 			}
 		}

@@ -21,6 +21,35 @@ func phase1PQTaggedCommitInRawHex(rawHex string) bool {
 	return strings.Contains(s, "6a24464c4331") || strings.Contains(s, "6a2444494c32") || strings.Contains(s, "6a2452434734")
 }
 
+func pqCommitTag4FromRawHex(rawHex string) string {
+	s := strings.TrimSpace(strings.ToLower(rawHex))
+	if strings.Contains(s, "6a24464c4331") {
+		return "FLC1"
+	}
+	if strings.Contains(s, "6a2444494c32") {
+		return "DIL2"
+	}
+	if strings.Contains(s, "6a2452434734") {
+		return "RCG4"
+	}
+	return ""
+}
+
+func pqRevealTag4FromRawHex(rawHex string) string {
+	s := strings.TrimSpace(strings.ToLower(rawHex))
+	// TAG8 in carrier reveal scriptsig: FLC1FULL / DIL2FULL / RCG4FULL.
+	if strings.Contains(s, "464c433146554c4c") {
+		return "FLC1"
+	}
+	if strings.Contains(s, "44494c3246554c4c") {
+		return "DIL2"
+	}
+	if strings.Contains(s, "5243473446554c4c") {
+		return "RCG4"
+	}
+	return ""
+}
+
 // firstInputPrevTxidFromRawHex returns the canonical prevout txid for the first non-coinbase input
 // (wire hash byte-reversed to match explorer / normalizeTxid form). Empty if not parseable.
 func firstInputPrevTxidFromRawHex(rawHex string) string {
@@ -558,19 +587,126 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 			changed = true
 		}
 	}
+	commitByTxid := make(map[string]string)
+	type revealMeta struct {
+		txid string
+		prev string
+		tag4 string
+	}
+	var reveals []revealMeta
 	for i := range st.Transactions {
 		tx := &st.Transactions[i]
 		raw := strings.TrimSpace(tx.RawHex)
 		if raw == "" {
 			continue
 		}
-		if strings.EqualFold(strings.TrimSpace(tx.Source), "manual") && strings.EqualFold(strings.TrimSpace(tx.Direction), "out") {
-			continue
+		commitTag := pqCommitTag4FromRawHex(raw)
+		revealTag := pqRevealTag4FromRawHex(raw)
+		switch {
+		case commitTag != "":
+			if !tx.PQHint {
+				tx.PQHint = true
+				changed = true
+			}
+			if tx.PQType != "commitment" {
+				tx.PQType = "commitment"
+				changed = true
+			}
+			if tx.PQTag4 != commitTag {
+				tx.PQTag4 = commitTag
+				changed = true
+			}
+			if tx.PQSource != "op_return" {
+				tx.PQSource = "op_return"
+				changed = true
+			}
+			id := normalizeTxid(tx.Txid)
+			if id != "" {
+				commitByTxid[id] = commitTag
+			}
+		case revealTag != "":
+			if !tx.PQHint {
+				tx.PQHint = true
+				changed = true
+			}
+			if tx.PQType != "reveal" {
+				tx.PQType = "reveal"
+				changed = true
+			}
+			if tx.PQTag4 != revealTag {
+				tx.PQTag4 = revealTag
+				changed = true
+			}
+			if tx.PQSource != "carrier_scriptsig" {
+				tx.PQSource = "carrier_scriptsig"
+				changed = true
+			}
+			id := normalizeTxid(tx.Txid)
+			if id != "" {
+				reveals = append(reveals, revealMeta{
+					txid: id,
+					prev: firstInputPrevTxidFromRawHex(raw),
+					tag4: revealTag,
+				})
+			}
+		default:
+			want := phase1PQTaggedCommitInRawHex(raw)
+			if tx.PQHint != want {
+				tx.PQHint = want
+				changed = true
+			}
+			if !want {
+				if tx.PQType != "" {
+					tx.PQType = ""
+					changed = true
+				}
+				if tx.PQTag4 != "" {
+					tx.PQTag4 = ""
+					changed = true
+				}
+				if tx.PQSource != "" {
+					tx.PQSource = ""
+					changed = true
+				}
+			}
 		}
-		want := phase1PQTaggedCommitInRawHex(raw)
-		if tx.PQHint != want {
-			tx.PQHint = want
-			changed = true
+	}
+	if len(reveals) > 0 && len(commitByTxid) > 0 {
+		for _, rv := range reveals {
+			if rv.prev == "" {
+				continue
+			}
+			ctag, ok := commitByTxid[rv.prev]
+			if !ok || (ctag != "" && rv.tag4 != "" && ctag != rv.tag4) {
+				continue
+			}
+			for i := range st.Transactions {
+				id := normalizeTxid(st.Transactions[i].Txid)
+				if id == rv.txid {
+					if st.Transactions[i].PQPairTxid != rv.prev {
+						st.Transactions[i].PQPairTxid = rv.prev
+						changed = true
+					}
+					if !st.Transactions[i].PQVerified {
+						st.Transactions[i].PQVerified = true
+						changed = true
+					}
+					if st.Transactions[i].PQSource != "carrier_link" {
+						st.Transactions[i].PQSource = "carrier_link"
+						changed = true
+					}
+				}
+				if id == rv.prev {
+					if st.Transactions[i].PQPairTxid != rv.txid {
+						st.Transactions[i].PQPairTxid = rv.txid
+						changed = true
+					}
+					if !st.Transactions[i].PQVerified {
+						st.Transactions[i].PQVerified = true
+						changed = true
+					}
+				}
+			}
 		}
 	}
 	return changed

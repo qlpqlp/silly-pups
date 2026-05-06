@@ -57,6 +57,33 @@ async function api(path, opts) {
   }
 }
 
+async function ensurePinForSensitiveAction(actionLabel) {
+  try {
+    const sec = await api("/api/security/status");
+    if (!sec || !sec.sealed) return true;
+    const promptLabel = actionLabel || "this action";
+    const pin = window.prompt(`Enter wallet PIN to authorize ${promptLabel}:`, "");
+    if (pin == null) return false;
+    const cleaned = String(pin).trim();
+    if (!cleaned) {
+      alert("PIN is required.");
+      return false;
+    }
+    const res = await api("/api/security/unlock", {
+      method: "POST",
+      body: JSON.stringify({ pin: cleaned }),
+    });
+    if (!res || res.error) {
+      alert((res && res.error) ? String(res.error) : "Could not verify PIN.");
+      return false;
+    }
+    return true;
+  } catch (e) {
+    alert(e && e.message ? e.message : "Could not verify PIN.");
+    return false;
+  }
+}
+
 /** Non-secure origins (HTTP): Async Clipboard is unavailable; use legacy copy. */
 function unsecuredCopyToClipboard(text) {
   const s = String(text ?? "");
@@ -1048,6 +1075,8 @@ function buildTxExpandableCard(tx, includeSource) {
   const amount = nAmt != null ? `${sign}${nAmt.toFixed(2)}` : "—";
   const seen = tx.seen_at ? fmtTime(tx.seen_at) : "—";
   const pqHint = !!tx.pq_hint;
+  const pqType = String(tx.pq_type || "").toLowerCase();
+  const pqVerified = !!tx.pq_verified;
   const isConfirmed = conf > 0;
   const short = txidFull ? txidFull.slice(0, 18) + (txidFull.length > 18 ? "…" : "") : "—";
   const addrLine = String(tx.address || "").trim() || "—";
@@ -1075,7 +1104,10 @@ function buildTxExpandableCard(tx, includeSource) {
   addrEl.title = addrLine;
   const pqBadge = document.createElement("span");
   pqBadge.className = "tx-quantum-badge" + (pqHint ? "" : " off");
-  pqBadge.textContent = pqHint ? "Quantum" : "Classic";
+  if (pqHint && pqVerified) pqBadge.textContent = "Quantum Verified";
+  else if (pqHint && pqType === "reveal") pqBadge.textContent = "Quantum Reveal";
+  else if (pqHint && pqType === "commitment") pqBadge.textContent = "Quantum Commit";
+  else pqBadge.textContent = pqHint ? "Quantum" : "Classic";
   row1.appendChild(statusDot);
   row1.appendChild(timeEl);
   row1.appendChild(pqBadge);
@@ -1124,7 +1156,16 @@ function buildTxExpandableCard(tx, includeSource) {
   if (dir === "out") {
     addRow("Network fee", Number.isFinite(feeN) && feeN > 0 ? `${feeN.toFixed(4)} DOGE` : "—", false);
   }
-  addRow("Security", tx.pq_hint ? "Quantum transaction" : "Classic transaction", false);
+  const secLabel = tx.pq_hint
+    ? (
+      tx.pq_verified ? "Quantum verified (TX_C/TX_R linked)"
+      : (String(tx.pq_type || "").toLowerCase() === "reveal" ? "Quantum reveal transaction"
+        : String(tx.pq_type || "").toLowerCase() === "commitment" ? "Quantum commitment transaction"
+          : "Quantum transaction")
+    )
+    : "Classic transaction";
+  addRow("Security", secLabel, false);
+  if (tx.pq_pair_txid) addRow("Quantum pair", String(tx.pq_pair_txid), true);
   if (includeSource) addRow("Source", tx.source || "—", false);
   if (txidFull) {
     const row = document.createElement("div");
@@ -1841,10 +1882,24 @@ function txDetailPrettyText(localSummary, localDetail) {
     `Amount: ${amount}`,
     `Confirmations: ${conf > 0 ? conf : 0}`,
     `Source: ${localSummary.source || "spv"}`,
-    `Security: ${localSummary.pq_hint ? "Quantum (commitment detected)" : "Classic (no PQ hint)"}`,
+    `Security: ${localSummary.pq_hint ? (
+      localSummary.pq_verified
+        ? "Quantum (verified TX_C/TX_R pair)"
+        : (localSummary.pq_type === "reveal"
+          ? "Quantum reveal (carrier scriptsig detected)"
+          : localSummary.pq_type === "commitment"
+            ? "Quantum commitment (OP_RETURN tag detected)"
+            : "Quantum (PQ hint detected)")
+    ) : "Classic (no PQ hint)"}`,
   ];
   if (localSummary.pq_verified) {
     lines.push("Reveal verification: PASSED");
+  }
+  if (localSummary.pq_tag4) {
+    lines.push(`PQ tag: ${localSummary.pq_tag4}`);
+  }
+  if (localSummary.pq_pair_txid) {
+    lines.push(`PQ pair txid: ${localSummary.pq_pair_txid}`);
   }
   if (localDetail && localDetail.local_raw_hex) {
     lines.push(`Raw hex: captured (${String(localDetail.local_raw_hex).length} chars)`);
@@ -1885,6 +1940,9 @@ async function openTxDetailModal(tx) {
     pending: !!(tx && tx.pending),
     pq_hint: !!(tx && tx.pq_hint),
     pq_verified: !!(tx && tx.pq_verified),
+    pq_type: tx && tx.pq_type ? String(tx.pq_type).toLowerCase() : "",
+    pq_tag4: tx && tx.pq_tag4 ? String(tx.pq_tag4).toUpperCase() : "",
+    pq_pair_txid: tx && tx.pq_pair_txid ? String(tx.pq_pair_txid) : "",
   };
   let localDetail = null;
   body.textContent = txDetailPrettyText(localSummary, null);
@@ -2349,6 +2407,7 @@ if (btnSpvRepairClose) btnSpvRepairClose.addEventListener("click", closeSpvRepai
 
 
 document.getElementById("btn-backup").addEventListener("click", async () => {
+  if (!(await ensurePinForSensitiveAction("backup"))) return;
   const data = await api("/api/wallet");
   if (!data.wallet) return;
   const blob = new Blob([JSON.stringify(data.wallet, null, 2)], { type: "application/json" });
@@ -2364,6 +2423,7 @@ document.getElementById("delete-confirm").addEventListener("input", (e) => {
 });
 
 document.getElementById("btn-delete").addEventListener("click", async () => {
+  if (!(await ensurePinForSensitiveAction("wallet deletion"))) return;
   if (!confirm("Permanently delete wallet and SPV data on this pup?")) return;
   const data = await api("/api/wallet", {
     method: "DELETE",
@@ -2465,6 +2525,7 @@ if (btnSpvRestProbe) {
 });
 
 document.getElementById("btn-send-pq-safe").addEventListener("click", async () => {
+  if (!(await ensurePinForSensitiveAction("transaction send"))) return;
   const btn = document.getElementById("btn-send-pq-safe");
   const out = $("send-pq-out");
   const to_address = document.getElementById("send-to").value.trim();
@@ -2524,6 +2585,7 @@ document.getElementById("btn-send-pq-safe").addEventListener("click", async () =
 });
 
 document.getElementById("btn-sign").addEventListener("click", async () => {
+  if (!(await ensurePinForSensitiveAction("transaction signing"))) return;
   const raw = document.getElementById("raw-hex").value.trim();
   const inputIndex = parseInt(document.getElementById("vin-idx").value, 10) || 0;
   const res = await api("/api/tx/sign", {
@@ -2538,6 +2600,7 @@ document.getElementById("btn-sign").addEventListener("click", async () => {
 });
 
 document.getElementById("btn-manual-broadcast").addEventListener("click", async () => {
+  if (!(await ensurePinForSensitiveAction("transaction broadcast"))) return;
   const hex = document.getElementById("manual-signed-hex").value.trim();
   const peers = document.getElementById("manual-peers").value.trim();
   const bc = await api("/api/tx/broadcast", {

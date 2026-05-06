@@ -27,7 +27,11 @@ type TxRecord struct {
 	BlockHeight    int64     `json:"block_height,omitempty"`
 	PQHint         bool      `json:"pq_hint"`
 	PQVerified     bool      `json:"pq_verified"`
-	Source         string    `json:"source"` // spv | memetracker | manual
+	PQType         string    `json:"pq_type,omitempty"`      // none | commitment | reveal
+	PQTag4         string    `json:"pq_tag4,omitempty"`      // FLC1 | DIL2 | RCG4
+	PQPairTxid     string    `json:"pq_pair_txid,omitempty"` // linked TX_C <-> TX_R when derivable on-chain
+	PQSource       string    `json:"pq_source,omitempty"`    // op_return | carrier_scriptsig | carrier_link
+	Source         string    `json:"source"`                 // spv | memetracker | manual
 	SeenAt         time.Time `json:"seen_at"`
 }
 

@@ -666,6 +666,12 @@ func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any
 			if addrLive == "" {
 				addrLive = strings.TrimSpace(jsonStringAny(m["tracked_address"]))
 			}
+			// Live mempool match means this tx is unconfirmed right now. Heal stale state where
+			// txs were previously marked confirmed from loose log parsing.
+			if row.Confirmations != 0 {
+				row.Confirmations = 0
+				changed = true
+			}
 			// For unconfirmed rows, MemeTracker is the authoritative mempool amount/address view.
 			// SPV REST can surface partial/decode-misaligned values before confirmation.
 			if row.Confirmations == 0 && amt > 0 && round2(row.AmountDOGE) != round2(amt) {
@@ -924,8 +930,9 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 				tr.Direction = "in"
 			}
 		}
-		if mtrOverlay[normalizeTxid(t.Txid)] && t.Confirmations == 0 {
+		if mtrOverlay[normalizeTxid(t.Txid)] {
 			tr.Pending = true
+			tr.Confirmations = 0
 			tr.Source = "memetracker"
 		}
 		out = append(out, tr)

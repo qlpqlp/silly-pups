@@ -158,6 +158,18 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 			if t.PQVerified {
 				prev.PQVerified = true
 			}
+			if strings.TrimSpace(prev.PQType) == "" && strings.TrimSpace(t.PQType) != "" {
+				prev.PQType = strings.TrimSpace(t.PQType)
+			}
+			if strings.TrimSpace(prev.PQTag4) == "" && strings.TrimSpace(t.PQTag4) != "" {
+				prev.PQTag4 = strings.TrimSpace(t.PQTag4)
+			}
+			if strings.TrimSpace(prev.PQPairTxid) == "" && normalizeTxid(t.PQPairTxid) != "" {
+				prev.PQPairTxid = normalizeTxid(t.PQPairTxid)
+			}
+			if strings.TrimSpace(prev.PQSource) == "" && strings.TrimSpace(t.PQSource) != "" {
+				prev.PQSource = strings.TrimSpace(t.PQSource)
+			}
 			if !manualSendPersisted {
 				if t.AmountDOGE != 0 && prev.AmountDOGE == 0 {
 					prev.AmountDOGE = t.AmountDOGE

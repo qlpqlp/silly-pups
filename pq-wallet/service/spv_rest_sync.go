@@ -122,34 +122,6 @@ func (s *Server) fetchSPVREST(path string) (string, error) {
 	return string(body), nil
 }
 
-// fetchSPVRESTRawTxByTxid loads wire hex for a transaction the SPV wallet already holds in vec_wtxes
-// (GET /getRawTx?txid=<64-hex display order>). Used when spv.log no longer has PQ_SPV_TX_RAW lines
-// after rescan, rollback, or backup restore.
-func (s *Server) fetchSPVRESTRawTxByTxid(txid string) (rawHex string, ok bool) {
-	id := normalizeTxid(txid)
-	if id == "" {
-		return "", false
-	}
-	body, err := s.fetchSPVREST("/getRawTx?txid=" + id)
-	if err != nil {
-		return "", false
-	}
-	hx := strings.TrimSpace(strings.ToLower(body))
-	hx = strings.TrimSuffix(hx, "\n")
-	hx = strings.TrimSpace(hx)
-	if len(hx) < 60 || len(hx)%2 != 0 {
-		return "", false
-	}
-	for i := 0; i < len(hx); i++ {
-		c := hx[i]
-		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') {
-			continue
-		}
-		return "", false
-	}
-	return hx, true
-}
-
 func parseSPVRESTRows(raw, direction string) []spvRESTTxRow {
 	raw = strings.ReplaceAll(raw, "\r\n", "\n")
 	lines := strings.Split(raw, "\n")

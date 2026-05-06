@@ -8,10 +8,10 @@ import (
 )
 
 var (
-	reHeaderHeight = regexp.MustCompile(`(?i)(?:best\s+height|chain\s+height|new\s+best|synced.*?height|headers?\s*:\s*|tip[^\d]{0,12})(?:[^\d]{0,32})(\d{4,9})`)
-	reLooseHeight  = regexp.MustCompile(`(?i)\bheight[:\s=#]+(\d{4,9})\b`)
-	reBlockAt      = regexp.MustCompile(`(?i)\bblock\s*#?\s*(\d{4,9})\b`)
-	reBlockHash    = regexp.MustCompile(`\b([a-fA-F0-9]{64})\b`)
+	reHeaderHeight     = regexp.MustCompile(`(?i)(?:best\s+height|chain\s+height|new\s+best|synced.*?height|headers?\s*:\s*|tip[^\d]{0,12})(?:[^\d]{0,32})(\d{4,9})`)
+	reLooseHeight      = regexp.MustCompile(`(?i)\bheight[:\s=#]+(\d{4,9})\b`)
+	reBlockAt          = regexp.MustCompile(`(?i)\bblock\s*#?\s*(\d{4,9})\b`)
+	reBlockHash        = regexp.MustCompile(`\b([a-fA-F0-9]{64})\b`)
 	// Some libdogecoin/SPV builds may print a longer token that contains the header hash
 	// (e.g. "best_block_hash=..."). We allow >=64 and then take the last 64 hex chars.
 	reHex64Plus        = regexp.MustCompile(`(?i)([a-f0-9]{64,})`)
@@ -25,7 +25,7 @@ var (
 	reMempoolExplicit1 = regexp.MustCompile(`(?i)mempool[^\n]{0,64}(?:size|count|transactions?|txs?)\s*[:=]\s*(\d{1,9})`)
 	reMempoolExplicit2 = regexp.MustCompile(`(?i)(?:^|\s)(\d{1,9})\s+transactions?\s+in\s+mempool`)
 	reMempoolExplicit3 = regexp.MustCompile(`(?i)\[(?:smpv|mempool)\][^\n]{0,120}(\d{1,9})\s*(?:tx|txn|transaction)`)
-	reSpvConfirmedLine = regexp.MustCompile(`(?i)\b(confirm|confirmed|confirmation|confirmations|merkle|inclusion|matched|proof|depth)\b`)
+	reSpvConfirmedLine = regexp.MustCompile(`(?i)\b(confirm|confirmed|confirmation|confirmations|merkle|inclusion|matched|proof|block|height|depth|chain)\b`)
 	reTxidKeyLine      = regexp.MustCompile(`(?i)\btxid\b[^a-f0-9]{0,16}([a-f0-9]{64})\b`)
 	reTxWordLine       = regexp.MustCompile(`(?i)\btransaction\b[^a-f0-9]{0,16}([a-f0-9]{64})\b`)
 	reSPVMerkleHexKey  = regexp.MustCompile(`(?i)\b(?:merkle(?:_proof)?|proof|partial_merkle|pm)\b[^a-f0-9]{0,8}([a-f0-9]{64,})\b`)
@@ -556,12 +556,12 @@ func parseSPVConfirmedTxids(log string) map[string]struct{} {
 		hasConfirmCue := reSpvConfirmedLine.MatchString(low)
 		mentionsTx := strings.Contains(low, "txid") || strings.Contains(low, "transaction") ||
 			strings.Contains(low, " tx ") || strings.HasPrefix(low, "tx ") || strings.HasSuffix(low, " tx")
-		if !hasConfirmCue || !mentionsTx {
+		mentionsBlockCtx := strings.Contains(low, "block") || strings.Contains(low, "height") ||
+			strings.Contains(low, "header") || strings.Contains(low, "depth") || strings.Contains(low, "chain")
+		if !hasConfirmCue || (!mentionsTx && !mentionsBlockCtx) {
 			continue
 		}
-		if strings.Contains(low, "mempool") || strings.Contains(low, "inv") ||
-			strings.Contains(low, "sendtx") || strings.Contains(low, "node has the tx") ||
-			strings.Contains(low, "successfully seen on node") || strings.Contains(low, "start broadcasting transaction") {
+		if strings.Contains(low, "mempool") || strings.Contains(low, "inv") {
 			continue
 		}
 		for _, hx := range reBlockHash.FindAllString(line, -1) {

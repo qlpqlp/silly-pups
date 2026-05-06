@@ -421,22 +421,6 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if useCarrierBudget && !carrierFlow {
-			allowCommitOnly := strings.TrimSpace(os.Getenv("PUP_PQ_ALLOW_COMMITMENT_ONLY_FALLBACK")) != ""
-			if includePQReveal && !allowCommitOnly {
-				msg := strings.TrimSpace(pqCarrierExtendErr)
-				if msg == "" {
-					msg = "PQ carrier outputs were not added to TX_C (falcon_add_commit_and_carrier_tx did not succeed), so TX_R cannot be built. Check libdogecoin such build, PUP_PQ_CARRIER_KOINU, and change headroom — or set PUP_PQ_ALLOW_COMMITMENT_ONLY_FALLBACK=1 to send commitment-only."
-				}
-				writeJSON(w, http.StatusBadRequest, map[string]any{
-					"error":                   msg,
-					"pq_carrier_extend_err":   msg,
-					"pq_reveal_requested":     true,
-					"pq_carrier_flow":         false,
-					"carrier_koinu_configured": carrierKoinu,
-					"carrier_koinu_applied_try": carrierKoinuApplied,
-				})
-				return
-			}
 			econDowngraded = true
 			useCarrierBudget = false
 			continue

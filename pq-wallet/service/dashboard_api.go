@@ -195,7 +195,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		mtrCount, mtrLive, mtrWorkers, mtrConn = eng.DashboardSnapshot()
 	}
 	if eng != nil && engErr == nil {
-		if s.persistMemeTrackerTxs(st, mtrLive, wf) || s.enrichSPVTxFromRawHex(st, wf) {
+		if s.persistMemeTrackerTxs(st, mtrLive) || s.enrichSPVTxFromRawHex(st, wf) {
 			_ = s.saveState(st)
 		}
 	}
@@ -510,7 +510,7 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 	// Keep MemeTracker authoritative for unconfirmed mempool tx rows after SPV/REST/raw enrich merges.
 	mtrChanged := false
 	if len(txMtrLive) > 0 {
-		mtrChanged = s.persistMemeTrackerTxs(st, txMtrLive, wf)
+		mtrChanged = s.persistMemeTrackerTxs(st, txMtrLive)
 	}
 	if changed || rawChanged || confirmChanged || proofMetaChanged || enrichedChanged || restChanged || bcChanged || bcRawChanged || suchChanged || mtrChanged {
 		_ = s.saveState(st)
@@ -635,37 +635,8 @@ func floatFromAny(v any) float64 {
 	}
 }
 
-// classifyMemeTrackerP2PKHFlow decodes raw mempool tx hex against wallet P2PKH outputs to tell sends (net to
-// counterparties) from receives. MemeTracker's amount_doge sums credits to watched addresses only — wrong for sends
-// that pay change back to the same wallet.
-func classifyMemeTrackerP2PKHFlow(rawHex string, wf *WalletFile) (direction string, amountDOGE float64, address string, ok bool) {
-	if wf == nil || strings.TrimSpace(rawHex) == "" {
-		return "", 0, "", false
-	}
-	walletH160 := walletP2PKHHash160Map(wf)
-	if len(walletH160) == 0 {
-		return "", 0, "", false
-	}
-	testnet := strings.EqualFold(wf.Network, "testnet")
-	fl, err := decodeSPVRawTxFlow(rawHex, walletH160, testnet)
-	if err != nil {
-		return "", 0, "", false
-	}
-	if fl.ExternalSats > 0 {
-		pay := fl.CounterpartySats
-		if pay <= 0 {
-			pay = fl.ExternalSats
-		}
-		return "out", round2(float64(pay) / 1e8), strings.TrimSpace(fl.ExternalAddr), true
-	}
-	if fl.WalletSats > 0 {
-		return "in", round2(float64(fl.WalletSats) / 1e8), strings.TrimSpace(fl.WalletAddr), true
-	}
-	return "", 0, "", false
-}
-
 // persistMemeTrackerTxs appends mempool-tracked txs to state so they remain listed after they leave the live mempool.
-func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any, wf *WalletFile) bool {
+func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any) bool {
 	byTxid := make(map[string]int, len(st.Transactions))
 	for i := range st.Transactions {
 		id := normalizeTxid(st.Transactions[i].Txid)
@@ -695,52 +666,23 @@ func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any
 			if addrLive == "" {
 				addrLive = strings.TrimSpace(jsonStringAny(m["tracked_address"]))
 			}
-			// Live mempool match means this tx is unconfirmed right now. Heal stale state where
-			// txs were previously marked confirmed from loose log parsing.
-			if row.Confirmations != 0 {
-				row.Confirmations = 0
+			// For unconfirmed rows, MemeTracker is the authoritative mempool amount/address view.
+			// SPV REST can surface partial/decode-misaligned values before confirmation.
+			if row.Confirmations == 0 && amt > 0 && round2(row.AmountDOGE) != round2(amt) {
+				row.AmountDOGE = amt
 				changed = true
 			}
 			if row.RawHex == "" && rawHex != "" {
 				row.RawHex = rawHex
 				changed = true
 			}
-			// Local broadcast send metadata must win — MemeTracker only notices wallet outputs (change).
-			if strings.EqualFold(strings.TrimSpace(row.Source), "manual") && strings.EqualFold(strings.TrimSpace(row.Direction), "out") {
-				continue
+			if row.Confirmations == 0 && !strings.EqualFold(strings.TrimSpace(row.Direction), "in") {
+				row.Direction = "in"
+				changed = true
 			}
-			rh := rawHex
-			if strings.TrimSpace(rh) == "" {
-				rh = strings.TrimSpace(row.RawHex)
-			}
-			if dir, aDOGE, aAddr, decoded := classifyMemeTrackerP2PKHFlow(rh, wf); decoded && row.Confirmations == 0 {
-				if !strings.EqualFold(strings.TrimSpace(row.Direction), dir) {
-					row.Direction = dir
-					changed = true
-				}
-				if aDOGE > 0 && round2(row.AmountDOGE) != round2(aDOGE) {
-					row.AmountDOGE = aDOGE
-					changed = true
-				}
-				if strings.TrimSpace(aAddr) != "" && !strings.EqualFold(strings.TrimSpace(row.Address), aAddr) {
-					row.Address = aAddr
-					changed = true
-				}
-			} else if row.Confirmations == 0 {
-				// No decode yet: MemeTracker amount is a receive-side heuristic only.
-				if amt > 0 && round2(row.AmountDOGE) != round2(amt) {
-					row.AmountDOGE = amt
-					changed = true
-				}
-				d := strings.ToLower(strings.TrimSpace(row.Direction))
-				if d == "" || d == "unknown" {
-					row.Direction = "in"
-					changed = true
-				}
-				if addrLive != "" && !strings.EqualFold(strings.TrimSpace(row.Address), addrLive) {
-					row.Address = addrLive
-					changed = true
-				}
+			if row.Confirmations == 0 && addrLive != "" && !strings.EqualFold(strings.TrimSpace(row.Address), addrLive) {
+				row.Address = addrLive
+				changed = true
 			}
 			if row.Confirmations == 0 && !strings.EqualFold(strings.TrimSpace(row.Source), "manual") &&
 				!strings.EqualFold(strings.TrimSpace(row.Source), "memetracker") {
@@ -756,24 +698,12 @@ func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any
 		if addrNew == "" {
 			addrNew = strings.TrimSpace(jsonStringAny(m["tracked_address"]))
 		}
-		dirN := "in"
-		amtN := amt
-		addrN := addrNew
-		if d, a, ad, ok := classifyMemeTrackerP2PKHFlow(rawHex, wf); ok {
-			dirN = d
-			if a > 0 {
-				amtN = a
-			}
-			if strings.TrimSpace(ad) != "" {
-				addrN = ad
-			}
-		}
 		incoming = append(incoming, TxRecord{
 			Txid:          txid,
-			Direction:     dirN,
-			AmountDOGE:    amtN,
+			Direction:     "in",
+			AmountDOGE:    amt,
 			RawHex:        rawHex,
-			Address:       addrN,
+			Address:       addrNew,
 			Source:        "memetracker",
 			Confirmations: 0,
 			SeenAt:        time.Now().UTC(),
@@ -982,36 +912,20 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 		// only force OUT when address is explicitly non-wallet.
 		// Do not force IN for wallet-address rows (can be spend tx change rows).
 		if strings.EqualFold(strings.TrimSpace(tr.Direction), "unknown") || strings.TrimSpace(tr.Direction) == "" {
-			classified := false
-			if rh := strings.TrimSpace(tr.RawHex); rh != "" && wf != nil {
-				if d, a, ad, ok := classifyMemeTrackerP2PKHFlow(rh, wf); ok {
-					tr.Direction = d
-					if a > 0 {
-						tr.AmountDOGE = a
-					}
-					if ad != "" {
-						tr.Address = ad
-					}
-					classified = true
-				}
-			}
-			if !classified {
-				addr := strings.ToLower(strings.TrimSpace(tr.Address))
-				if addr != "" {
-					if _, ok := walletAddrSet[addr]; !ok {
-						tr.Direction = "out"
-					} else if tr.AmountDOGE > 0 {
-						// SPV REST often omits direction on /getTransactions funding lines (credits to our P2PKH).
-						tr.Direction = "in"
-					}
-				} else if tr.AmountDOGE > 0 && strings.EqualFold(strings.TrimSpace(tr.Source), "memetracker") {
+			addr := strings.ToLower(strings.TrimSpace(tr.Address))
+			if addr != "" {
+				if _, ok := walletAddrSet[addr]; !ok {
+					tr.Direction = "out"
+				} else if tr.AmountDOGE > 0 {
+					// SPV REST often omits direction on /getTransactions funding lines (credits to our P2PKH).
 					tr.Direction = "in"
 				}
+			} else if tr.AmountDOGE > 0 && strings.EqualFold(strings.TrimSpace(tr.Source), "memetracker") {
+				tr.Direction = "in"
 			}
 		}
-		if mtrOverlay[normalizeTxid(t.Txid)] {
+		if mtrOverlay[normalizeTxid(t.Txid)] && t.Confirmations == 0 {
 			tr.Pending = true
-			tr.Confirmations = 0
 			tr.Source = "memetracker"
 		}
 		out = append(out, tr)

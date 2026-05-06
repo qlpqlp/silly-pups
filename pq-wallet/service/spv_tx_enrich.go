@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
-	"log"
 	"os"
 	"strings"
 )
@@ -20,35 +19,6 @@ func phase1PQTaggedCommitInRawHex(rawHex string) bool {
 		return false
 	}
 	return strings.Contains(s, "6a24464c4331") || strings.Contains(s, "6a2444494c32") || strings.Contains(s, "6a2452434734")
-}
-
-func pqCommitTag4FromRawHex(rawHex string) string {
-	s := strings.TrimSpace(strings.ToLower(rawHex))
-	if strings.Contains(s, "6a24464c4331") {
-		return "FLC1"
-	}
-	if strings.Contains(s, "6a2444494c32") {
-		return "DIL2"
-	}
-	if strings.Contains(s, "6a2452434734") {
-		return "RCG4"
-	}
-	return ""
-}
-
-func pqRevealTag4FromRawHex(rawHex string) string {
-	s := strings.TrimSpace(strings.ToLower(rawHex))
-	// TAG8 in carrier reveal scriptsig: FLC1FULL / DIL2FULL / RCG4FULL.
-	if strings.Contains(s, "464c433146554c4c") {
-		return "FLC1"
-	}
-	if strings.Contains(s, "44494c3246554c4c") {
-		return "DIL2"
-	}
-	if strings.Contains(s, "5243473446554c4c") {
-		return "RCG4"
-	}
-	return ""
 }
 
 // firstInputPrevTxidFromRawHex returns the canonical prevout txid for the first non-coinbase input
@@ -390,33 +360,6 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 			}
 		}
 	}
-	// Libdogecoin still has full serialized txs for anything in vec_wtxes; use REST when logs lack
-	// PQ_SPV_TX_RAW (common after rescan / wallet restore). Cap per pass so polling stays responsive.
-	const maxRESTTxRawBackfill = 128
-	restFetched := 0
-	for i := range st.Transactions {
-		if restFetched >= maxRESTTxRawBackfill {
-			break
-		}
-		tx := &st.Transactions[i]
-		if strings.TrimSpace(tx.RawHex) != "" {
-			continue
-		}
-		id := normalizeTxid(tx.Txid)
-		if id == "" {
-			continue
-		}
-		raw, ok := s.fetchSPVRESTRawTxByTxid(id)
-		if !ok || strings.TrimSpace(raw) == "" {
-			continue
-		}
-		tx.RawHex = raw
-		changed = true
-		restFetched++
-	}
-	if restFetched > 0 {
-		log.Printf("[pq-wallet] enrich: backfilled raw hex for %d tx(s) via SPV GET /getRawTx", restFetched)
-	}
 	// Prevouts indexed only from raw txs already stored (state + spv.log). Net matches bitcoinj-style getValue
 	// when inputs spending our UTXOs are fully resolved; sends with unknown funding txs fall back to output-side totals.
 	prevIdx := buildPrevoutWalletIndex(collectUniqueRawHexes(st, logBlob), walletByHash160)
@@ -615,126 +558,19 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 			changed = true
 		}
 	}
-	commitByTxid := make(map[string]string)
-	type revealMeta struct {
-		txid string
-		prev string
-		tag4 string
-	}
-	var reveals []revealMeta
 	for i := range st.Transactions {
 		tx := &st.Transactions[i]
 		raw := strings.TrimSpace(tx.RawHex)
 		if raw == "" {
 			continue
 		}
-		commitTag := pqCommitTag4FromRawHex(raw)
-		revealTag := pqRevealTag4FromRawHex(raw)
-		switch {
-		case commitTag != "":
-			if !tx.PQHint {
-				tx.PQHint = true
-				changed = true
-			}
-			if tx.PQType != "commitment" {
-				tx.PQType = "commitment"
-				changed = true
-			}
-			if tx.PQTag4 != commitTag {
-				tx.PQTag4 = commitTag
-				changed = true
-			}
-			if tx.PQSource != "op_return" {
-				tx.PQSource = "op_return"
-				changed = true
-			}
-			id := normalizeTxid(tx.Txid)
-			if id != "" {
-				commitByTxid[id] = commitTag
-			}
-		case revealTag != "":
-			if !tx.PQHint {
-				tx.PQHint = true
-				changed = true
-			}
-			if tx.PQType != "reveal" {
-				tx.PQType = "reveal"
-				changed = true
-			}
-			if tx.PQTag4 != revealTag {
-				tx.PQTag4 = revealTag
-				changed = true
-			}
-			if tx.PQSource != "carrier_scriptsig" {
-				tx.PQSource = "carrier_scriptsig"
-				changed = true
-			}
-			id := normalizeTxid(tx.Txid)
-			if id != "" {
-				reveals = append(reveals, revealMeta{
-					txid: id,
-					prev: firstInputPrevTxidFromRawHex(raw),
-					tag4: revealTag,
-				})
-			}
-		default:
-			want := phase1PQTaggedCommitInRawHex(raw)
-			if tx.PQHint != want {
-				tx.PQHint = want
-				changed = true
-			}
-			if !want {
-				if tx.PQType != "" {
-					tx.PQType = ""
-					changed = true
-				}
-				if tx.PQTag4 != "" {
-					tx.PQTag4 = ""
-					changed = true
-				}
-				if tx.PQSource != "" {
-					tx.PQSource = ""
-					changed = true
-				}
-			}
+		if strings.EqualFold(strings.TrimSpace(tx.Source), "manual") && strings.EqualFold(strings.TrimSpace(tx.Direction), "out") {
+			continue
 		}
-	}
-	if len(reveals) > 0 && len(commitByTxid) > 0 {
-		for _, rv := range reveals {
-			if rv.prev == "" {
-				continue
-			}
-			ctag, ok := commitByTxid[rv.prev]
-			if !ok || (ctag != "" && rv.tag4 != "" && ctag != rv.tag4) {
-				continue
-			}
-			for i := range st.Transactions {
-				id := normalizeTxid(st.Transactions[i].Txid)
-				if id == rv.txid {
-					if st.Transactions[i].PQPairTxid != rv.prev {
-						st.Transactions[i].PQPairTxid = rv.prev
-						changed = true
-					}
-					if !st.Transactions[i].PQVerified {
-						st.Transactions[i].PQVerified = true
-						changed = true
-					}
-					if st.Transactions[i].PQSource != "carrier_link" {
-						st.Transactions[i].PQSource = "carrier_link"
-						changed = true
-					}
-				}
-				if id == rv.prev {
-					if st.Transactions[i].PQPairTxid != rv.txid {
-						st.Transactions[i].PQPairTxid = rv.txid
-						changed = true
-					}
-					if !st.Transactions[i].PQVerified {
-						st.Transactions[i].PQVerified = true
-						changed = true
-					}
-				}
-			}
+		want := phase1PQTaggedCommitInRawHex(raw)
+		if tx.PQHint != want {
+			tx.PQHint = want
+			changed = true
 		}
 	}
 	return changed

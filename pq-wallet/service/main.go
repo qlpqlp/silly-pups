@@ -77,7 +77,6 @@ func (s *Server) handleEducation(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleWalletGet(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	sealed := s.hasSealedWallet()
 	wf, err := s.loadWallet()
 	if err != nil {
 		if errors.Is(err, ErrWalletLocked) {
@@ -91,7 +90,7 @@ func (s *Server) handleWalletGet(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"wallet": wf, "locked": false, "sealed": sealed})
+	writeJSON(w, http.StatusOK, map[string]any{"wallet": wf})
 }
 
 type createBody struct {

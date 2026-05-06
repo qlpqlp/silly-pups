@@ -27,11 +27,7 @@ type TxRecord struct {
 	BlockHeight    int64     `json:"block_height,omitempty"`
 	PQHint         bool      `json:"pq_hint"`
 	PQVerified     bool      `json:"pq_verified"`
-	PQType         string    `json:"pq_type,omitempty"`      // none | commitment | reveal
-	PQTag4         string    `json:"pq_tag4,omitempty"`      // FLC1 | DIL2 | RCG4
-	PQPairTxid     string    `json:"pq_pair_txid,omitempty"` // linked TX_C <-> TX_R when derivable on-chain
-	PQSource       string    `json:"pq_source,omitempty"`    // op_return | carrier_scriptsig | carrier_link
-	Source         string    `json:"source"`                 // spv | memetracker | manual
+	Source         string    `json:"source"` // spv | memetracker | manual
 	SeenAt         time.Time `json:"seen_at"`
 }
 
@@ -157,18 +153,6 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 			}
 			if t.PQVerified {
 				prev.PQVerified = true
-			}
-			if strings.TrimSpace(prev.PQType) == "" && strings.TrimSpace(t.PQType) != "" {
-				prev.PQType = strings.TrimSpace(t.PQType)
-			}
-			if strings.TrimSpace(prev.PQTag4) == "" && strings.TrimSpace(t.PQTag4) != "" {
-				prev.PQTag4 = strings.TrimSpace(t.PQTag4)
-			}
-			if strings.TrimSpace(prev.PQPairTxid) == "" && normalizeTxid(t.PQPairTxid) != "" {
-				prev.PQPairTxid = normalizeTxid(t.PQPairTxid)
-			}
-			if strings.TrimSpace(prev.PQSource) == "" && strings.TrimSpace(t.PQSource) != "" {
-				prev.PQSource = strings.TrimSpace(t.PQSource)
 			}
 			if !manualSendPersisted {
 				if t.AmountDOGE != 0 && prev.AmountDOGE == 0 {

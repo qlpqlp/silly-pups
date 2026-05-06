@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"log"
 	"os"
 	"strings"
 )
@@ -388,6 +389,33 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 				}
 			}
 		}
+	}
+	// Libdogecoin still has full serialized txs for anything in vec_wtxes; use REST when logs lack
+	// PQ_SPV_TX_RAW (common after rescan / wallet restore). Cap per pass so polling stays responsive.
+	const maxRESTTxRawBackfill = 128
+	restFetched := 0
+	for i := range st.Transactions {
+		if restFetched >= maxRESTTxRawBackfill {
+			break
+		}
+		tx := &st.Transactions[i]
+		if strings.TrimSpace(tx.RawHex) != "" {
+			continue
+		}
+		id := normalizeTxid(tx.Txid)
+		if id == "" {
+			continue
+		}
+		raw, ok := s.fetchSPVRESTRawTxByTxid(id)
+		if !ok || strings.TrimSpace(raw) == "" {
+			continue
+		}
+		tx.RawHex = raw
+		changed = true
+		restFetched++
+	}
+	if restFetched > 0 {
+		log.Printf("[pq-wallet] enrich: backfilled raw hex for %d tx(s) via SPV GET /getRawTx", restFetched)
 	}
 	// Prevouts indexed only from raw txs already stored (state + spv.log). Net matches bitcoinj-style getValue
 	// when inputs spending our UTXOs are fully resolved; sends with unknown funding txs fall back to output-side totals.

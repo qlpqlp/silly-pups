@@ -60,7 +60,12 @@ async function api(path, opts) {
 async function ensurePinForSensitiveAction(actionLabel) {
   try {
     const sec = await api("/api/security/status");
-    if (!sec || !sec.sealed) return true;
+    let sealed = !!(sec && sec.sealed);
+    if (!sealed) {
+      const w = await api("/api/wallet");
+      sealed = !!(w && w.sealed);
+    }
+    if (!sealed) return true;
     const promptLabel = actionLabel || "this action";
     const pin = window.prompt(`Enter wallet PIN to authorize ${promptLabel}:`, "");
     if (pin == null) return false;
@@ -1284,23 +1289,28 @@ function updateCharts(metrics) {
 }
 
 async function refreshWallet() {
-  const data = await api("/api/wallet");
+  const [data, sec] = await Promise.all([
+    api("/api/wallet"),
+    api("/api/security/status").catch(() => null),
+  ]);
   // If /api/wallet returns a transient non-JSON or error payload during startup,
   // do not flip the UI into onboarding; keep prior state until a stable read.
   if (!data || data.error || data._status >= 500) {
     return;
   }
-  state.walletLocked = !!(data.locked && data.sealed);
+  const sealedFlag =
+    typeof data.sealed === "boolean" ? data.sealed : !!(sec && sec.sealed);
+  state.walletLocked = !!(data.locked && sealedFlag);
   state.wallet = data.wallet || null;
   // Defensive fallback: on some force-refresh races wallet payload can be null briefly
   // while the service is still warming up. Security status tells us whether a wallet
   // exists on disk (sealed or plaintext) so onboarding should remain hidden.
   if (!state.wallet && !state.walletLocked) {
     try {
-      const sec = await api("/api/security/status");
-      const hasWalletOnDisk = !!(sec && (sec.sealed || sec.has_plaintext_wallet));
+      const sec2 = sec || (await api("/api/security/status"));
+      const hasWalletOnDisk = !!(sec2 && (sec2.sealed || sec2.has_plaintext_wallet));
       if (hasWalletOnDisk) {
-        state.walletLocked = !!(sec.sealed && !sec.unlocked);
+        state.walletLocked = !!(sec2.sealed && !sec2.unlocked);
       }
     } catch {
       /* ignore fallback failures */
@@ -1311,7 +1321,7 @@ async function refreshWallet() {
     lockEl.classList.toggle("hidden", !state.walletLocked);
     lockEl.setAttribute("aria-hidden", state.walletLocked ? "false" : "true");
   }
-  updateEncryptionButtons(!!data.sealed, !!data.locked);
+  updateEncryptionButtons(sealedFlag, !!data.locked);
   setOnboarding(data.wallet);
   if (data.wallet) {
     renderAddresses(data.wallet);
@@ -1322,8 +1332,10 @@ async function refreshWallet() {
 }
 
 function updateEncryptionButtons(isSealed, isLocked) {
+  const btnSeal = $("btn-seal-wallet");
   const btnUnseal = $("btn-unseal-wallet");
   const btnLock = $("btn-lock-session");
+  if (btnSeal) btnSeal.classList.toggle("hidden", isSealed);
   if (btnUnseal) btnUnseal.classList.toggle("hidden", !isSealed);
   if (btnLock) btnLock.classList.toggle("hidden", !isSealed || isLocked);
 }
@@ -1978,28 +1990,27 @@ function closeTxDetailModal() {
 }
 
 function initLogCopyButtons() {
-  const buttons = document.querySelectorAll(".log-copy-btn[data-copy-target]");
-  buttons.forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const targetId = btn.getAttribute("data-copy-target");
-      if (!targetId) return;
-      const el = $(targetId);
-      const text = el ? String(el.textContent || "").trim() : "";
-      if (!text) {
-        alert("No logs to copy yet.");
-        return;
-      }
-      try {
-        await copyTextToClipboard(text);
-        const prev = btn.innerHTML;
-        btn.innerHTML = '<span class="material-symbols-outlined btn-ico">check</span> Copied';
-        setTimeout(() => {
-          btn.innerHTML = prev;
-        }, 1200);
-      } catch {
-        alert("Could not copy logs to clipboard.");
-      }
-    });
+  document.addEventListener("click", async (ev) => {
+    const btn = ev.target && ev.target.closest && ev.target.closest(".log-copy-btn[data-copy-target]");
+    if (!btn) return;
+    const targetId = btn.getAttribute("data-copy-target");
+    if (!targetId) return;
+    const el = $(targetId);
+    const text = el ? String(el.textContent || "").trim() : "";
+    if (!text) {
+      alert("No logs to copy yet.");
+      return;
+    }
+    try {
+      await copyTextToClipboard(text);
+      const prev = btn.innerHTML;
+      btn.innerHTML = '<span class="material-symbols-outlined btn-ico">check</span> Copied';
+      setTimeout(() => {
+        btn.innerHTML = prev;
+      }, 1200);
+    } catch {
+      alert("Could not copy logs to clipboard.");
+    }
   });
 }
 

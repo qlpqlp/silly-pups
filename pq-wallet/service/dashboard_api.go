@@ -662,6 +662,16 @@ func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any
 		rawHex := strings.TrimSpace(jsonStringAny(m["raw_hex"]))
 		if idx, ok := byTxid[txid]; ok {
 			row := &st.Transactions[idx]
+			// Wallet-originated spends (manual or broadcast-log "out") must not be rewritten: MemeTracker
+			// also matches those txids from change outputs and would force direction "in" + wrong amount.
+			if strings.EqualFold(strings.TrimSpace(row.Direction), "out") &&
+				!strings.EqualFold(strings.TrimSpace(row.Source), "memetracker") {
+				if row.RawHex == "" && rawHex != "" {
+					row.RawHex = rawHex
+					changed = true
+				}
+				continue
+			}
 			addrLive := strings.TrimSpace(jsonStringAny(m["address"]))
 			if addrLive == "" {
 				addrLive = strings.TrimSpace(jsonStringAny(m["tracked_address"]))
@@ -926,7 +936,10 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 		}
 		if mtrOverlay[normalizeTxid(t.Txid)] && t.Confirmations == 0 {
 			tr.Pending = true
-			tr.Source = "memetracker"
+			if !(strings.EqualFold(strings.TrimSpace(t.Direction), "out") &&
+				!strings.EqualFold(strings.TrimSpace(t.Source), "memetracker")) {
+				tr.Source = "memetracker"
+			}
 		}
 		out = append(out, tr)
 	}

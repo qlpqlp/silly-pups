@@ -57,6 +57,34 @@ async function api(path, opts) {
   }
 }
 
+async function ensurePinForSensitiveAction(actionLabel) {
+  try {
+    const sec = await api("/api/security/status");
+    const sealed = !!(sec && sec.sealed);
+    if (!sealed) return true;
+    const promptLabel = actionLabel || "this action";
+    const pin = window.prompt(`Enter wallet PIN to authorize ${promptLabel}:`, "");
+    if (pin == null) return false;
+    const cleaned = String(pin).trim();
+    if (!cleaned) {
+      alert("PIN is required.");
+      return false;
+    }
+    const res = await api("/api/security/unlock", {
+      method: "POST",
+      body: JSON.stringify({ pin: cleaned }),
+    });
+    if (!res || res.error) {
+      alert((res && res.error) ? String(res.error) : "Could not verify PIN.");
+      return false;
+    }
+    return true;
+  } catch (e) {
+    alert(e && e.message ? e.message : "Could not verify PIN.");
+    return false;
+  }
+}
+
 /** Non-secure origins (HTTP): Async Clipboard is unavailable; use legacy copy. */
 function unsecuredCopyToClipboard(text) {
   const s = String(text ?? "");
@@ -491,6 +519,7 @@ function showView(name) {
     state.pollLogs = setInterval(refreshLogs, 4000);
     refreshSpvDeepLog();
     state.pollSpvDeep = setInterval(refreshSpvDeepLog, 8000);
+    refreshPQCarrierStatus().catch(() => {});
     refreshDashboard().catch(() => {});
   }
   if (name === "transactions") {
@@ -541,6 +570,21 @@ async function refreshLogs() {
     /* ignore */
   } finally {
     state.inFlightLogs = false;
+  }
+}
+
+async function refreshPQCarrierStatus() {
+  if (state.view !== "settings") return;
+  const out = $("pq-carrier-status-out");
+  try {
+    const res = await api("/api/pq/carrier/status", { timeout_ms: 25000 });
+    if (res && res.error) {
+      if (out) out.textContent = JSON.stringify(res, null, 2);
+      return;
+    }
+    if (out) out.textContent = JSON.stringify(res, null, 2);
+  } catch (e) {
+    if (out) out.textContent = `(carrier status failed: ${e && e.message ? e.message : e})`;
   }
 }
 
@@ -1281,8 +1325,10 @@ async function refreshWallet() {
 }
 
 function updateEncryptionButtons(isSealed, isLocked) {
+  const btnSeal = $("btn-seal-wallet");
   const btnUnseal = $("btn-unseal-wallet");
   const btnLock = $("btn-lock-session");
+  if (btnSeal) btnSeal.classList.toggle("hidden", !!isSealed);
   if (btnUnseal) btnUnseal.classList.toggle("hidden", !isSealed);
   if (btnLock) btnLock.classList.toggle("hidden", !isSealed || isLocked);
 }
@@ -2349,6 +2395,7 @@ if (btnSpvRepairClose) btnSpvRepairClose.addEventListener("click", closeSpvRepai
 
 
 document.getElementById("btn-backup").addEventListener("click", async () => {
+  if (!(await ensurePinForSensitiveAction("backup"))) return;
   const data = await api("/api/wallet");
   if (!data.wallet) return;
   const blob = new Blob([JSON.stringify(data.wallet, null, 2)], { type: "application/json" });
@@ -2364,6 +2411,7 @@ document.getElementById("delete-confirm").addEventListener("input", (e) => {
 });
 
 document.getElementById("btn-delete").addEventListener("click", async () => {
+  if (!(await ensurePinForSensitiveAction("wallet deletion"))) return;
   if (!confirm("Permanently delete wallet and SPV data on this pup?")) return;
   const data = await api("/api/wallet", {
     method: "DELETE",
@@ -2418,6 +2466,41 @@ if (btnSaveFeePerKb) {
     updateSendFeeHint();
   });
 }
+const btnCarrierRefresh = $("btn-pq-carrier-refresh");
+if (btnCarrierRefresh) {
+  btnCarrierRefresh.addEventListener("click", () => {
+    refreshPQCarrierStatus();
+  });
+}
+const btnCarrierRecover = $("btn-pq-carrier-recover");
+if (btnCarrierRecover) {
+  btnCarrierRecover.addEventListener("click", async () => {
+    const inp = $("pq-carrier-recover-txid");
+    const msg = $("pq-carrier-recover-msg");
+    const out = $("pq-carrier-status-out");
+    const txid = String((inp && inp.value) || "").trim();
+    if (!/^[0-9a-fA-F]{64}$/.test(txid)) {
+      if (msg) msg.textContent = "Enter a valid 64-hex TX_C txid.";
+      return;
+    }
+    if (!confirm("Broadcast recovery spend for this TX_C carrier output back to your wallet?")) return;
+    if (msg) msg.textContent = "Recovering carrier funds...";
+    try {
+      const res = await api("/api/pq/carrier/recover", {
+        method: "POST",
+        body: JSON.stringify({ tx_c_txid: txid }),
+        timeout_ms: 120000,
+      });
+      if (out) out.textContent = JSON.stringify(res, null, 2);
+      if (msg) msg.textContent = res && res.error ? String(res.error) : "Recovery request sent.";
+      await refreshPQCarrierStatus();
+      await refreshTxList(true, { full: true });
+      await refreshDashboard();
+    } catch (e) {
+      if (msg) msg.textContent = e && e.message ? e.message : String(e);
+    }
+  });
+}
 const btnPqModeOnly = $("btn-pq-mode-txc-only");
 if (btnPqModeOnly) {
   btnPqModeOnly.addEventListener("click", () => setPqSendMode("txc_only"));
@@ -2465,6 +2548,7 @@ if (btnSpvRestProbe) {
 });
 
 document.getElementById("btn-send-pq-safe").addEventListener("click", async () => {
+  if (!(await ensurePinForSensitiveAction("transaction send"))) return;
   const btn = document.getElementById("btn-send-pq-safe");
   const out = $("send-pq-out");
   const to_address = document.getElementById("send-to").value.trim();
@@ -2589,10 +2673,23 @@ const btnSeal = $("btn-seal-wallet");
 if (btnSeal) {
   btnSeal.addEventListener("click", async () => {
     const pin = ($("seal-pin-input") && $("seal-pin-input").value) || "";
+    const pin2 = window.prompt("Re-enter PIN to enable encryption:", "");
     const msg = $("seal-msg");
+    if (pin2 == null) {
+      if (msg) msg.textContent = "Encryption cancelled.";
+      return;
+    }
+    if (String(pin).trim() === "" || String(pin2).trim() === "") {
+      if (msg) msg.textContent = "PIN is required.";
+      return;
+    }
+    if (String(pin).trim() !== String(pin2).trim()) {
+      if (msg) msg.textContent = "PIN mismatch. Enter the same PIN twice.";
+      return;
+    }
     const res = await api("/api/security/seal", {
       method: "POST",
-      body: JSON.stringify({ pin }),
+      body: JSON.stringify({ pin: String(pin).trim() }),
     });
     if (res.error) {
       if (msg) msg.textContent = res.error;

@@ -637,7 +637,7 @@ func floatFromAny(v any) float64 {
 
 // classifyMemeTrackerP2PKHFlow decodes mempool raw hex against wallet P2PKH outputs to classify
 // whether the tx is a spend (out) or receive (in) in Dogecoin Wallet-style list semantics.
-func classifyMemeTrackerP2PKHFlow(rawHex string, wf *WalletFile) (direction string, amountDOGE float64, address string, ok bool) {
+func classifyMemeTrackerP2PKHFlow(rawHex string, wf *WalletFile, prevIdx map[string]prevoutWalletMeta) (direction string, amountDOGE float64, address string, ok bool) {
 	if wf == nil || strings.TrimSpace(rawHex) == "" {
 		return "", 0, "", false
 	}
@@ -650,15 +650,56 @@ func classifyMemeTrackerP2PKHFlow(rawHex string, wf *WalletFile) (direction stri
 	if err != nil {
 		return "", 0, "", false
 	}
+
+	// Prefer indexed wallet net when possible (bitcoinj-style: wallet credits minus spent wallet prevouts).
+	if len(prevIdx) > 0 {
+		if net, _, _, netOK := walletNetFromPrevoutIndex(rawHex, walletH160, testnet, prevIdx); netOK && net != 0 {
+			if net > 0 {
+				return "in", round2(float64(net)/1e8), strings.TrimSpace(fl.WalletAddr), true
+			}
+			pay := fl.CounterpartySats
+			if pay <= 0 {
+				pay = -net
+			}
+			if pay <= 0 {
+				pay = fl.ExternalSats
+			}
+			return "out", round2(float64(pay)/1e8), strings.TrimSpace(fl.ExternalAddr), true
+		}
+		// If any known input spends our wallet UTXO, classify as outgoing even when net graph is incomplete.
+		if rawB, err := hex.DecodeString(strings.ToLower(strings.TrimSpace(rawHex))); err == nil {
+			if ins, err := parseLegacyTxPrevouts(rawB); err == nil {
+				walletDebit := false
+				for _, in := range ins {
+					if in.Txid == "" {
+						continue
+					}
+					if m, ok := prevIdx[prevoutIndexKey(in.Txid, in.Vout)]; ok && m.WalletRecv {
+						walletDebit = true
+						break
+					}
+				}
+				if walletDebit {
+					pay := fl.CounterpartySats
+					if pay <= 0 {
+						pay = fl.ExternalSats
+					}
+					return "out", round2(float64(pay)/1e8), strings.TrimSpace(fl.ExternalAddr), true
+				}
+			}
+		}
+	}
+	// Incoming txs commonly include sender change outputs (external sats > 0). If wallet credits exist and we
+	// cannot prove a wallet debit, classify as receive by wallet credit value (matches Dogecoin Wallet list view).
+	if fl.WalletSats > 0 {
+		return "in", round2(float64(fl.WalletSats) / 1e8), strings.TrimSpace(fl.WalletAddr), true
+	}
 	if fl.ExternalSats > 0 {
 		pay := fl.CounterpartySats
 		if pay <= 0 {
 			pay = fl.ExternalSats
 		}
 		return "out", round2(float64(pay) / 1e8), strings.TrimSpace(fl.ExternalAddr), true
-	}
-	if fl.WalletSats > 0 {
-		return "in", round2(float64(fl.WalletSats) / 1e8), strings.TrimSpace(fl.WalletAddr), true
 	}
 	return "", 0, "", false
 }
@@ -678,6 +719,17 @@ func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any
 	}
 	var incoming []TxRecord
 	changed := false
+	var prevIdx map[string]prevoutWalletMeta
+	if wf != nil {
+		walletH160 := walletP2PKHHash160Map(wf)
+		if len(walletH160) > 0 {
+			logBlob := ""
+			if lb, err := readFileTail(s.spvLogPath(), spvLogTailForEnrich); err == nil {
+				logBlob = lb
+			}
+			prevIdx = buildPrevoutWalletIndex(collectUniqueRawHexes(st, logBlob), walletH160)
+		}
+	}
 	for _, m := range mtrLive {
 		if !truthyAny(m["tracked_match"]) {
 			continue
@@ -717,7 +769,7 @@ func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any
 				flowRaw = strings.TrimSpace(row.RawHex)
 			}
 			if row.Confirmations == 0 {
-				if dir, aDOGE, aAddr, ok := classifyMemeTrackerP2PKHFlow(flowRaw, wf); ok {
+				if dir, aDOGE, aAddr, ok := classifyMemeTrackerP2PKHFlow(flowRaw, wf, prevIdx); ok {
 					if !strings.EqualFold(strings.TrimSpace(row.Direction), dir) {
 						row.Direction = dir
 						changed = true
@@ -764,7 +816,7 @@ func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any
 		dirNew := "in"
 		amtNew := amt
 		addrOut := addrNew
-		if d, a, ad, ok := classifyMemeTrackerP2PKHFlow(rawHex, wf); ok {
+		if d, a, ad, ok := classifyMemeTrackerP2PKHFlow(rawHex, wf, prevIdx); ok {
 			dirNew = d
 			if a > 0 {
 				amtNew = a

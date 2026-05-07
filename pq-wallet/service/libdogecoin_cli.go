@@ -35,7 +35,11 @@ var (
 	reSuchTxCommitCarrier = regexp.MustCompile(`(?i)tx with commitment and carrier outputs:\s*([0-9a-f]+)`)
 	reSuchTxCommitOnly    = regexp.MustCompile(`(?i)tx with commitment:\s*([0-9a-f]+)`)
 	reSuchCarrierSPK      = regexp.MustCompile(`(?i)carrier_p2sh_scriptpubkey:\s*([0-9a-f]+)`)
-	reSuchCarrierMkSig    = regexp.MustCompile(`(?i)carrier_part_scriptsig\[(\d+)\]\s*:\s*([0-9a-f]+)`)
+	// Accept both historical forms emitted by such:
+	//   carrier_part_scriptsig[0]: <hex>
+	//   carrier_part_scriptsig: <hex>
+	reSuchCarrierMkSig      = regexp.MustCompile(`(?i)carrier_part_scriptsig(?:\[(\d+)\])?\s*:\s*([0-9a-f]+)`)
+	reSuchCarrierPartIndex  = regexp.MustCompile(`(?i)carrier_part_index\s*:\s*(\d+)`)
 	reSuchLongHex         = regexp.MustCompile(`\b([0-9a-f]{200,})\b`)
 )
 
@@ -459,8 +463,21 @@ func (s *Server) runSuchPqcCarrierMkpart(tag4Hex, pubHex, sigHex string, partInd
 	}
 	txt := out.String()
 	if m := reSuchCarrierMkSig.FindStringSubmatch(txt); len(m) >= 3 {
-		if pi, err := strconv.Atoi(m[1]); err == nil && pi == partIndex {
-			return strings.ToLower(strings.TrimSpace(m[2])), nil
+		// Indexed format: carrier_part_scriptsig[<n>]:
+		if strings.TrimSpace(m[1]) != "" {
+			if pi, err := strconv.Atoi(strings.TrimSpace(m[1])); err == nil && pi == partIndex {
+				return strings.ToLower(strings.TrimSpace(m[2])), nil
+			}
+		} else {
+			// Unindexed format: carrier_part_scriptsig:
+			// validate against carrier_part_index when available; otherwise accept as requested part.
+			if mi := reSuchCarrierPartIndex.FindStringSubmatch(txt); len(mi) >= 2 {
+				if pi, err := strconv.Atoi(strings.TrimSpace(mi[1])); err == nil && pi == partIndex {
+					return strings.ToLower(strings.TrimSpace(m[2])), nil
+				}
+			} else {
+				return strings.ToLower(strings.TrimSpace(m[2])), nil
+			}
 		}
 	}
 	return "", fmt.Errorf("pqc_carrier_mkpart: parse failed: %s", truncateStr(txt, 1200))

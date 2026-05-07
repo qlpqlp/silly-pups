@@ -219,6 +219,8 @@ func main() {
 	mux.HandleFunc("/api/tx/sign", srv.handleTxSign)
 	mux.HandleFunc("/api/tx/broadcast", srv.handleTxBroadcast)
 	mux.HandleFunc("/api/send/pq-safe", srv.handleSendPQSafe)
+	mux.HandleFunc("/api/pq/carrier/status", srv.handlePQCarrierStatus)
+	mux.HandleFunc("/api/pq/carrier/recover", srv.handlePQCarrierRecover)
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {

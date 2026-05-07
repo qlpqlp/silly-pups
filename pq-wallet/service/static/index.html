@@ -358,6 +358,24 @@
             </div>
           </details>
           <details class="card settings-details">
+            <summary class="settings-details-summary"><h2 class="settings-details-h2"><span class="material-symbols-outlined icon-inline">savings</span> PQ carrier funds recovery</h2></summary>
+            <div class="settings-details-body">
+            <p class="small muted">In PQ carrier mode, TX_C can place a temporary carrier output (often 1 DOGE) into a canonical P2SH address. TX_R should spend it back. If TX_R fails, funds can appear stuck there.</p>
+            <p class="small muted">Use <strong>Refresh stuck carrier funds</strong> to scan local state, then recover by TX_C txid. Recovery broadcasts an emergency carrier spend back to your wallet.</p>
+            <div class="toolbar toolbar-actions">
+              <button type="button" class="btn btn-sm primary" id="btn-pq-carrier-refresh"><span class="material-symbols-outlined btn-ico">refresh</span> Refresh stuck carrier funds</button>
+            </div>
+            <pre class="dos-screen" id="pq-carrier-status-out" style="min-height:9rem;margin-top:.45rem">Press Refresh stuck carrier funds.</pre>
+            <label class="field"><span>Recover TX_C txid</span>
+              <input type="text" class="input-modern mono" id="pq-carrier-recover-txid" placeholder="64-hex TX_C txid" autocomplete="off" spellcheck="false" />
+            </label>
+            <div class="toolbar toolbar-actions">
+              <button type="button" class="btn btn-sm" id="btn-pq-carrier-recover"><span class="material-symbols-outlined btn-ico">restart_alt</span> Recover stuck carrier funds</button>
+            </div>
+            <p class="small muted" id="pq-carrier-recover-msg"></p>
+            </div>
+          </details>
+          <details class="card settings-details">
             <summary class="settings-details-summary"><h2 class="settings-details-h2"><span class="material-symbols-outlined icon-inline">api</span> SPV REST probe</h2></summary>
             <div class="settings-details-body">
             <p class="small muted">Issue a read-only GET to your local <code class="mono">spvnode</code> HTTP server (same base as <code class="mono">SPV_HTTP_ADDR</code>, default <code class="mono">127.0.0.1:8080</code>). Endpoints match the <a href="https://lib.dogecoin.org/docs/rest" target="_blank" rel="noopener noreferrer">Libdogecoin SPV REST API</a>. <strong>Sensitive:</strong> <code class="mono">/getWallet</code> returns wallet bytes — use only in a trusted environment.</p>

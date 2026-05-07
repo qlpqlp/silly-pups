@@ -421,6 +421,22 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if useCarrierBudget && !carrierFlow {
+			allowCommitOnly := strings.TrimSpace(os.Getenv("PUP_PQ_ALLOW_COMMITMENT_ONLY_FALLBACK")) != ""
+			if includePQReveal && !allowCommitOnly {
+				msg := strings.TrimSpace(pqCarrierExtendErr)
+				if msg == "" {
+					msg = "PQ reveal requested but TX_C carrier outputs were not added; TX_R cannot be built. Check libdogecoin such carrier commands, carrier value, and change headroom."
+				}
+				writeJSON(w, http.StatusBadRequest, map[string]any{
+					"error":                      msg,
+					"pq_carrier_extend_err":      msg,
+					"pq_reveal_requested":        true,
+					"pq_carrier_flow":            false,
+					"carrier_koinu_configured":   carrierKoinu,
+					"carrier_koinu_applied_try":  carrierKoinuApplied,
+				})
+				return
+			}
 			econDowngraded = true
 			useCarrierBudget = false
 			continue

@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "meta": {
     "name": "PQ Doge Wallet",
-    "version": "0.0.53",
+    "version": "0.0.54",
     "logoPath": "logo.png",
     "shortDescription": "The first Post Quantum Secure Dogecoin wallet",
     "longDescription": "PQ Wallet builds and sends Dogecoin transactions with standard ECDSA authorization and optional Phase-1 post-quantum commitments. Commitment outputs follow canonical tagged OP_RETURN format (`6a24 + FLC1/DIL2/RCG4 + 32-byte commitment`). The wallet includes educational verification flows for TX_C/TX_R carrier model and uses `sendtx` for P2P broadcast (wallet-to-network peers, like Dogecoin Wallet’s bitcoinj path — not JSON-RPC to a local Core node), with SPV and embedded mempool tracking for visibility. `spvnode` watches every P2PKH address in the wallet; the dashboard can full-rescan or roll back the local header DB and wallet scan state when repair is needed.",
@@ -66,7 +66,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "dcba7f5a531e39a0d12f74ec7e1fe7c098f6bb66b800950618badcd257ed2ed3"
+      "nixFileSha256": "b98f16af585d97c078199c53b8d231aeb3155b0c6de15f0a84de5e6b84fc4388"
     },
     "services": [
       {
@@ -95,7 +95,7 @@
   "interfaces": [
     {
       "name": "pq-wallet-http",
-      "version": "0.0.53",
+      "version": "0.0.54",
       "permissionGroups": [
         {
           "name": "PQ Wallet HTTP",

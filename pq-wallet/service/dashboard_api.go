@@ -195,7 +195,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		mtrCount, mtrLive, mtrWorkers, mtrConn = eng.DashboardSnapshot()
 	}
 	if eng != nil && engErr == nil {
-		if s.persistMemeTrackerTxs(st, mtrLive) || s.enrichSPVTxFromRawHex(st, wf) {
+		if s.persistMemeTrackerTxs(st, mtrLive, wf) || s.enrichSPVTxFromRawHex(st, wf) {
 			_ = s.saveState(st)
 		}
 	}
@@ -510,7 +510,7 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 	// Keep MemeTracker authoritative for unconfirmed mempool tx rows after SPV/REST/raw enrich merges.
 	mtrChanged := false
 	if len(txMtrLive) > 0 {
-		mtrChanged = s.persistMemeTrackerTxs(st, txMtrLive)
+		mtrChanged = s.persistMemeTrackerTxs(st, txMtrLive, wf)
 	}
 	if changed || rawChanged || confirmChanged || proofMetaChanged || enrichedChanged || restChanged || bcChanged || bcRawChanged || suchChanged || mtrChanged {
 		_ = s.saveState(st)
@@ -635,8 +635,36 @@ func floatFromAny(v any) float64 {
 	}
 }
 
+// classifyMemeTrackerP2PKHFlow decodes mempool raw hex against wallet P2PKH outputs to classify
+// whether the tx is a spend (out) or receive (in) in Dogecoin Wallet-style list semantics.
+func classifyMemeTrackerP2PKHFlow(rawHex string, wf *WalletFile) (direction string, amountDOGE float64, address string, ok bool) {
+	if wf == nil || strings.TrimSpace(rawHex) == "" {
+		return "", 0, "", false
+	}
+	walletH160 := walletP2PKHHash160Map(wf)
+	if len(walletH160) == 0 {
+		return "", 0, "", false
+	}
+	testnet := strings.EqualFold(wf.Network, "testnet")
+	fl, err := decodeSPVRawTxFlow(rawHex, walletH160, testnet)
+	if err != nil {
+		return "", 0, "", false
+	}
+	if fl.ExternalSats > 0 {
+		pay := fl.CounterpartySats
+		if pay <= 0 {
+			pay = fl.ExternalSats
+		}
+		return "out", round2(float64(pay) / 1e8), strings.TrimSpace(fl.ExternalAddr), true
+	}
+	if fl.WalletSats > 0 {
+		return "in", round2(float64(fl.WalletSats) / 1e8), strings.TrimSpace(fl.WalletAddr), true
+	}
+	return "", 0, "", false
+}
+
 // persistMemeTrackerTxs appends mempool-tracked txs to state so they remain listed after they leave the live mempool.
-func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any) bool {
+func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any, wf *WalletFile) bool {
 	byTxid := make(map[string]int, len(st.Transactions))
 	for i := range st.Transactions {
 		id := normalizeTxid(st.Transactions[i].Txid)
@@ -676,23 +704,48 @@ func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any
 				}
 				continue
 			}
-			// For unconfirmed rows, MemeTracker is the authoritative mempool amount/address view.
-			// SPV REST can surface partial/decode-misaligned values before confirmation.
-			if row.Confirmations == 0 && amt > 0 && round2(row.AmountDOGE) != round2(amt) {
-				row.AmountDOGE = amt
+			if row.Confirmations != 0 {
+				row.Confirmations = 0
 				changed = true
 			}
 			if row.RawHex == "" && rawHex != "" {
 				row.RawHex = rawHex
 				changed = true
 			}
-			if row.Confirmations == 0 && !strings.EqualFold(strings.TrimSpace(row.Direction), "in") {
-				row.Direction = "in"
-				changed = true
+			flowRaw := rawHex
+			if strings.TrimSpace(flowRaw) == "" {
+				flowRaw = strings.TrimSpace(row.RawHex)
 			}
-			if row.Confirmations == 0 && addrLive != "" && !strings.EqualFold(strings.TrimSpace(row.Address), addrLive) {
-				row.Address = addrLive
-				changed = true
+			if row.Confirmations == 0 {
+				if dir, aDOGE, aAddr, ok := classifyMemeTrackerP2PKHFlow(flowRaw, wf); ok {
+					if !strings.EqualFold(strings.TrimSpace(row.Direction), dir) {
+						row.Direction = dir
+						changed = true
+					}
+					if aDOGE > 0 && round2(row.AmountDOGE) != round2(aDOGE) {
+						row.AmountDOGE = aDOGE
+						changed = true
+					}
+					if strings.TrimSpace(aAddr) != "" && !strings.EqualFold(strings.TrimSpace(row.Address), aAddr) {
+						row.Address = aAddr
+						changed = true
+					}
+				} else {
+					// Fallback when raw decode is unavailable: MTR amount/address represent watched credits.
+					if amt > 0 && round2(row.AmountDOGE) != round2(amt) {
+						row.AmountDOGE = amt
+						changed = true
+					}
+					d := strings.ToLower(strings.TrimSpace(row.Direction))
+					if d == "" || d == "unknown" {
+						row.Direction = "in"
+						changed = true
+					}
+					if addrLive != "" && !strings.EqualFold(strings.TrimSpace(row.Address), addrLive) {
+						row.Address = addrLive
+						changed = true
+					}
+				}
 			}
 			if row.Confirmations == 0 && !strings.EqualFold(strings.TrimSpace(row.Source), "manual") &&
 				!strings.EqualFold(strings.TrimSpace(row.Source), "memetracker") {
@@ -708,12 +761,24 @@ func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any
 		if addrNew == "" {
 			addrNew = strings.TrimSpace(jsonStringAny(m["tracked_address"]))
 		}
+		dirNew := "in"
+		amtNew := amt
+		addrOut := addrNew
+		if d, a, ad, ok := classifyMemeTrackerP2PKHFlow(rawHex, wf); ok {
+			dirNew = d
+			if a > 0 {
+				amtNew = a
+			}
+			if strings.TrimSpace(ad) != "" {
+				addrOut = ad
+			}
+		}
 		incoming = append(incoming, TxRecord{
 			Txid:          txid,
-			Direction:     "in",
-			AmountDOGE:    amt,
+			Direction:     dirNew,
+			AmountDOGE:    amtNew,
 			RawHex:        rawHex,
-			Address:       addrNew,
+			Address:       addrOut,
 			Source:        "memetracker",
 			Confirmations: 0,
 			SeenAt:        time.Now().UTC(),

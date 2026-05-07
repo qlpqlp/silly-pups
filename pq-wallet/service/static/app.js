@@ -2476,19 +2476,31 @@ const btnCarrierRecover = $("btn-pq-carrier-recover");
 if (btnCarrierRecover) {
   btnCarrierRecover.addEventListener("click", async () => {
     const inp = $("pq-carrier-recover-txid");
+    const rawEl = $("pq-carrier-recover-raw");
     const msg = $("pq-carrier-recover-msg");
     const out = $("pq-carrier-status-out");
-    const txid = String((inp && inp.value) || "").trim();
-    if (!/^[0-9a-fA-F]{64}$/.test(txid)) {
-      if (msg) msg.textContent = "Enter a valid 64-hex TX_C txid.";
+    const txid = String((inp && inp.value) || "").trim().replace(/\s+/g, "");
+    const rawHex = String((rawEl && rawEl.value) || "").trim().replace(/\s+/g, "");
+    if (!txid && !rawHex) {
+      if (msg) msg.textContent = "Enter a TX_C txid and/or paste raw transaction hex.";
+      return;
+    }
+    if (txid && !/^[0-9a-fA-F]{64}$/.test(txid)) {
+      if (msg) msg.textContent = "TX_C txid must be 64 hex characters (or leave empty if you paste raw hex only).";
+      return;
+    }
+    if (rawHex && (!/^[0-9a-fA-F]+$/i.test(rawHex) || rawHex.length % 2 !== 0)) {
+      if (msg) msg.textContent = "Raw hex must be an even-length hex string.";
       return;
     }
     if (!confirm("Broadcast recovery spend for this TX_C carrier output back to your wallet?")) return;
     if (msg) msg.textContent = "Recovering carrier funds...";
     try {
+      const payload = { tx_c_txid: txid };
+      if (rawHex) payload.tx_c_raw_hex = rawHex;
       const res = await api("/api/pq/carrier/recover", {
         method: "POST",
-        body: JSON.stringify({ tx_c_txid: txid }),
+        body: JSON.stringify(payload),
         timeout_ms: 120000,
       });
       if (out) out.textContent = JSON.stringify(res, null, 2);

@@ -361,13 +361,16 @@
             <summary class="settings-details-summary"><h2 class="settings-details-h2"><span class="material-symbols-outlined icon-inline">savings</span> PQ carrier funds recovery</h2></summary>
             <div class="settings-details-body">
             <p class="small muted">In PQ carrier mode, TX_C can place a temporary carrier output (often 1 DOGE) into a canonical P2SH address. TX_R should spend it back. If TX_R fails, funds can appear stuck there.</p>
-            <p class="small muted">Use <strong>Refresh stuck carrier funds</strong> to scan local state, then recover by TX_C txid. Recovery broadcasts an emergency carrier spend back to your wallet.</p>
+            <p class="small muted">Use <strong>Refresh stuck carrier funds</strong> to scan local state. You can always type a <strong>TX_C txid</strong> you saved (e.g. from a block explorer or your send logs): the server loads raw hex from this app&rsquo;s history, then from SPV <code class="mono">/getRawTx</code>, or you can paste <strong>raw hex</strong> below if both are missing. Recovery only works for commitment txs <strong>you sent from this same wallet</strong> (same keys); it sweeps the carrier output back to your primary address.</p>
             <div class="toolbar toolbar-actions">
               <button type="button" class="btn btn-sm primary" id="btn-pq-carrier-refresh"><span class="material-symbols-outlined btn-ico">refresh</span> Refresh stuck carrier funds</button>
             </div>
             <pre class="dos-screen" id="pq-carrier-status-out" style="min-height:9rem;margin-top:.45rem">Press Refresh stuck carrier funds.</pre>
-            <label class="field"><span>Recover TX_C txid</span>
+            <label class="field"><span>TX_C transaction id (optional if you paste raw hex only)</span>
               <input type="text" class="input-modern mono" id="pq-carrier-recover-txid" placeholder="64-hex TX_C txid" autocomplete="off" spellcheck="false" />
+            </label>
+            <label class="field"><span>Raw TX hex (optional — use if txid is not in the wallet or SPV)</span>
+              <textarea class="input-modern mono" id="pq-carrier-recover-raw" rows="3" placeholder="Paste full raw transaction hex from a block explorer" autocomplete="off" spellcheck="false"></textarea>
             </label>
             <div class="toolbar toolbar-actions">
               <button type="button" class="btn btn-sm" id="btn-pq-carrier-recover"><span class="material-symbols-outlined btn-ico">restart_alt</span> Recover stuck carrier funds</button>

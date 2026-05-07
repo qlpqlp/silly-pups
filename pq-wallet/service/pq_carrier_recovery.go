@@ -243,8 +243,57 @@ func (s *Server) handlePQCarrierStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"rows": rows,
-		"instructions": "Carrier mode sends TX_C with a temporary P2SH carrier output. Normally TX_R spends it back. If TX_R fails, use Recover to sweep those outputs back to your wallet.",
+		"instructions": "Carrier mode sends TX_C with a temporary P2SH carrier output. Normally TX_R spends it back. If TX_R fails, use Recover to sweep those outputs back to your wallet. If your PQ send is missing from the activity list, you can still recover using the TX_C txid you saved: the server tries local state, then SPV GET /getRawTx, or you can paste the raw transaction hex from any block explorer (must be the commitment transaction you broadcast from this wallet).",
 	})
+}
+
+// resolvePQCarrierTXCRawHex loads TX_C raw hex: optional pasted hex, else wallet state, else SPV /getRawTx.
+func (s *Server) resolvePQCarrierTXCRawHex(st *WalletState, txCTxid, pastedRawHex string) (rawHex string, source string, err error) {
+	txCTxid = normalizeTxid(txCTxid)
+	pastedRawHex = strings.TrimSpace(pastedRawHex)
+	if pastedRawHex != "" {
+		if !looksLikeDogecoinRawTxHex(pastedRawHex) {
+			return "", "", errors.New("tx_c_raw_hex does not look like hex")
+		}
+		rawB, derr := hex.DecodeString(strings.ToLower(pastedRawHex))
+		if derr != nil {
+			return "", "", fmt.Errorf("tx_c_raw_hex decode: %w", derr)
+		}
+		computed := normalizeTxid(dogeLegacyTxidHex(rawB))
+		if computed == "" {
+			return "", "", errors.New("could not compute txid from tx_c_raw_hex")
+		}
+		if txCTxid != "" && !strings.EqualFold(txCTxid, computed) {
+			return "", "", fmt.Errorf("tx_c_txid does not match raw hex (expected %s)", computed)
+		}
+		return strings.ToLower(pastedRawHex), "pasted_hex", nil
+	}
+	if txCTxid == "" {
+		return "", "", errors.New("tx_c_txid or tx_c_raw_hex required")
+	}
+	for _, t := range st.Transactions {
+		if normalizeTxid(t.Txid) == txCTxid && strings.TrimSpace(t.RawHex) != "" {
+			return strings.TrimSpace(t.RawHex), "wallet_state", nil
+		}
+	}
+	body, rerr := s.fetchSPVREST("/getRawTx?txid=" + strings.ToLower(txCTxid))
+	if rerr == nil {
+		line := strings.TrimSpace(strings.ReplaceAll(body, "\r", ""))
+		line = strings.TrimSuffix(line, "\n")
+		if looksLikeDogecoinRawTxHex(line) {
+			rawB, derr := hex.DecodeString(strings.ToLower(line))
+			if derr == nil {
+				if got := normalizeTxid(dogeLegacyTxidHex(rawB)); got == txCTxid {
+					return strings.ToLower(line), "spv_get_raw_tx", nil
+				}
+			}
+		}
+	}
+	extra := ""
+	if rerr != nil {
+		extra = rerr.Error()
+	}
+	return "", "", fmt.Errorf("TX_C raw hex not found in wallet state and SPV /getRawTx failed (%s); paste tx_c_raw_hex from a block explorer", extra)
 }
 
 func (s *Server) handlePQCarrierRecover(w http.ResponseWriter, r *http.Request) {
@@ -253,12 +302,14 @@ func (s *Server) handlePQCarrierRecover(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var body struct {
-		TxCTxid string `json:"tx_c_txid"`
+		TxCTxid   string `json:"tx_c_txid"`
+		TxCRawHex string `json:"tx_c_raw_hex"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
-	txCTxid := normalizeTxid(body.TxCTxid)
-	if txCTxid == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "tx_c_txid required"})
+	pasted := strings.TrimSpace(body.TxCRawHex)
+	txCTxidIn := normalizeTxid(strings.TrimSpace(body.TxCTxid))
+	if txCTxidIn == "" && pasted == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "tx_c_txid or tx_c_raw_hex required"})
 		return
 	}
 	s.mu.Lock()
@@ -283,15 +334,19 @@ func (s *Server) handlePQCarrierRecover(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	rawTXC := ""
-	for _, t := range st.Transactions {
-		if normalizeTxid(t.Txid) == txCTxid && strings.TrimSpace(t.RawHex) != "" {
-			rawTXC = strings.TrimSpace(t.RawHex)
-			break
-		}
+	rawTXC, rawSource, err := s.resolvePQCarrierTXCRawHex(st, txCTxidIn, pasted)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
 	}
-	if rawTXC == "" {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "TX_C raw hex not found in local state"})
+	rawBytes, decErr := hex.DecodeString(strings.ToLower(strings.TrimSpace(rawTXC)))
+	if decErr != nil || len(rawBytes) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "resolved TX_C hex is invalid"})
+		return
+	}
+	txCTxid := normalizeTxid(dogeLegacyTxidHex(rawBytes))
+	if txCTxid == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "could not compute txid from resolved TX_C"})
 		return
 	}
 	testnet := strings.EqualFold(strings.TrimSpace(wf.Network), "testnet")
@@ -369,6 +424,7 @@ func (s *Server) handlePQCarrierRecover(w http.ResponseWriter, r *http.Request) 
 		"ok":                true,
 		"code":              "recovery_broadcasted",
 		"tx_c_txid":         txCTxid,
+		"tx_c_hex_source":   rawSource,
 		"tx_r_txid":         normalizeTxid(sum.BroadcastTxID),
 		"sendtx_summary":    sum,
 		"sendtx_output":     sendOut,

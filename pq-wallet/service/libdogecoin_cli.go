@@ -34,6 +34,8 @@ var (
 	// fallback across the full buffer or we mis-parse scriptsig as a raw tx and such sign returns "Invalid tx hex".
 	reSuchTxCommitCarrier = regexp.MustCompile(`(?i)tx with commitment and carrier outputs:\s*([0-9a-f]+)`)
 	reSuchTxCommitOnly    = regexp.MustCompile(`(?i)tx with commitment:\s*([0-9a-f]+)`)
+	// set_scriptsig prints: "tx with scriptsig set: <hex>\n" (such.c)
+	reSuchTxScriptSigSet = regexp.MustCompile(`(?i)tx with scriptsig set:\s*([0-9a-f]+)`)
 	reSuchCarrierSPK      = regexp.MustCompile(`(?i)carrier_p2sh_scriptpubkey:\s*([0-9a-f]+)`)
 	// Accept both historical forms emitted by such:
 	//   carrier_part_scriptsig[0]: <hex>
@@ -356,6 +358,9 @@ func parseSuchTransactionHex(text string) string {
 	if m := reSuchTxCommitOnly.FindStringSubmatch(text); len(m) >= 2 && len(m[1]) >= 120 {
 		return strings.ToLower(m[1])
 	}
+	if m := reSuchTxScriptSigSet.FindStringSubmatch(text); len(m) >= 2 && len(m[1]) >= 120 {
+		return strings.ToLower(m[1])
+	}
 	if m := reSuchFlexibleTxHex.FindStringSubmatch(text); len(m) >= 2 && len(m[1]) >= 120 {
 		return strings.ToLower(m[1])
 	}
@@ -365,7 +370,8 @@ func parseSuchTransactionHex(text string) string {
 	best := ""
 	for _, ln := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
 		low := strings.ToLower(strings.TrimSpace(ln))
-		if strings.Contains(low, "scriptsig") {
+		// Skip carrier_part_scriptsig / scriptsig dumps — but not the summary line from set_scriptsig.
+		if strings.Contains(low, "scriptsig") && !strings.Contains(low, "tx with scriptsig set:") {
 			continue
 		}
 		for _, m := range reSuchLongHex.FindAllStringSubmatch(ln, -1) {

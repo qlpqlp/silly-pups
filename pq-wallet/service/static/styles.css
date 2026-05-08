@@ -1865,8 +1865,8 @@ body {
 }
 
 /* Wallet file: touch-friendly full-width actions */
-#view-settings details.card .btn,
-#view-settings .card .btn {
+#view-settings details.card .btn:not(.log-copy-btn),
+#view-settings .card .btn:not(.log-copy-btn) {
   width: 100%;
   justify-content: center;
   box-sizing: border-box;
@@ -2120,6 +2120,19 @@ textarea {
 .log-copy-btn {
   font-size: 0.78rem;
   padding: 0.28rem 0.6rem;
+  width: auto !important;
+}
+
+.pin-modal-panel {
+  max-width: min(420px, 100vw - 2rem);
+}
+
+.pin-modal-panel .tx-detail-actions {
+  justify-content: flex-end;
+}
+
+.pin-modal-panel .btn.primary {
+  width: auto;
 }
 
 .hidden {

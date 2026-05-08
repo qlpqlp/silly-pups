@@ -10,6 +10,7 @@ import (
 
 const (
 	minRelayFeeKoinu = int64(100000) // 0.001 DOGE — rough minimum fee for relay
+	txRMinFeeKoinu   = int64(1000000) // 0.01000000 DOGE — hard floor for PQ TX_R/recovery
 	dustLimitKoinu   = int64(100000)
 )
 

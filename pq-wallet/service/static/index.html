@@ -435,15 +435,24 @@
             <div class="dos-grid dos-grid-3">
               <div class="card dos-panel">
                 <h3>MemeTracker (embedded P2P)</h3>
+                <div class="log-out-actions">
+                  <button type="button" class="btn btn-sm log-copy-btn" data-copy-target="log-mtr"><span class="material-symbols-outlined btn-ico">content_copy</span> Copy logs</button>
+                </div>
                 <pre class="dos-screen" id="log-mtr">…</pre>
               </div>
               <div class="card dos-panel">
                 <h3>broadcast.log</h3>
+                <div class="log-out-actions">
+                  <button type="button" class="btn btn-sm log-copy-btn" data-copy-target="log-bc"><span class="material-symbols-outlined btn-ico">content_copy</span> Copy logs</button>
+                </div>
                 <pre class="dos-screen" id="log-bc">…</pre>
               </div>
               <div class="card dos-panel">
                 <h3>SPV live tip (dashboard)</h3>
                 <p class="small muted" style="margin:.35rem 0 .5rem">Header height / best hash from <code class="mono">/api/dashboard</code> (refreshes with the dashboard).</p>
+                <div class="log-out-actions">
+                  <button type="button" class="btn btn-sm log-copy-btn" data-copy-target="log-spv-headers"><span class="material-symbols-outlined btn-ico">content_copy</span> Copy logs</button>
+                </div>
                 <pre class="dos-screen" id="log-spv-headers">…</pre>
                 <div class="toolbar toolbar-actions" style="margin-top:.65rem;flex-wrap:wrap;gap:.5rem">
                   <span class="small muted" style="flex:1 1 220px"><code class="mono">/api/logs/spv-deep</code> — classify spv.log + optional <code class="mono">headers.db</code> raw header bytes.</span>
@@ -491,10 +500,16 @@
                   <input type="text" class="input-modern spv-deep-height-input" id="spv-deep-height" placeholder="5912345" inputmode="numeric" spellcheck="false" autocomplete="off" />
                 </label>
                 <h3 class="chart-sub" style="margin-top:.25rem">SPV deep digest</h3>
+                <div class="log-out-actions">
+                  <button type="button" class="btn btn-sm log-copy-btn" data-copy-target="log-spv-deep"><span class="material-symbols-outlined btn-ico">content_copy</span> Copy logs</button>
+                </div>
                 <pre class="dos-screen" id="log-spv-deep" style="min-height:9rem">Enable options above and press Refresh deep (or open Settings — it auto-refreshes).</pre>
                 <div class="toolbar toolbar-actions" style="margin-top:.75rem;flex-wrap:wrap;gap:.5rem">
                   <span class="small muted" style="flex:1 1 240px"><code class="mono">/api/debug/spv-ledger</code> — JSON snapshot: SPV REST raw bodies, parsed tx rows, <code class="mono">headers.db</code> probe, <code class="mono">state.json</code> tx sample, broadcast txids.</span>
                   <button type="button" class="btn btn-sm" id="btn-spv-ledger-refresh"><span class="material-symbols-outlined btn-ico">database</span> Fetch ledger snapshot</button>
+                </div>
+                <div class="log-out-actions">
+                  <button type="button" class="btn btn-sm log-copy-btn" data-copy-target="log-spv-ledger"><span class="material-symbols-outlined btn-ico">content_copy</span> Copy logs</button>
                 </div>
                 <pre class="dos-screen" id="log-spv-ledger" style="min-height:6rem;margin-top:.45rem">Press Fetch ledger snapshot (wallet must be unlocked).</pre>
               </div>
@@ -611,6 +626,7 @@
         <button type="button" class="btn btn-sm" id="btn-tx-copy-txid"><span class="material-symbols-outlined btn-ico">content_copy</span> Copy txid</button>
         <button type="button" class="btn btn-sm" id="btn-tx-copy-raw" title="Copy hex if the explorer returned it"><span class="material-symbols-outlined btn-ico">content_copy</span> Copy raw hex</button>
         <a class="btn btn-sm" id="btn-tx-external" href="#" target="_blank" rel="noopener noreferrer"><span class="material-symbols-outlined btn-ico">open_in_new</span> Open on SoChain</a>
+        <a class="btn btn-sm hidden" id="btn-tx-pair" href="#" target="_blank" rel="noopener noreferrer"><span class="material-symbols-outlined btn-ico">link</span> Open linked TX_C</a>
       </div>
       <pre class="mono small tx-detail-pre" id="tx-detail-body">…</pre>
       <button type="button" class="btn" id="btn-tx-detail-close"><span class="material-symbols-outlined btn-ico">close</span> Close</button>
@@ -625,6 +641,22 @@
       <div id="qr-reader" class="qr-reader-host"></div>
       <div class="qr-scan-actions">
         <button type="button" class="btn" id="btn-qr-scan-cancel"><span class="material-symbols-outlined btn-ico">cancel</span> Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="pin-modal" class="tx-detail-modal hidden" role="dialog" aria-modal="true" aria-labelledby="pin-modal-title">
+    <div class="tx-detail-modal-backdrop" id="pin-modal-backdrop"></div>
+    <div class="tx-detail-modal-panel card pin-modal-panel">
+      <h3 id="pin-modal-title">Enter PIN</h3>
+      <p class="small muted" id="pin-modal-sub">Authorize action</p>
+      <label class="field"><span>PIN</span>
+        <input type="password" class="input-modern" id="pin-modal-input" autocomplete="current-password" />
+      </label>
+      <p class="small muted" id="pin-modal-msg"></p>
+      <div class="tx-detail-actions">
+        <button type="button" class="btn btn-sm" id="btn-pin-modal-cancel"><span class="material-symbols-outlined btn-ico">close</span> Cancel</button>
+        <button type="button" class="btn btn-sm primary" id="btn-pin-modal-confirm"><span class="material-symbols-outlined btn-ico">check</span> Confirm</button>
       </div>
     </div>
   </div>

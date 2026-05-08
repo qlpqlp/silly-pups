@@ -379,9 +379,9 @@ func (s *Server) handlePQCarrierRecover(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("change script: %v", err)})
 		return
 	}
-	txRFeeFloorKoinu := minRelayFeeKoinu
+	txRFeeFloorKoinu := txRMinFeeKoinu
 	if v := strings.TrimSpace(os.Getenv("PUP_PQ_TXR_FEE_KOINU")); v != "" {
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= minRelayFeeKoinu {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= txRMinFeeKoinu {
 			txRFeeFloorKoinu = n
 		}
 	}

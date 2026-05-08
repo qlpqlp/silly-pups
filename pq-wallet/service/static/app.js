@@ -57,22 +57,77 @@ async function api(path, opts) {
   }
 }
 
+function promptPinModal(title, subtitle) {
+  return new Promise((resolve) => {
+    const modal = $("pin-modal");
+    const titleEl = $("pin-modal-title");
+    const subEl = $("pin-modal-sub");
+    const input = $("pin-modal-input");
+    const msgEl = $("pin-modal-msg");
+    const btnOk = $("btn-pin-modal-confirm");
+    const btnCancel = $("btn-pin-modal-cancel");
+    const backdrop = $("pin-modal-backdrop");
+    if (!modal || !input || !btnOk || !btnCancel) {
+      resolve(null);
+      return;
+    }
+    if (titleEl) titleEl.textContent = title || "Enter PIN";
+    if (subEl) subEl.textContent = subtitle || "Authorize action";
+    if (msgEl) msgEl.textContent = "";
+    input.value = "";
+    modal.classList.remove("hidden");
+    let done = false;
+    const cleanup = () => {
+      btnOk.removeEventListener("click", onOk);
+      btnCancel.removeEventListener("click", onCancel);
+      input.removeEventListener("keydown", onKey);
+      if (backdrop) backdrop.removeEventListener("click", onCancel);
+    };
+    const finish = (val) => {
+      if (done) return;
+      done = true;
+      cleanup();
+      modal.classList.add("hidden");
+      resolve(val);
+    };
+    const onOk = () => {
+      const cleaned = String(input.value || "").trim();
+      if (!cleaned) {
+        if (msgEl) msgEl.textContent = "PIN is required.";
+        input.focus();
+        return;
+      }
+      finish(cleaned);
+    };
+    const onCancel = () => finish(null);
+    const onKey = (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        onOk();
+      } else if (ev.key === "Escape") {
+        ev.preventDefault();
+        onCancel();
+      }
+    };
+    btnOk.addEventListener("click", onOk);
+    btnCancel.addEventListener("click", onCancel);
+    input.addEventListener("keydown", onKey);
+    if (backdrop) backdrop.addEventListener("click", onCancel);
+    setTimeout(() => input.focus(), 0);
+  });
+}
+
 async function ensurePinForSensitiveAction(actionLabel) {
   try {
     const sec = await api("/api/security/status");
     const sealed = !!(sec && sec.sealed);
     if (!sealed) return true;
     const promptLabel = actionLabel || "this action";
-    const pin = window.prompt(`Enter wallet PIN to authorize ${promptLabel}:`, "");
+    const pin = await promptPinModal("Wallet PIN required", `Enter wallet PIN to authorize ${promptLabel}.`);
     if (pin == null) return false;
-    const cleaned = String(pin).trim();
-    if (!cleaned) {
-      alert("PIN is required.");
-      return false;
-    }
     const res = await api("/api/security/unlock", {
       method: "POST",
-      body: JSON.stringify({ pin: cleaned }),
+      body: JSON.stringify({ pin }),
     });
     if (!res || res.error) {
       alert((res && res.error) ? String(res.error) : "Could not verify PIN.");
@@ -1079,6 +1134,38 @@ function fitWalletHeroBalance() {
   }
 }
 
+function firstPrevTxidFromRawHex(rawHex) {
+  const s = String(rawHex || "").trim().toLowerCase();
+  if (!/^[0-9a-f]+$/.test(s) || s.length < 90) return "";
+  try {
+    let off = 8;
+    if (s.slice(off, off + 4) === "0001") off += 4;
+    const inCount = parseInt(s.slice(off, off + 2), 16);
+    if (!Number.isFinite(inCount) || inCount < 1) return "";
+    off += 2;
+    const prevLe = s.slice(off, off + 64);
+    if (!/^[0-9a-f]{64}$/.test(prevLe)) return "";
+    const bytes = prevLe.match(/../g) || [];
+    return bytes.reverse().join("");
+  } catch {
+    return "";
+  }
+}
+
+function quantumMetaFromTx(tx, localRawHex) {
+  const raw = String(localRawHex || tx.raw_hex || "").toLowerCase();
+  const hint = !!tx.pq_hint || raw.includes("6a24464c4331") || raw.includes("6a2444494c32") || raw.includes("6a2452434734");
+  const isReveal = raw.includes("464c433146554c4c") || raw.includes("44494c3246554c4c") || raw.includes("5243473446554c4c");
+  const linkedTxC = isReveal ? firstPrevTxidFromRawHex(raw) : "";
+  if (!hint && !isReveal) {
+    return { label: "Classic", detail: "Classic transaction", pairTxid: "" };
+  }
+  if (isReveal) {
+    return { label: "Quantum Reveal", detail: linkedTxC ? `Quantum reveal (linked TX_C: ${linkedTxC})` : "Quantum reveal", pairTxid: linkedTxC };
+  }
+  return { label: "Quantum Commit", detail: "Quantum commitment transaction", pairTxid: "" };
+}
+
 function buildTxExpandableCard(tx, includeSource) {
   const txidFull = String(tx.txid || "").trim();
   const conf = Number(tx.confirmations || 0);
@@ -1091,7 +1178,8 @@ function buildTxExpandableCard(tx, includeSource) {
   else if (nAmt != null && nAmt > 0) sign = "+";
   const amount = nAmt != null ? `${sign}${nAmt.toFixed(2)}` : "—";
   const seen = tx.seen_at ? fmtTime(tx.seen_at) : "—";
-  const pqHint = !!tx.pq_hint;
+  const qm = quantumMetaFromTx(tx, null);
+  const pqHint = qm.label !== "Classic";
   const isConfirmed = conf > 0;
   const short = txidFull ? txidFull.slice(0, 18) + (txidFull.length > 18 ? "…" : "") : "—";
   const addrLine = String(tx.address || "").trim() || "—";
@@ -1119,7 +1207,7 @@ function buildTxExpandableCard(tx, includeSource) {
   addrEl.title = addrLine;
   const pqBadge = document.createElement("span");
   pqBadge.className = "tx-quantum-badge" + (pqHint ? "" : " off");
-  pqBadge.textContent = pqHint ? "Quantum" : "Classic";
+  pqBadge.textContent = qm.label;
   row1.appendChild(statusDot);
   row1.appendChild(timeEl);
   row1.appendChild(pqBadge);
@@ -1168,7 +1256,8 @@ function buildTxExpandableCard(tx, includeSource) {
   if (dir === "out") {
     addRow("Network fee", Number.isFinite(feeN) && feeN > 0 ? `${feeN.toFixed(4)} DOGE` : "—", false);
   }
-  addRow("Security", tx.pq_hint ? "Quantum transaction" : "Classic transaction", false);
+  addRow("Security", qm.detail, false);
+  if (qm.pairTxid) addRow("Linked TX_C", qm.pairTxid, true);
   if (includeSource) addRow("Source", tx.source || "—", false);
   if (txidFull) {
     const row = document.createElement("div");
@@ -1287,20 +1376,24 @@ function updateCharts(metrics) {
 }
 
 async function refreshWallet() {
-  const data = await api("/api/wallet");
+  const [data, sec] = await Promise.all([
+    api("/api/wallet"),
+    api("/api/security/status").catch(() => ({})),
+  ]);
   // If /api/wallet returns a transient non-JSON or error payload during startup,
   // do not flip the UI into onboarding; keep prior state until a stable read.
   if (!data || data.error || data._status >= 500) {
     return;
   }
-  state.walletLocked = !!(data.locked && data.sealed);
+  const sealed = !!((data && data.sealed) || (sec && sec.sealed));
+  const locked = !!((data && data.locked) || (sec && sec.sealed && !sec.unlocked));
+  state.walletLocked = !!(locked && sealed);
   state.wallet = data.wallet || null;
   // Defensive fallback: on some force-refresh races wallet payload can be null briefly
   // while the service is still warming up. Security status tells us whether a wallet
   // exists on disk (sealed or plaintext) so onboarding should remain hidden.
   if (!state.wallet && !state.walletLocked) {
     try {
-      const sec = await api("/api/security/status");
       const hasWalletOnDisk = !!(sec && (sec.sealed || sec.has_plaintext_wallet));
       if (hasWalletOnDisk) {
         state.walletLocked = !!(sec.sealed && !sec.unlocked);
@@ -1314,7 +1407,7 @@ async function refreshWallet() {
     lockEl.classList.toggle("hidden", !state.walletLocked);
     lockEl.setAttribute("aria-hidden", state.walletLocked ? "false" : "true");
   }
-  updateEncryptionButtons(!!data.sealed, !!data.locked);
+  updateEncryptionButtons(sealed, locked);
   setOnboarding(data.wallet);
   if (data.wallet) {
     renderAddresses(data.wallet);
@@ -1879,6 +1972,7 @@ function txDetailPrettyText(localSummary, localDetail) {
       ? `${Number(localSummary.amount_doge).toFixed(8)} DOGE`
       : "—";
   const conf = Number(localSummary.confirmations || 0);
+  const qm = quantumMetaFromTx(localSummary, localDetail && localDetail.local_raw_hex ? localDetail.local_raw_hex : "");
   const lines = [
     "Overview",
     "--------",
@@ -1887,10 +1981,13 @@ function txDetailPrettyText(localSummary, localDetail) {
     `Amount: ${amount}`,
     `Confirmations: ${conf > 0 ? conf : 0}`,
     `Source: ${localSummary.source || "spv"}`,
-    `Security: ${localSummary.pq_hint ? "Quantum (commitment detected)" : "Classic (no PQ hint)"}`,
+    `Security: ${qm.detail}`,
   ];
   if (localSummary.pq_verified) {
     lines.push("Reveal verification: PASSED");
+  }
+  if (qm.pairTxid) {
+    lines.push(`Linked TX_C: ${qm.pairTxid}`);
   }
   if (localDetail && localDetail.local_raw_hex) {
     lines.push(`Raw hex: captured (${String(localDetail.local_raw_hex).length} chars)`);
@@ -1917,6 +2014,7 @@ async function openTxDetailModal(tx) {
   const body = $("tx-detail-body");
   const sub = $("tx-detail-sub");
   const ext = $("btn-tx-external");
+  const pairBtn = $("btn-tx-pair");
   const txid = String((tx && tx.txid) || "").trim();
   if (!modal || !body) return;
   state.txDetailTxid = txid;
@@ -1933,11 +2031,16 @@ async function openTxDetailModal(tx) {
     pq_verified: !!(tx && tx.pq_verified),
   };
   let localDetail = null;
+  let pairTxid = "";
   body.textContent = txDetailPrettyText(localSummary, null);
   if (sub) sub.textContent = "Clean summary first, then local JSON details.";
   if (ext) {
     ext.href = sochainTxUrl(txid);
     ext.textContent = "Open on SoChain";
+  }
+  if (pairBtn) {
+    pairBtn.classList.add("hidden");
+    pairBtn.href = "#";
   }
   try {
     const localRes = await api("/api/tx/local/" + encodeURIComponent(txid));
@@ -1947,6 +2050,8 @@ async function openTxDetailModal(tx) {
         state.txDetailHex = String(localRes.local_raw_hex).trim();
       }
       body.textContent = txDetailPrettyText(localSummary, localRes).slice(0, 500000);
+      const qm = quantumMetaFromTx(localSummary, state.txDetailHex);
+      pairTxid = qm.pairTxid || "";
       if (sub) {
         sub.textContent = state.txDetailHex
           ? "Modern summary with local SPV/P2P data (raw hex captured)."
@@ -1958,6 +2063,10 @@ async function openTxDetailModal(tx) {
   }
   const copyRawBtn = $("btn-tx-copy-raw");
   if (copyRawBtn) copyRawBtn.disabled = !state.txDetailHex;
+  if (pairBtn && pairTxid) {
+    pairBtn.href = sochainTxUrl(pairTxid);
+    pairBtn.classList.remove("hidden");
+  }
 }
 
 function closeTxDetailModal() {
@@ -2685,8 +2794,8 @@ const btnSeal = $("btn-seal-wallet");
 if (btnSeal) {
   btnSeal.addEventListener("click", async () => {
     const pin = ($("seal-pin-input") && $("seal-pin-input").value) || "";
-    const pin2 = window.prompt("Re-enter PIN to enable encryption:", "");
     const msg = $("seal-msg");
+    const pin2 = await promptPinModal("Confirm wallet PIN", "Re-enter your PIN to enable encryption.");
     if (pin2 == null) {
       if (msg) msg.textContent = "Encryption cancelled.";
       return;

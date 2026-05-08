@@ -156,10 +156,10 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 			carrierKoinu = n
 		}
 	}
-	// Optional absolute floor for TX_R total fee (koinu). Otherwise use economic fee from size + min relay.
-	txRFeeFloorKoinu := minRelayFeeKoinu
+	// Optional absolute floor for TX_R total fee (koinu). Never allow below hard TX_R minimum.
+	txRFeeFloorKoinu := txRMinFeeKoinu
 	if v := strings.TrimSpace(os.Getenv("PUP_PQ_TXR_FEE_KOINU")); v != "" {
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= minRelayFeeKoinu {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= txRMinFeeKoinu {
 			txRFeeFloorKoinu = n
 		}
 	}

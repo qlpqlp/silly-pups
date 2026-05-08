@@ -6,7 +6,7 @@ let
 
   qe_bin = pkgs.buildGoModule {
     pname = "quantum-explorer";
-    version = "0.1.48";
+    version = "0.1.50";
     src = ./service;
     vendorHash = null;
     go = pkgs.go_1_24;
@@ -123,11 +123,11 @@ EOF
         fi
         sleep 0.4
       fi
-      for i in $(seq 1 80); do
+      for i in $(seq 1 150); do
         if pg_isready -h 127.0.0.1 -p "$PGPORT" >/dev/null 2>&1; then
           break
         fi
-        sleep 0.2
+        sleep 0.25
       done
       if ! psql -h 127.0.0.1 -p "$PGPORT" -U qeuser -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='quantum_explorer'" | grep -q 1; then
         createdb -h 127.0.0.1 -p "$PGPORT" -U qeuser quantum_explorer || true

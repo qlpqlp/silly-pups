@@ -72,6 +72,19 @@ func (a *app) publicCoreSummary(w http.ResponseWriter, r *http.Request) {
 
 // pqCarrierTXRole classifies carrier-flow rows for the homepage: TX_C (Phase-1 OP_RETURN commitment)
 // vs TX_R (reveal that matched a commitment or carried verified carrier material).
+func pqCarrierRoleFromVerification(pq map[string]any, quantumState string) string {
+	row := map[string]any{"quantum_state": quantumState, "pq_verification": pq}
+	if pq != nil {
+		if car, ok := pq["carrier_phase1"].(map[string]any); ok {
+			row["matched_txc_txid"] = strings.ToLower(strings.TrimSpace(fmt.Sprint(car["matched_txc_txid"])))
+		}
+		if rev, ok := pq["carrier_reverse_phase1"].(map[string]any); ok {
+			row["matched_txr_txid"] = strings.ToLower(strings.TrimSpace(fmt.Sprint(rev["matched_txr_txid"])))
+		}
+	}
+	return pqCarrierTXRole(row)
+}
+
 func pqCarrierTXRole(row map[string]any) string {
 	if row == nil {
 		return ""

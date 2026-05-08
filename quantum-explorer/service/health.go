@@ -3,8 +3,39 @@ package main
 import (
 	"context"
 	"net/http"
+	"sync"
 	"time"
 )
+
+// phasedStartupHandler binds the HTTP port before Postgres/RPC-heavy init finishes so container
+// supervisors (systemd/DogeBox) observe an open listener immediately and avoid startup timeouts.
+type phasedStartupHandler struct {
+	mu   sync.RWMutex
+	app  *app
+	full http.Handler
+}
+
+func (p *phasedStartupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	p.mu.RLock()
+	h := p.full
+	p.mu.RUnlock()
+	if h != nil {
+		h.ServeHTTP(w, r)
+		return
+	}
+	if r.URL.Path == "/healthz" && p.app != nil {
+		p.app.healthz(w, r)
+		return
+	}
+	w.Header().Set("Retry-After", "2")
+	http.Error(w, "Quantum Explorer is starting", http.StatusServiceUnavailable)
+}
+
+func (p *phasedStartupHandler) enable(h http.Handler) {
+	p.mu.Lock()
+	p.full = h
+	p.mu.Unlock()
+}
 
 func (a *app) healthz(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, 200, map[string]any{

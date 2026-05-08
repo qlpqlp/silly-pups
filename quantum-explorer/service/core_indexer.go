@@ -205,6 +205,18 @@ func (ix *coreIndexer) ensureSchema(ctx context.Context) error {
 	if _, err := ix.db.ExecContext(ctx, `ALTER TABLE qe_core_hourly_metrics ADD COLUMN IF NOT EXISTS address_count BIGINT NOT NULL DEFAULT 0`); err != nil {
 		return err
 	}
+	// Mining / block analytics (backfilled for new blocks; optional columns on older DBs).
+	for _, alt := range []string{
+		`ALTER TABLE qe_core_blocks ADD COLUMN IF NOT EXISTS block_size BIGINT NOT NULL DEFAULT 0`,
+		`ALTER TABLE qe_core_blocks ADD COLUMN IF NOT EXISTS difficulty DOUBLE PRECISION NOT NULL DEFAULT 0`,
+		`ALTER TABLE qe_core_blocks ADD COLUMN IF NOT EXISTS coinbase_value_sats BIGINT NOT NULL DEFAULT 0`,
+		`ALTER TABLE qe_core_blocks ADD COLUMN IF NOT EXISTS miner_address TEXT NOT NULL DEFAULT ''`,
+		`CREATE INDEX IF NOT EXISTS qe_core_blocks_miner_address ON qe_core_blocks (miner_address) WHERE miner_address <> ''`,
+	} {
+		if _, err := ix.db.ExecContext(ctx, alt); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -417,16 +429,41 @@ func (ix *coreIndexer) indexHeight(height int64) error {
 	bhash := strings.ToLower(strings.TrimSpace(anyString(block["hash"])))
 	btime := anyInt64(block["time"])
 	txs, _ := block["tx"].([]any)
+	bSize := anyInt64(block["size"])
+	difficulty := anyFloat64(block["difficulty"])
+	var cbVal int64
+	var minerAddr string
+	if len(txs) > 0 {
+		if tm, ok := txs[0].(map[string]any); ok {
+			for _, vv := range anySlice(tm["vout"]) {
+				vm, ok := vv.(map[string]any)
+				if !ok {
+					continue
+				}
+				cbVal += dogeToSats(anyFloat64(vm["value"]))
+				spk, _ := vm["scriptPubKey"].(map[string]any)
+				for _, ad := range scriptAddresses(spk) {
+					ad = strings.TrimSpace(ad)
+					if minerAddr == "" && ad != "" {
+						minerAddr = ad
+						break
+					}
+				}
+			}
+		}
+	}
 	tx, err := ix.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	_, err = tx.ExecContext(ctx, `INSERT INTO qe_core_blocks (height, hash, time_unix, tx_count, created_at)
-	VALUES ($1,$2,$3,$4,$5)
-	ON CONFLICT (height) DO UPDATE SET hash=EXCLUDED.hash, time_unix=EXCLUDED.time_unix, tx_count=EXCLUDED.tx_count`,
-		height, bhash, btime, len(txs), time.Now().Unix())
+	_, err = tx.ExecContext(ctx, `INSERT INTO qe_core_blocks (height, hash, time_unix, tx_count, created_at, block_size, difficulty, coinbase_value_sats, miner_address)
+	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+	ON CONFLICT (height) DO UPDATE SET hash=EXCLUDED.hash, time_unix=EXCLUDED.time_unix, tx_count=EXCLUDED.tx_count,
+		block_size=EXCLUDED.block_size, difficulty=EXCLUDED.difficulty,
+		coinbase_value_sats=EXCLUDED.coinbase_value_sats, miner_address=EXCLUDED.miner_address`,
+		height, bhash, btime, len(txs), time.Now().Unix(), bSize, difficulty, cbVal, minerAddr)
 	if err != nil {
 		return err
 	}
@@ -658,6 +695,14 @@ func (ix *coreIndexer) refreshHourlyMetrics(hours int) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+func shortenAddr(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= 14 {
+		return s
+	}
+	return s[:8] + "…" + s[len(s)-6:]
 }
 
 func anyString(v any) string {
@@ -1168,7 +1213,9 @@ func (ix *coreIndexer) recentBlocks(ctx context.Context, limit int) ([]map[strin
 	if limit < 1 || limit > 200 {
 		limit = 15
 	}
-	rows, err := ix.db.QueryContext(ctx, `SELECT height, hash, time_unix, tx_count FROM qe_core_blocks ORDER BY height DESC LIMIT $1`, limit)
+	rows, err := ix.db.QueryContext(ctx, `SELECT height, hash, time_unix, tx_count,
+		COALESCE(block_size,0), COALESCE(difficulty,0), COALESCE(coinbase_value_sats,0),
+		TRIM(COALESCE(miner_address,'')) FROM qe_core_blocks ORDER BY height DESC LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1178,10 +1225,23 @@ func (ix *coreIndexer) recentBlocks(ctx context.Context, limit int) ([]map[strin
 		var h, t int64
 		var hash string
 		var tc int
-		if err := rows.Scan(&h, &hash, &t, &tc); err != nil {
+		var bsz, cbSats int64
+		var diff float64
+		var miner string
+		if err := rows.Scan(&h, &hash, &t, &tc, &bsz, &diff, &cbSats, &miner); err != nil {
 			return nil, err
 		}
-		out = append(out, map[string]any{"height": h, "hash": hash, "time_unix": t, "tx_count": tc})
+		out = append(out, map[string]any{
+			"height":               h,
+			"hash":                 hash,
+			"time_unix":            t,
+			"tx_count":             tc,
+			"block_size":           bsz,
+			"difficulty":           diff,
+			"coinbase_value_sats":  cbSats,
+			"miner_address":        miner,
+			"miner_address_short":  shortenAddr(miner),
+		})
 	}
 	return out, rows.Err()
 }
@@ -1240,6 +1300,198 @@ func (ix *coreIndexer) pqAggregates(ctx context.Context) map[string]int64 {
 	return out
 }
 
+func (ix *coreIndexer) dbTipHeight(ctx context.Context) int64 {
+	if ix == nil || ix.db == nil {
+		return 0
+	}
+	var tip int64
+	_ = ix.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(height),0) FROM qe_core_blocks`).Scan(&tip)
+	return tip
+}
+
+func (ix *coreIndexer) miningLeaderboard(ctx context.Context, minHeight int64, limit int) ([]map[string]any, error) {
+	if ix == nil || ix.db == nil {
+		return nil, fmt.Errorf("core indexer unavailable")
+	}
+	if limit < 1 || limit > 200 {
+		limit = 25
+	}
+	rows, err := ix.db.QueryContext(ctx, `
+		SELECT miner_address, COUNT(*)::bigint AS blocks_mined,
+		       SUM(coinbase_value_sats)::bigint AS rewards_sats
+		FROM qe_core_blocks
+		WHERE height >= $1 AND TRIM(COALESCE(miner_address,'')) <> ''
+		GROUP BY miner_address
+		ORDER BY blocks_mined DESC
+		LIMIT $2`, minHeight, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []map[string]any
+	for rows.Next() {
+		var addr string
+		var blkMined, rewards int64
+		if err := rows.Scan(&addr, &blkMined, &rewards); err != nil {
+			return nil, err
+		}
+		out = append(out, map[string]any{
+			"miner_address":       addr,
+			"miner_short":       shortenAddr(addr),
+			"blocks_mined":      blkMined,
+			"rewards_sats":      rewards,
+			"rewards_doge":      float64(rewards) / 1e8,
+			"badge":             "miner",
+			"badge_description": "Coinbase payee for blocks mined in this window (first decoded output address).",
+		})
+	}
+	return out, rows.Err()
+}
+
+func (ix *coreIndexer) pqHourlySeries(ctx context.Context, limitHours int) ([]map[string]any, error) {
+	if ix == nil || ix.db == nil {
+		return nil, fmt.Errorf("core indexer unavailable")
+	}
+	if limitHours < 1 || limitHours > 24*120 {
+		limitHours = 168
+	}
+	rows, err := ix.db.QueryContext(ctx, `
+		SELECT hour_unix, quantum_count, all_count, invalid_quantum_count, COALESCE(block_count,0)
+		FROM qe_core_hourly_metrics
+		ORDER BY hour_unix DESC
+		LIMIT $1`, limitHours)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]map[string]any, 0, limitHours)
+	for rows.Next() {
+		var hu, q, all, inv, blk int64
+		if err := rows.Scan(&hu, &q, &all, &inv, &blk); err != nil {
+			return nil, err
+		}
+		adopt := 0.0
+		if all > 0 {
+			adopt = float64(q) * 100 / float64(all)
+		}
+		out = append(out, map[string]any{
+			"hour_unix":           hu,
+			"quantum_count":       q,
+			"all_tx_count":        all,
+			"invalid_quantum":     inv,
+			"block_count":         blk,
+			"pq_adoption_percent": adopt,
+		})
+	}
+	return out, rows.Err()
+}
+
+func (ix *coreIndexer) pqAddressLeaderboard(ctx context.Context, limit int) ([]map[string]any, error) {
+	if ix == nil || ix.db == nil {
+		return nil, fmt.Errorf("core indexer unavailable")
+	}
+	if limit < 1 || limit > 500 {
+		limit = 50
+	}
+	rows, err := ix.db.QueryContext(ctx, `
+		SELECT a.address, COUNT(DISTINCT a.txid)::bigint AS pq_tx_count,
+		       MIN(t.time_unix)::bigint AS first_seen_unix
+		FROM qe_core_addresses a
+		INNER JOIN qe_core_txs t ON t.txid = a.txid
+		WHERE t.quantum_state = 'quantum'
+		GROUP BY a.address
+		ORDER BY pq_tx_count DESC
+		LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []map[string]any
+	for rows.Next() {
+		var addr string
+		var cnt, first int64
+		if err := rows.Scan(&addr, &cnt, &first); err != nil {
+			return nil, err
+		}
+		out = append(out, map[string]any{
+			"address":          addr,
+			"address_short":    shortenAddr(addr),
+			"pq_tx_count":      cnt,
+			"first_seen_unix":  first,
+			"first_seen_iso8601": time.Unix(first, 0).UTC().Format(time.RFC3339),
+		})
+	}
+	return out, rows.Err()
+}
+
+func (ix *coreIndexer) pqCarrierRevealPairs(ctx context.Context, limit int) ([]map[string]any, error) {
+	if ix == nil || ix.db == nil {
+		return nil, fmt.Errorf("core indexer unavailable")
+	}
+	if limit < 1 || limit > 200 {
+		limit = 40
+	}
+	rows, err := ix.db.QueryContext(ctx, `
+		SELECT txid, block_height, time_unix, raw_hex FROM qe_core_txs
+		WHERE LENGTH(TRIM(COALESCE(raw_hex,''))) > 0
+		ORDER BY time_unix DESC
+		LIMIT $1`, limit*8)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	type row struct {
+		txid   string
+		height int64
+		tm     int64
+		raw    string
+	}
+	var buf []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.txid, &r.height, &r.tm, &r.raw); err != nil {
+			return nil, err
+		}
+		buf = append(buf, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]map[string]any, 0, limit)
+	seen := map[string]struct{}{}
+	for _, r := range buf {
+		raw := strings.TrimSpace(r.raw)
+		role := ""
+		if hasCarrierRevealScriptSigRaw(raw) {
+			role = "tx_r"
+		} else if ok, _, _, _ := verifyPQStrict(raw); ok {
+			role = "tx_c"
+		} else {
+			continue
+		}
+		pair := map[string]any{
+			"txid":          strings.ToLower(r.txid),
+			"block_height":  r.height,
+			"time_unix":     r.tm,
+			"pq_carrier_role": role,
+			"badge":           map[string]string{"tx_c": "Post-Quantum Carrier", "tx_r": "Post-Quantum Reveal"}[role],
+		}
+		if role == "tx_r" {
+			pair["carrier_verified"] = true
+		}
+		key := r.txid + role
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, pair)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
 // blockDetail returns indexed block metadata and txs from qe_core_txs (decode for first decodeLimit txs).
 func (ix *coreIndexer) blockDetail(ctx context.Context, height *int64, hash *string, decodeLimit int) (map[string]any, error) {
 	if ix == nil || ix.db == nil {
@@ -1251,14 +1503,22 @@ func (ix *coreIndexer) blockDetail(ctx context.Context, height *int64, hash *str
 	var bH, bT int64
 	var bHash string
 	var txc int
+	var bsz, cbSats int64
+	var diff float64
+	var miner string
 	var err error
+	rowScan := func(row *sql.Row) error {
+		return row.Scan(&bH, &bHash, &bT, &txc, &bsz, &diff, &cbSats, &miner)
+	}
 	if height != nil && *height >= 0 {
-		err = ix.db.QueryRowContext(ctx, `SELECT height, hash, time_unix, tx_count FROM qe_core_blocks WHERE height=$1`, *height).
-			Scan(&bH, &bHash, &bT, &txc)
+		err = rowScan(ix.db.QueryRowContext(ctx, `SELECT height, hash, time_unix, tx_count,
+			COALESCE(block_size,0), COALESCE(difficulty,0), COALESCE(coinbase_value_sats,0),
+			TRIM(COALESCE(miner_address,'')) FROM qe_core_blocks WHERE height=$1`, *height))
 	} else if hash != nil && strings.TrimSpace(*hash) != "" {
 		h := strings.ToLower(strings.TrimSpace(*hash))
-		err = ix.db.QueryRowContext(ctx, `SELECT height, hash, time_unix, tx_count FROM qe_core_blocks WHERE hash=$1`, h).
-			Scan(&bH, &bHash, &bT, &txc)
+		err = rowScan(ix.db.QueryRowContext(ctx, `SELECT height, hash, time_unix, tx_count,
+			COALESCE(block_size,0), COALESCE(difficulty,0), COALESCE(coinbase_value_sats,0),
+			TRIM(COALESCE(miner_address,'')) FROM qe_core_blocks WHERE hash=$1`, h))
 	} else {
 		return nil, fmt.Errorf("height or hash required")
 	}
@@ -1295,8 +1555,18 @@ func (ix *coreIndexer) blockDetail(ctx context.Context, height *int64, hash *str
 		return nil, err
 	}
 	return map[string]any{
-		"found":        true,
-		"block":        map[string]any{"height": bH, "hash": bHash, "time_unix": bT, "tx_count": txc},
+		"found": true,
+		"block": map[string]any{
+			"height":               bH,
+			"hash":                 bHash,
+			"time_unix":            bT,
+			"tx_count":             txc,
+			"block_size":           bsz,
+			"difficulty":           diff,
+			"coinbase_value_sats":  cbSats,
+			"miner_address":        miner,
+			"miner_address_short":  shortenAddr(miner),
+		},
 		"transactions": txs,
 		"decode_limit": decodeLimit,
 		"decode_rows":  min(n, decodeLimit),

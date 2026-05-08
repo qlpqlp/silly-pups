@@ -2,11 +2,12 @@ const endpoints = [
   ["/api/public/network-overview", "Chain + mempool snapshot, optional CoinGecko market fields"],
   ["/api/public/core/recent-blocks/", "Paginated recent blocks (indexed)"],
   ["/api/public/core/recent-txs/", "Recent txs (?lite=1 for fast PQ badges)"],
+  ["/api/public/core/address-leaders/", "Top addresses by indexed credits received + quantum-tx address leaderboard (?limit=10–200)"],
   ["/api/public/core/search/", "Omnibox search (txid, height, hash, address)"],
   ["/api/public/block/", "Block detail (?height= or ?hash=)"],
   ["/api/public/tx/", "Transaction decode + PQ verification"],
   ["/api/public/mining/stats/", "Coinbase miner leaderboard"],
-  ["/api/public/pq/analytics/", "PQ aggregates + hourly buckets + leaderboards"],
+  ["/api/public/pq/analytics/", "PQ aggregates, carrier/reveal role counts, hourly buckets, leaderboards"],
 ];
 
 export default function ApiDocsPage() {

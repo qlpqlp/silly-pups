@@ -217,6 +217,12 @@ func (ix *coreIndexer) ensureSchema(ctx context.Context) error {
 			return err
 		}
 	}
+	if _, err := ix.db.ExecContext(ctx, `ALTER TABLE qe_core_txs ADD COLUMN IF NOT EXISTS pq_carrier_role TEXT NOT NULL DEFAULT ''`); err != nil {
+		return err
+	}
+	if _, err := ix.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS qe_core_txs_pq_carrier_role ON qe_core_txs (pq_carrier_role) WHERE pq_carrier_role <> ''`); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -491,6 +497,7 @@ func (ix *coreIndexer) indexHeight(height int64) error {
 			}
 		}
 		state, reason := classifyQuantumStateRaw(rawHex)
+		pqRole := pqCarrierRoleFromRawHex(rawHex)
 		totalOut := int64(0)
 		vouts := anySlice(tm["vout"])
 		for _, vv := range vouts {
@@ -515,14 +522,15 @@ func (ix *coreIndexer) indexHeight(height int64) error {
 				}
 			}
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO qe_core_txs (txid, block_height, block_hash, time_unix, quantum_state, pq_reason, value_out_sats, raw_hex, created_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		_, err = tx.ExecContext(ctx, `INSERT INTO qe_core_txs (txid, block_height, block_hash, time_unix, quantum_state, pq_reason, value_out_sats, raw_hex, pq_carrier_role, created_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 			ON CONFLICT (txid) DO UPDATE SET block_height=EXCLUDED.block_height, block_hash=EXCLUDED.block_hash, time_unix=EXCLUDED.time_unix,
 			value_out_sats=EXCLUDED.value_out_sats,
 			quantum_state=(CASE WHEN LENGTH(TRIM(COALESCE(EXCLUDED.raw_hex,'')))>0 THEN EXCLUDED.quantum_state ELSE qe_core_txs.quantum_state END),
 			pq_reason=(CASE WHEN LENGTH(TRIM(COALESCE(EXCLUDED.raw_hex,'')))>0 THEN EXCLUDED.pq_reason ELSE qe_core_txs.pq_reason END),
-			raw_hex=(CASE WHEN LENGTH(TRIM(COALESCE(EXCLUDED.raw_hex,'')))>0 THEN EXCLUDED.raw_hex ELSE qe_core_txs.raw_hex END)`,
-			txid, height, bhash, btime, state, reason, totalOut, rawHex, time.Now().Unix())
+			raw_hex=(CASE WHEN LENGTH(TRIM(COALESCE(EXCLUDED.raw_hex,'')))>0 THEN EXCLUDED.raw_hex ELSE qe_core_txs.raw_hex END),
+			pq_carrier_role=(CASE WHEN LENGTH(TRIM(COALESCE(EXCLUDED.raw_hex,'')))>0 THEN EXCLUDED.pq_carrier_role ELSE qe_core_txs.pq_carrier_role END)`,
+			txid, height, bhash, btime, state, reason, totalOut, rawHex, pqRole, time.Now().Unix())
 		if err != nil {
 			return err
 		}
@@ -1254,11 +1262,11 @@ func (ix *coreIndexer) recentTransactions(ctx context.Context, limit int, mode s
 		limit = 100
 	}
 	mode = strings.ToLower(strings.TrimSpace(mode))
-	query := `SELECT txid, block_height, time_unix, quantum_state, pq_reason, value_out_sats, raw_hex
+	query := `SELECT txid, block_height, time_unix, quantum_state, pq_reason, value_out_sats, raw_hex, TRIM(COALESCE(pq_carrier_role,''))
 		FROM qe_core_txs ORDER BY time_unix DESC, txid DESC LIMIT $1`
 	args := []any{limit}
 	if mode == "quantum" {
-		query = `SELECT txid, block_height, time_unix, quantum_state, pq_reason, value_out_sats, raw_hex
+		query = `SELECT txid, block_height, time_unix, quantum_state, pq_reason, value_out_sats, raw_hex, TRIM(COALESCE(pq_carrier_role,''))
 			FROM qe_core_txs WHERE quantum_state='quantum' ORDER BY time_unix DESC, txid DESC LIMIT $1`
 	}
 	rows, err := ix.db.QueryContext(ctx, query, args...)
@@ -1268,19 +1276,24 @@ func (ix *coreIndexer) recentTransactions(ctx context.Context, limit int, mode s
 	defer rows.Close()
 	out := make([]map[string]any, 0, limit)
 	for rows.Next() {
-		var txid, state, reason, rawHex string
+		var txid, state, reason, rawHex, pqRole string
 		var height, tm, valueOut int64
-		if err := rows.Scan(&txid, &height, &tm, &state, &reason, &valueOut, &rawHex); err != nil {
+		if err := rows.Scan(&txid, &height, &tm, &state, &reason, &valueOut, &rawHex, &pqRole); err != nil {
 			return nil, err
 		}
+		rh := strings.TrimSpace(rawHex)
+		if pqRole == "" && rh != "" {
+			pqRole = pqCarrierRoleFromRawHex(rh)
+		}
 		out = append(out, map[string]any{
-			"txid":           txid,
-			"block_height":   height,
-			"time_unix":      tm,
-			"quantum_state":  state,
-			"pq_reason":      reason,
-			"value_out_sats": valueOut,
-			"raw_hex":        strings.TrimSpace(rawHex),
+			"txid":             txid,
+			"block_height":     height,
+			"time_unix":        tm,
+			"quantum_state":    state,
+			"pq_reason":        reason,
+			"value_out_sats":   valueOut,
+			"raw_hex":          rh,
+			"pq_carrier_role":  pqRole,
 		})
 	}
 	return out, rows.Err()
@@ -1297,6 +1310,50 @@ func (ix *coreIndexer) pqAggregates(ctx context.Context) map[string]int64 {
 	_ = ix.db.QueryRowContext(ctx, `SELECT COUNT(*)::bigint FROM qe_core_txs WHERE quantum_state='non-quantum'`).Scan(&nq)
 	_ = ix.db.QueryRowContext(ctx, `SELECT COUNT(*)::bigint FROM qe_core_txs WHERE quantum_state='invalid-quantum'`).Scan(&iq)
 	out["all"], out["quantum"], out["non_quantum"], out["invalid_quantum"] = all, q, nq, iq
+	return out
+}
+
+func pqCarrierRoleFromRawHex(rawHex string) string {
+	rawHex = strings.TrimSpace(rawHex)
+	if rawHex == "" {
+		return ""
+	}
+	if hasCarrierRevealScriptSigRaw(rawHex) {
+		return "tx_r"
+	}
+	if ok, _, _, _ := verifyPQStrict(rawHex); ok {
+		return "tx_c"
+	}
+	return ""
+}
+
+func (ix *coreIndexer) pqCarrierRoleCounts(ctx context.Context) map[string]int64 {
+	out := map[string]int64{"tx_c": 0, "tx_r": 0, "unset": 0}
+	if ix == nil || ix.db == nil {
+		return out
+	}
+	rows, err := ix.db.QueryContext(ctx, `SELECT pq_carrier_role, COUNT(*)::bigint FROM qe_core_txs GROUP BY pq_carrier_role`)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var role string
+		var n int64
+		if err := rows.Scan(&role, &n); err != nil {
+			return out
+		}
+		role = strings.TrimSpace(strings.ToLower(role))
+		switch role {
+		case "tx_c":
+			out["tx_c"] = n
+		case "tx_r":
+			out["tx_r"] = n
+		default:
+			out["unset"] += n
+		}
+	}
+	_ = rows.Err()
 	return out
 }
 
@@ -1395,12 +1452,13 @@ func (ix *coreIndexer) pqAddressLeaderboard(ctx context.Context, limit int) ([]m
 	}
 	rows, err := ix.db.QueryContext(ctx, `
 		SELECT a.address, COUNT(DISTINCT a.txid)::bigint AS pq_tx_count,
+		       COALESCE(SUM(a.value_sats),0)::bigint AS pq_value_sats,
 		       MIN(t.time_unix)::bigint AS first_seen_unix
 		FROM qe_core_addresses a
 		INNER JOIN qe_core_txs t ON t.txid = a.txid
 		WHERE t.quantum_state = 'quantum'
 		GROUP BY a.address
-		ORDER BY pq_tx_count DESC
+		ORDER BY pq_tx_count DESC, pq_value_sats DESC
 		LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
@@ -1409,16 +1467,54 @@ func (ix *coreIndexer) pqAddressLeaderboard(ctx context.Context, limit int) ([]m
 	var out []map[string]any
 	for rows.Next() {
 		var addr string
-		var cnt, first int64
-		if err := rows.Scan(&addr, &cnt, &first); err != nil {
+		var cnt, pqVal, first int64
+		if err := rows.Scan(&addr, &cnt, &pqVal, &first); err != nil {
 			return nil, err
 		}
 		out = append(out, map[string]any{
-			"address":          addr,
-			"address_short":    shortenAddr(addr),
-			"pq_tx_count":      cnt,
-			"first_seen_unix":  first,
+			"address":            addr,
+			"address_short":      shortenAddr(addr),
+			"pq_tx_count":        cnt,
+			"pq_value_sats":      pqVal,
+			"pq_value_doge":      float64(pqVal) / 1e8,
+			"first_seen_unix":    first,
 			"first_seen_iso8601": time.Unix(first, 0).UTC().Format(time.RFC3339),
+		})
+	}
+	return out, rows.Err()
+}
+
+// topAddressesByReceivedSats ranks addresses by the sum of indexed output credits (not spend-adjusted balance).
+func (ix *coreIndexer) topAddressesByReceivedSats(ctx context.Context, limit int) ([]map[string]any, error) {
+	if ix == nil || ix.db == nil {
+		return nil, fmt.Errorf("core indexer unavailable")
+	}
+	if limit < 1 || limit > 200 {
+		limit = 100
+	}
+	rows, err := ix.db.QueryContext(ctx, `
+		SELECT address, SUM(value_sats)::bigint AS total_received_sats, COUNT(*)::bigint AS output_rows
+		FROM qe_core_addresses
+		GROUP BY address
+		ORDER BY total_received_sats DESC
+		LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []map[string]any
+	for rows.Next() {
+		var addr string
+		var total, nOut int64
+		if err := rows.Scan(&addr, &total, &nOut); err != nil {
+			return nil, err
+		}
+		out = append(out, map[string]any{
+			"address":                 addr,
+			"address_short":           shortenAddr(addr),
+			"total_received_sats":     total,
+			"total_received_doge":     float64(total) / 1e8,
+			"indexed_output_rows":     nOut,
 		})
 	}
 	return out, rows.Err()
@@ -1866,8 +1962,9 @@ func (ix *coreIndexer) backfillRawHex(ctx context.Context, txid, rawHex string) 
 	}
 	txid = strings.ToLower(strings.TrimSpace(txid))
 	state, reason := classifyQuantumStateRaw(rawHex)
-	_, err := ix.db.ExecContext(ctx, `UPDATE qe_core_txs SET raw_hex=$1, quantum_state=$2, pq_reason=$3 WHERE txid=$4 AND (raw_hex='' OR LENGTH(TRIM(COALESCE(raw_hex,'')))=0)`,
-		rawHex, state, reason, txid)
+	role := pqCarrierRoleFromRawHex(rawHex)
+	_, err := ix.db.ExecContext(ctx, `UPDATE qe_core_txs SET raw_hex=$1, quantum_state=$2, pq_reason=$3, pq_carrier_role=$4 WHERE txid=$5 AND (raw_hex='' OR LENGTH(TRIM(COALESCE(raw_hex,'')))=0)`,
+		rawHex, state, reason, role, txid)
 	return err
 }
 

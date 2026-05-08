@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { useTheme } from "next-themes";
 import { Menu, Moon, Sparkles, Sun } from "lucide-react";
 import { useState } from "react";
 import { GlobalSearch } from "@/components/search/GlobalSearch";
+import { QuantumGlyph } from "@/components/ui/QuantumGlyph";
+import { BrandLogo } from "@/components/layout/BrandLogo";
 import clsx from "clsx";
 
 const nav = [
@@ -27,12 +28,16 @@ export function SiteHeader() {
       <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 lg:flex-row lg:items-center lg:gap-6 lg:px-8">
         <div className="flex items-center justify-between gap-4">
           <Link href="/" className="flex items-center gap-3 font-comic">
-            <Image src="/logo.png" alt="" width={40} height={40} className="rounded-xl shadow-md" priority />
+            <BrandLogo />
+            <QuantumGlyph className="hidden h-9 w-9 sm:block" />
             <div>
-              <div className="text-lg font-bold leading-tight tracking-tight text-doge-ink dark:text-amber-100">
+              <div className="flex flex-wrap items-center gap-2 text-lg font-bold leading-tight tracking-tight text-doge-ink dark:text-amber-100">
                 Dogecoin Explorer
+                <span className="inline-flex items-center rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-violet-900 dark:bg-violet-900/50 dark:text-violet-100">
+                  PQ
+                </span>
               </div>
-              <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Quantum Explorer · Core RPC index</div>
+              <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Post-quantum aware · Such Quantum spirit</div>
             </div>
           </Link>
           <div className="flex items-center gap-2 lg:hidden">

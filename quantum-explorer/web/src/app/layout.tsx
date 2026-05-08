@@ -3,6 +3,7 @@ import { Comic_Neue } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import { SiteHeader } from "@/components/layout/SiteHeader";
+import { SiteFooter } from "@/components/layout/SiteFooter";
 
 const comic = Comic_Neue({
   subsets: ["latin"],
@@ -12,7 +13,12 @@ const comic = Comic_Neue({
 
 export const metadata: Metadata = {
   title: "Dogecoin Explorer — Quantum Explorer",
-  description: "Modern Dogecoin blockchain explorer powered by Core RPC and PostgreSQL indexing.",
+  description:
+    "Dogecoin block explorer with post-quantum carrier and reveal detection — commitments, OP_RETURN markers, and on-chain PQ traffic.",
+  icons: {
+    icon: "/icon.svg",
+    shortcut: "/icon.svg",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -22,9 +28,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers>
           <SiteHeader />
           <main className="mx-auto max-w-7xl px-4 py-10 lg:px-8">{children}</main>
-          <footer className="border-t border-white/30 bg-white/40 py-10 text-center text-sm text-slate-600 backdrop-blur dark:border-white/10 dark:bg-slate-950/60 dark:text-slate-400">
-            Built for Dogecoin · PQ carrier detection from indexed raw transactions · Data from your node
-          </footer>
+          <SiteFooter />
         </Providers>
       </body>
     </html>

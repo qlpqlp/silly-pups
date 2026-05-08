@@ -30,10 +30,10 @@ import (
 var staticFS embed.FS
 
 // qeAppVersion is shown in the public UI and /api/public/status (keep in sync with manifest.json).
-const qeAppVersion = "0.1.51"
+const qeAppVersion = "0.1.53"
 
 // qeAppBuildHash is a release fingerprint (SHA-256 hex of "quantum-explorer-<version>"); bump when cutting a release.
-const qeAppBuildHash = "ab874676a14c962b7a8bf598856fb69c6eaf9f8c2646c8b88075a36fb7ed49a8"
+const qeAppBuildHash = "7460d6b69269cf8891b4fa86119c62218d3961b182254947e60e5b0212b05c12"
 
 type Checkpoint struct {
 	Height    int    `json:"height"`
@@ -1781,6 +1781,7 @@ func main() {
 	publicMux.HandleFunc("/api/public/core/summary", a.withRateLimit(a.withPublicAccess(a.publicCoreSummary)))
 	publicMux.HandleFunc("/api/public/core/recent-txs", a.withRateLimit(a.withPublicAccess(a.publicCoreRecentTxs)))
 	publicMux.HandleFunc("/api/public/core/recent-blocks", a.withRateLimit(a.withPublicAccess(a.publicCoreRecentBlocks)))
+	publicMux.HandleFunc("/api/public/core/address-leaders", a.withRateLimit(a.withPublicAccess(a.publicCoreAddressLeaders)))
 	publicMux.HandleFunc("/admin/", func(w http.ResponseWriter, r *http.Request) {
 		if !a.adminIPAllowed(r) {
 			http.NotFound(w, r)

@@ -5,7 +5,7 @@ import { fetchJSON } from "@/lib/api";
 import { PQHourlyChart } from "@/components/charts/PQHourlyChart";
 import { Skeleton } from "@/components/ui/Skeleton";
 import Link from "next/link";
-import { shortenHash } from "@/lib/format";
+import { shortenHash, satsToDoge } from "@/lib/format";
 import { Badge } from "@/components/ui/Badge";
 
 export default function PostQuantumPage() {
@@ -21,6 +21,7 @@ export default function PostQuantumPage() {
   const hourly = (q.data?.hourly as Record<string, unknown>[]) || [];
   const leaderboard = (q.data?.pq_address_leaderboard as Record<string, unknown>[]) || [];
   const pairs = (q.data?.carrier_reveal_activity as Record<string, unknown>[]) || [];
+  const roles = (q.data?.pq_carrier_role_counts as Record<string, number>) || {};
 
   return (
     <div className="space-y-10">
@@ -32,8 +33,10 @@ export default function PostQuantumPage() {
         <p className="text-xs text-slate-500">{String(q.data?.protocol_note || "")}</p>
       </header>
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <Stat label="PQ txs" value={agg.quantum ?? 0} />
+        <Stat label="Carrier (TX_C)" value={roles.tx_c ?? 0} />
+        <Stat label="Reveal (TX_R)" value={roles.tx_r ?? 0} />
         <Stat label="All indexed txs" value={agg.all ?? 0} />
         <Stat label="Invalid PQ markers" value={agg.invalid_quantum ?? 0} />
         <Stat label="Adoption %" value={`${Number(q.data?.pq_adoption_percent || 0).toFixed(4)}%`} />
@@ -49,7 +52,8 @@ export default function PostQuantumPage() {
               <thead>
                 <tr>
                   <th>Address</th>
-                  <th>PQ touches</th>
+                  <th>PQ txs</th>
+                  <th>PQ outputs (DOGE)</th>
                   <th>First seen</th>
                 </tr>
               </thead>
@@ -60,6 +64,7 @@ export default function PostQuantumPage() {
                       <Link href={`/address/?a=${encodeURIComponent(String(row.address))}`}>{String(row.address_short)}</Link>
                     </td>
                     <td>{String(row.pq_tx_count)}</td>
+                    <td className="tabular-nums">{satsToDoge(Number(row.pq_value_sats ?? 0))}</td>
                     <td className="text-xs text-slate-500">{String(row.first_seen_iso8601)}</td>
                   </tr>
                 ))}

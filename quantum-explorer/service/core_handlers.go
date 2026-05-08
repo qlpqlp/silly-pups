@@ -286,6 +286,41 @@ func (a *app) publicCoreRecentBlocks(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// publicCoreAddressLeaders returns two leaderboards from the indexed chain: richest by summed output credits,
+// and addresses that appear most often in quantum-classified transactions (not spend-adjusted balances).
+func (a *app) publicCoreAddressLeaders(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if a.cidx == nil {
+		writeJSON(w, 503, map[string]string{"error": "core indexer unavailable (requires postgres backend + rpc)"})
+		return
+	}
+	limit := 100
+	if n, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("limit"))); err == nil && n >= 10 && n <= 200 {
+		limit = n
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	defer cancel()
+	rich, err := a.cidx.topAddressesByReceivedSats(ctx, limit)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	quantum, err := a.cidx.pqAddressLeaderboard(ctx, limit)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]any{
+		"limit": limit,
+		"richest_by_received": rich,
+		"quantum_addresses": quantum,
+		"note":                "richest_by_received is SUM(indexed output credits) per address — not UTXO balance after spends.",
+	})
+}
+
 func (a *app) adminStartCoreIndexer(w http.ResponseWriter) {
 	if a.cidx == nil {
 		writeJSON(w, 503, map[string]string{"error": "core indexer unavailable"})

@@ -170,16 +170,18 @@ func (a *app) publicPQAnalytics(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
 	}
+	roleCounts := a.cidx.pqCarrierRoleCounts(ctx)
 	adoption := 0.0
 	if agg["all"] > 0 {
 		adoption = float64(agg["quantum"]) * 100 / float64(agg["all"])
 	}
 	writeJSON(w, 200, map[string]any{
-		"aggregates":            agg,
-		"pq_adoption_percent":   adoption,
-		"hourly":                series,
-		"pq_address_leaderboard": addrs,
+		"aggregates":               agg,
+		"pq_adoption_percent":      adoption,
+		"pq_carrier_role_counts":   roleCounts,
+		"hourly":                   series,
+		"pq_address_leaderboard":   addrs,
 		"carrier_reveal_activity":  pairs,
-		"protocol_note":         "Carrier (TX_C) and reveal (TX_R) rows are detected from indexed raw transaction hex using PQ carrier markers.",
+		"protocol_note":            "Carrier (TX_C) and reveal (TX_R) rows are detected from indexed raw transaction hex using PQ carrier markers.",
 	})
 }

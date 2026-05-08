@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "meta": {
     "name": "Quantum Explorer",
-    "version": "0.1.47",
+    "version": "0.1.48",
     "logoPath": "logo.png",
     "shortDescription": "Dogecoin blockchain explorer with Core RPC indexer and PQ transaction metrics",
     "longDescription": "Quantum Explorer indexes Dogecoin blockchain data from Dogecoin Core RPC into local PostgreSQL tables and provides a public web explorer. Users can search by address, transaction id, block height, and block hash, then open detailed block and transaction views with decoded inputs, outputs, and OP_RETURN data. Quantum transactions are classified from decoded raw transaction bytes using OP_RETURN marker checks, with metrics and recent activity available in the interface.",
@@ -150,7 +150,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "6f9b31a46f10d22cd17b05d827f7c4e146c14e07fd3133a70cdf37edf08ad98f"
+      "nixFileSha256": "73b60561f1bca5d0f745de11f9c8341a887537257d6780d21bb31b13d5d05a52"
     },
     "services": [
       {
@@ -179,7 +179,7 @@
   "interfaces": [
     {
       "name": "quantum-explorer-public",
-      "version": "0.1.47",
+      "version": "0.1.48",
       "permissionGroups": [
         {
           "name": "Quantum Explorer HTTP",

@@ -453,17 +453,7 @@ func (ix *coreIndexer) indexHeight(height int64) error {
 				}
 			}
 		}
-		state := "non-quantum"
-		reason := ""
-		if rawHex != "" {
-			ok, why, _, _ := verifyPQStrict(rawHex)
-			if ok {
-				state = "quantum"
-			} else {
-				state = "invalid-quantum"
-				reason = why
-			}
-		}
+		state, reason := classifyQuantumStateRaw(rawHex)
 		totalOut := int64(0)
 		vouts := anySlice(tm["vout"])
 		for _, vv := range vouts {
@@ -1204,11 +1194,11 @@ func (ix *coreIndexer) recentTransactions(ctx context.Context, limit int, mode s
 		limit = 100
 	}
 	mode = strings.ToLower(strings.TrimSpace(mode))
-	query := `SELECT txid, block_height, time_unix, quantum_state, pq_reason, value_out_sats
+	query := `SELECT txid, block_height, time_unix, quantum_state, pq_reason, value_out_sats, raw_hex
 		FROM qe_core_txs ORDER BY time_unix DESC, txid DESC LIMIT $1`
 	args := []any{limit}
 	if mode == "quantum" {
-		query = `SELECT txid, block_height, time_unix, quantum_state, pq_reason, value_out_sats
+		query = `SELECT txid, block_height, time_unix, quantum_state, pq_reason, value_out_sats, raw_hex
 			FROM qe_core_txs WHERE quantum_state='quantum' ORDER BY time_unix DESC, txid DESC LIMIT $1`
 	}
 	rows, err := ix.db.QueryContext(ctx, query, args...)
@@ -1218,9 +1208,9 @@ func (ix *coreIndexer) recentTransactions(ctx context.Context, limit int, mode s
 	defer rows.Close()
 	out := make([]map[string]any, 0, limit)
 	for rows.Next() {
-		var txid, state, reason string
+		var txid, state, reason, rawHex string
 		var height, tm, valueOut int64
-		if err := rows.Scan(&txid, &height, &tm, &state, &reason, &valueOut); err != nil {
+		if err := rows.Scan(&txid, &height, &tm, &state, &reason, &valueOut, &rawHex); err != nil {
 			return nil, err
 		}
 		out = append(out, map[string]any{
@@ -1230,6 +1220,7 @@ func (ix *coreIndexer) recentTransactions(ctx context.Context, limit int, mode s
 			"quantum_state":  state,
 			"pq_reason":      reason,
 			"value_out_sats": valueOut,
+			"raw_hex":        strings.TrimSpace(rawHex),
 		})
 	}
 	return out, rows.Err()
@@ -1604,17 +1595,42 @@ func (ix *coreIndexer) backfillRawHex(ctx context.Context, txid, rawHex string) 
 		return nil
 	}
 	txid = strings.ToLower(strings.TrimSpace(txid))
-	state := "non-quantum"
-	reason := ""
-	if ok, why, _, _ := verifyPQStrict(rawHex); ok {
-		state = "quantum"
-	} else {
-		state = "invalid-quantum"
-		reason = why
-	}
+	state, reason := classifyQuantumStateRaw(rawHex)
 	_, err := ix.db.ExecContext(ctx, `UPDATE qe_core_txs SET raw_hex=$1, quantum_state=$2, pq_reason=$3 WHERE txid=$4 AND (raw_hex='' OR LENGTH(TRIM(COALESCE(raw_hex,'')))=0)`,
 		rawHex, state, reason, txid)
 	return err
+}
+
+func classifyQuantumStateRaw(rawHex string) (state, reason string) {
+	rawHex = strings.TrimSpace(rawHex)
+	if rawHex == "" {
+		return "non-quantum", ""
+	}
+	if ok, _, _, _ := verifyPQStrict(rawHex); ok {
+		return "quantum", "phase-1 canonical OP_RETURN commitment (TX_C)"
+	}
+	if hasCarrierRevealScriptSigRaw(rawHex) {
+		return "quantum", "carrier reveal scriptsig detected (TX_R)"
+	}
+	_, why, _, _ := verifyPQStrict(rawHex)
+	return "invalid-quantum", why
+}
+
+func hasCarrierRevealScriptSigRaw(rawHex string) bool {
+	raw, err := hex.DecodeString(strings.TrimSpace(rawHex))
+	if err != nil || len(raw) == 0 {
+		return false
+	}
+	ins, err := parseTxInputs(raw)
+	if err != nil || len(ins) == 0 {
+		return false
+	}
+	for _, in := range ins {
+		if _, ok := parseCarrierPartFromScriptSig(in.scriptSig); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (ix *coreIndexer) prevoutByTxVout(ctx context.Context, txid string, vout int64) (map[string]any, bool, error) {

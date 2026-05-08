@@ -115,6 +115,7 @@ func (a *app) publicCoreRecentTxs(w http.ResponseWriter, r *http.Request) {
 		limit = n
 	}
 	mode := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("mode")))
+	lite := strings.TrimSpace(r.URL.Query().Get("lite")) == "1"
 	fetchLimit := limit
 	if mode == "quantum" {
 		fetchLimit = limit * 4
@@ -140,6 +141,24 @@ func (a *app) publicCoreRecentTxs(w http.ResponseWriter, r *http.Request) {
 	for _, row := range rows {
 		txid := strings.ToLower(strings.TrimSpace(rowString(row, "txid")))
 		if len(txid) != 64 || !isHex64String(txid) {
+			continue
+		}
+		if lite {
+			rawHex := strings.TrimSpace(rowString(row, "raw_hex"))
+			role := strings.TrimSpace(rowString(row, "pq_carrier_role"))
+			if role == "" {
+				if hasCarrierRevealScriptSigRaw(rawHex) {
+					role = "tx_r"
+				} else if ok, _, _, _ := verifyPQStrict(rawHex); ok {
+					role = "tx_c"
+				}
+			}
+			row["pq_carrier_role"] = role
+			row["pq_valid"] = strings.EqualFold(strings.TrimSpace(rowString(row, "quantum_state")), "quantum")
+			if role == "tx_r" {
+				row["carrier_verified"] = true
+			}
+			enriched = append(enriched, row)
 			continue
 		}
 		rawHex, qState, pqReason, blkH, _, _, _, okRow, err := a.cidx.txRowByID(ctx, txid)
@@ -197,6 +216,10 @@ func (a *app) publicCoreRecentTxs(w http.ResponseWriter, r *http.Request) {
 		}
 		filtered := make([]map[string]any, 0, len(rows))
 		for _, row := range rows {
+			if strings.EqualFold(strings.TrimSpace(rowString(row, "pq_carrier_role")), "tx_r") {
+				filtered = append(filtered, row)
+				continue
+			}
 			if rowHasQuantumPQ(row) {
 				filtered = append(filtered, row)
 				continue

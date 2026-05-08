@@ -1587,7 +1587,7 @@
       const needBlocks = !!(ex.enabled) && (!Array.isArray(ex.recent_blocks) || ex.recent_blocks.length < blocksVisibleCount);
       const needQuantum = !!(ex.enabled);
       const pBlocks = needBlocks ? j("/api/public/core/recent-blocks?limit=" + encodeURIComponent(String(blocksVisibleCount))) : Promise.resolve({ ok: true, d: {} });
-      const pQuantum = needQuantum ? j("/api/public/core/recent-txs?mode=quantum&limit=120") : Promise.resolve({ ok: true, d: {} });
+      const pQuantum = needQuantum ? j("/api/public/core/recent-txs?mode=quantum&limit=120&lite=1") : Promise.resolve({ ok: true, d: {} });
       const [mr, ar, rb, rr] = await Promise.all([pMetrics, pActivity, pBlocks, pQuantum]);
       if (ex.enabled) {
         if (needBlocks && rb.ok && Array.isArray(rb.d.rows) && rb.d.rows.length) {

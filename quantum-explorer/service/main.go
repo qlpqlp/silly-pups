@@ -26,10 +26,10 @@ import (
 var staticFS embed.FS
 
 // qeAppVersion is shown in the public UI and /api/public/status (keep in sync with manifest.json).
-const qeAppVersion = "0.1.47"
+const qeAppVersion = "0.1.48"
 
 // qeAppBuildHash is a release fingerprint (SHA-256 hex of "quantum-explorer-<version>"); bump when cutting a release.
-const qeAppBuildHash = "054ee21d8fdc3c6454c5ece9d46195b8f32c91dc15f6e2023a8582b80c881173"
+const qeAppBuildHash = "c16074f06de8986feffcbadaa4ed8d5a2b1d237b933d98c022b4c609d97ec525"
 
 type Checkpoint struct {
 	Height    int    `json:"height"`
@@ -1071,54 +1071,24 @@ func (a *app) publicStatus(w http.ResponseWriter, r *http.Request) {
 		if rb, err := a.cidx.recentBlocks(ctx, 3); err == nil {
 			ex["recent_blocks"] = rb
 		}
-		// Keep dashboard status payload small: UI only needs tens of rows; full list loads via /api/public/core/recent-txs if needed.
-		// Use unfiltered recent txs here, then classify with strict + carrier checks so TX_R rows do not disappear.
-		if rq, err := a.cidx.recentTransactions(ctx, 160, ""); err == nil {
-			net := strings.ToLower(strings.TrimSpace(a.cfg.Network))
-			enrichedRQ := make([]map[string]any, 0, len(rq))
+		// Keep status endpoint lightweight: homepage polls every 4s.
+		// Return fast, pre-indexed quantum rows (TX_C and TX_R) without deep per-row enrichment.
+		if rq, err := a.cidx.recentTransactions(ctx, 120, "quantum"); err == nil {
+			enrichedRQ := make([]map[string]any, 0, 80)
 			for _, row := range rq {
 				txid := strings.ToLower(strings.TrimSpace(fmt.Sprint(row["txid"])))
 				if len(txid) != 64 || !isHex64String(txid) {
 					continue
 				}
-				rawHex, qState, pqReason, blkH, _, _, _, okRow, err := a.cidx.txRowByID(ctx, txid)
-				if err != nil || !okRow {
-					// Keep fallback row when deep enrichment cannot run in this cycle.
-					// This avoids clearing the homepage list while aggregates still show PQ rows.
-					row["pq_carrier_role"] = pqCarrierTXRole(row)
-					if rowHasQuantumPQ(row) || strings.EqualFold(strings.TrimSpace(fmt.Sprint(row["quantum_state"])), "quantum") {
-						if strings.EqualFold(strings.TrimSpace(fmt.Sprint(row["quantum_state"])), "quantum") {
-							row["pq_valid"] = true
-						}
-						enrichedRQ = append(enrichedRQ, row)
-						if len(enrichedRQ) >= 80 {
-							break
-						}
-					}
-					continue
+				rawHex := strings.TrimSpace(fmt.Sprint(row["raw_hex"]))
+				if hasCarrierRevealScriptSigRaw(rawHex) {
+					row["pq_carrier_role"] = "tx_r"
+					row["carrier_verified"] = true
+				} else if ok, _, _, _ := verifyPQStrict(rawHex); ok {
+					row["pq_carrier_role"] = "tx_c"
 				}
-				row["quantum_state"] = qState
-				row["pq_reason"] = pqReason
-				pq := buildPQVerificationDetail(rawHex, net)
-				pq = a.enrichDecodeWithPrevouts(ctx, pq)
-				pq = a.enrichCarrierVerification(ctx, pq, txid, blkH, rawHex)
-				pq = a.enrichReverseCarrierVerification(ctx, pq, txid, blkH)
-				row["pq_verification"] = pq
-				if car, ok := pq["carrier_phase1"].(map[string]any); ok {
-					if cv, ok := car["verified"].(bool); ok {
-						row["carrier_verified"] = cv
-					}
-					if fcv, ok := car["falcon_crypto_verify"].(map[string]any); ok {
-						row["falcon_status"] = strings.ToLower(strings.TrimSpace(fmt.Sprint(fcv["status"])))
-					}
-					row["matched_txc_txid"] = strings.ToLower(strings.TrimSpace(fmt.Sprint(car["matched_txc_txid"])))
-				}
-				if rev, ok := pq["carrier_reverse_phase1"].(map[string]any); ok {
-					row["matched_txr_txid"] = strings.ToLower(strings.TrimSpace(fmt.Sprint(rev["matched_txr_txid"])))
-				}
-				row["pq_carrier_role"] = pqCarrierTXRole(row)
-				row["pq_valid"] = rowHasQuantumPQ(row) || strings.EqualFold(strings.TrimSpace(qState), "quantum")
-				if !rowHasQuantumPQ(row) && !strings.EqualFold(strings.TrimSpace(fmt.Sprint(row["quantum_state"])), "quantum") {
+				row["pq_valid"] = strings.EqualFold(strings.TrimSpace(fmt.Sprint(row["quantum_state"])), "quantum")
+				if !row["pq_valid"].(bool) && !strings.EqualFold(strings.TrimSpace(fmt.Sprint(row["pq_carrier_role"])), "tx_r") {
 					continue
 				}
 				enrichedRQ = append(enrichedRQ, row)

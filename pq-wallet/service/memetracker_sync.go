@@ -72,6 +72,8 @@ func (s *Server) syncMemeTracker(ctx context.Context, wf *WalletFile, st *Wallet
 	}
 
 	confirmed := make(map[string]struct{})
+	unconfirmedOut := make(map[string]struct{})
+	manualPendingOut := 0.0
 	for _, t := range st.Transactions {
 		id := normalizeTxid(t.Txid)
 		if id == "" {
@@ -79,6 +81,13 @@ func (s *Server) syncMemeTracker(ctx context.Context, wf *WalletFile, st *Wallet
 		}
 		if t.Confirmations > 0 {
 			confirmed[id] = struct{}{}
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(t.Direction), "out") {
+			unconfirmedOut[id] = struct{}{}
+			if strings.EqualFold(strings.TrimSpace(t.Source), "manual") && t.AmountDOGE > 0 {
+				manualPendingOut += t.AmountDOGE
+			}
 		}
 	}
 	var sum float64
@@ -91,6 +100,30 @@ func (s *Server) syncMemeTracker(ctx context.Context, wf *WalletFile, st *Wallet
 		}
 		sum += pend
 	}
+	// Mempool tracker sums credits to watched wallet addresses. For local sends this includes
+	// our own change/recovery outputs (TX_C/TX_R), which should not inflate pending as inbound.
+	// Remove credits for txids we already classify as unconfirmed outgoing, then apply local
+	// manual-send pending debits so dashboard pending reflects wallet UX expectations.
+	if len(unconfirmedOut) > 0 {
+		_, live, _, _ := eng.DashboardSnapshot()
+		for _, row := range live {
+			if !truthyAny(row["tracked_match"]) {
+				continue
+			}
+			txid := normalizeTxid(jsonStringAny(row["txid"]))
+			if txid == "" {
+				continue
+			}
+			if _, ok := unconfirmedOut[txid]; !ok {
+				continue
+			}
+			amt := floatFromAny(row["amount_doge"])
+			if amt > 0 {
+				sum -= amt
+			}
+		}
+	}
+	sum -= manualPendingOut
 	if lastErr != nil && sum == 0 {
 		return 0, lastErr
 	}

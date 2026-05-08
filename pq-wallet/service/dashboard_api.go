@@ -704,6 +704,18 @@ func classifyMemeTrackerP2PKHFlow(rawHex string, wf *WalletFile, prevIdx map[str
 	return "", 0, "", false
 }
 
+func isPQCarrierRevealRaw(rawHex string) bool {
+	s := strings.ToLower(strings.TrimSpace(rawHex))
+	if len(s) < 40 {
+		return false
+	}
+	if strings.Contains(s, "464c433146554c4c") || strings.Contains(s, "44494c3246554c4c") || strings.Contains(s, "5243473446554c4c") {
+		// Canonical carrier redeemScript tail (OP_DROP x5 OP_TRUE).
+		return strings.Contains(s, "757575757551")
+	}
+	return false
+}
+
 // persistMemeTrackerTxs appends mempool-tracked txs to state so they remain listed after they leave the live mempool.
 func (s *Server) persistMemeTrackerTxs(st *WalletState, mtrLive []map[string]any, wf *WalletFile) bool {
 	byTxid := make(map[string]int, len(st.Transactions))
@@ -1060,6 +1072,11 @@ func (s *Server) mergeTxListWithMemeTracker(wf *WalletFile, st *WalletState) []t
 			if !(strings.EqualFold(strings.TrimSpace(t.Source), "manual") && strings.EqualFold(strings.TrimSpace(t.Direction), "out")) {
 				tr.Source = "memetracker"
 			}
+		}
+		// TX_R reveal spends carrier outputs and returns value back to our wallet.
+		// Showing the carrier face value as a normal outgoing payment is misleading.
+		if isPQCarrierRevealRaw(tr.RawHex) && strings.EqualFold(strings.TrimSpace(tr.Direction), "out") && tr.AmountDOGE >= 0.9 {
+			tr.AmountDOGE = 0
 		}
 		out = append(out, tr)
 	}

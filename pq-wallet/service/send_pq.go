@@ -307,9 +307,18 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		pqCommitment32Hex = ""
 		pqMode = "none"
 		falconSigHex = ""
+		// PQ signing must use the same TX base template that carrier extension consumes.
+		// In carrier mode we reorder outputs to [change, pay_to] for libdogecoin's vout0 expectation.
+		pqSigBaseHex := baseHex
+		if includePQReveal && !carrierEnvDisabled && changeOut > dustLimitKoinu && sendKoinu > 0 {
+			if carrierBase, errCarrierBase := buildUnsignedDogeP2PKH(selected, changeScript, changeOut, toScript, sendKoinu, ""); errCarrierBase == nil {
+				carrierBaseHex = hexMsgTx(carrierBase)
+				pqSigBaseHex = carrierBaseHex
+			}
+		}
 		if includePQCommitment && strings.TrimSpace(wf.PQPublicHex) != "" && strings.TrimSpace(wf.PQPrivateHex) != "" && len(selected) > 0 {
 			if scr, err := s.scriptPubHexForUTXO(wf, &selected[0]); err == nil {
-				if sighashHex, err2 := s.runSuchTxSighash32(baseHex, scr, 0, 1, testnet); err2 == nil {
+				if sighashHex, err2 := s.runSuchTxSighash32(pqSigBaseHex, scr, 0, 1, testnet); err2 == nil {
 					if sigHex, err3 := s.runSuchFalconSign(sighashHex, wf.PQPrivateHex, testnet); err3 == nil {
 						falconSigHex = strings.TrimSpace(sigHex)
 						pubB, pubErr := hex.DecodeString(strings.TrimSpace(wf.PQPublicHex))

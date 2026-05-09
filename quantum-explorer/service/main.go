@@ -10,9 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -24,16 +22,14 @@ import (
 	"time"
 )
 
-//go:embed all:static
-// Next.js export lives under static/ui/_next/... — directory names starting with '_' are
-// excluded by default go:embed rules; "all:static" includes them so CSS/JS assets ship in the binary.
+//go:embed static/*
 var staticFS embed.FS
 
 // qeAppVersion is shown in the public UI and /api/public/status (keep in sync with manifest.json).
-const qeAppVersion = "0.1.59"
+const qeAppVersion = "0.1.48"
 
 // qeAppBuildHash is a release fingerprint (SHA-256 hex of "quantum-explorer-<version>"); bump when cutting a release.
-const qeAppBuildHash = "7c7ef81aba6ad499470fcebe039dc8b7c9cd974c93f804c9770d73b2e018aa1d"
+const qeAppBuildHash = "c16074f06de8986feffcbadaa4ed8d5a2b1d237b933d98c022b4c609d97ec525"
 
 type Checkpoint struct {
 	Height    int    `json:"height"`
@@ -1157,15 +1153,10 @@ func (a *app) publicBlock(w http.ResponseWriter, r *http.Request) {
 				bm := detail["block"].(map[string]any)
 				bh := int(anyInt64(bm["height"]))
 				ts := time.Unix(anyInt64(bm["time_unix"]), 0).UTC().Format(time.RFC3339)
-				outBlock := map[string]any{}
-				for k, v := range bm {
-					outBlock[k] = v
-				}
-				outBlock["timestamp"] = ts
-				outBlock["height"] = bh
+				b := &IndexedBlockHeader{Height: bh, Hash: fmt.Sprint(bm["hash"]), Timestamp: ts}
 				writeJSON(w, 200, map[string]any{
 					"source":                  "core_index",
-					"block":                   outBlock,
+					"block":                   b,
 					"associated_transactions": detail["transactions"],
 					"tx_count":                bm["tx_count"],
 					"decode_limit":            decodeLimit,
@@ -1320,7 +1311,6 @@ func (a *app) publicTxDetail(w http.ResponseWriter, r *http.Request) {
 				"source":          "core_index",
 				"tx":              &cp,
 				"pq_verification": pq,
-				"pq_carrier_role": pqCarrierRoleFromVerification(pq, qState),
 				"core": map[string]any{
 					"block_height": blkH, "block_hash": blkHash, "timestamp": seen, "quantum_state": qState, "value_out_sats": vOut,
 				},
@@ -1360,14 +1350,9 @@ func (a *app) publicTxDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		cancel()
 	}
-	qs := "non-quantum"
-	if cp.PQValid {
-		qs = "quantum"
-	}
 	writeJSON(w, 200, map[string]any{
 		"tx":              &cp,
 		"pq_verification": pq,
-		"pq_carrier_role": pqCarrierRoleFromVerification(pq, qs),
 	})
 }
 
@@ -1721,39 +1706,21 @@ func (a *app) recentChainHeaders(n int) []IndexedBlockHeader {
 func main() {
 	storage := env("QE_STORAGE_DIR", "/storage/quantum-explorer")
 	must(os.MkdirAll(storage, 0o755))
-
+	cb, err := openChainBackend(storage)
+	if err != nil {
+		log.Fatalf("[quantum-explorer] chain backend: %v", err)
+	}
 	a := &app{
 		cfgPath:      filepath.Join(storage, "quantum-explorer-config.json"),
 		storePath:    filepath.Join(storage, "quantum-explorer-pqtx.json"),
 		storageDir:   storage,
 		txs:          map[string]*PQTx{},
 		addressIndex: map[string][]string{},
+		chain:        cb,
 		core:         newCoreRPCClientFromEnv(),
 	}
 	a.cfg = loadConfig(a.cfgPath)
 	a.applyAccessConfigLocked()
-
-	publicAddr := ":" + strconv.Itoa(a.cfg.HTTPPort)
-	phased := &phasedStartupHandler{app: a}
-	listener, err := net.Listen("tcp", publicAddr)
-	if err != nil {
-		log.Fatalf("[quantum-explorer] listen %s: %v", publicAddr, err)
-	}
-	srv := &http.Server{
-		Handler:           withRequestLogging(withSecurityHeaders(phased)),
-		ReadHeaderTimeout: 15 * time.Second,
-	}
-	errCh := make(chan error, 1)
-	go func() {
-		log.Printf("[quantum-explorer] listening on %s (warming up; Postgres/RPC init may still run)", publicAddr)
-		errCh <- srv.Serve(listener)
-	}()
-
-	cb, err := openChainBackend(storage)
-	if err != nil {
-		log.Fatalf("[quantum-explorer] chain backend: %v", err)
-	}
-	a.chain = cb
 	if pg, ok := cb.(*postgresChainBackend); ok {
 		a.cidx = newCoreIndexer(pg.db, a.core, a.cfg.Network)
 	}
@@ -1774,14 +1741,10 @@ func main() {
 	publicMux.HandleFunc("/api/public/search", a.withRateLimit(a.publicSearch))
 	publicMux.HandleFunc("/api/public/metrics", a.withRateLimit(a.publicMetrics))
 	publicMux.HandleFunc("/api/public/activity-buckets", a.withRateLimit(a.publicActivityBuckets))
-	publicMux.HandleFunc("/api/public/network-overview", a.withRateLimit(a.publicNetworkOverview))
-	publicMux.HandleFunc("/api/public/mining/stats", a.withRateLimit(a.withPublicAccess(a.publicMiningStats)))
-	publicMux.HandleFunc("/api/public/pq/analytics", a.withRateLimit(a.withPublicAccess(a.publicPQAnalytics)))
 	publicMux.HandleFunc("/api/public/core/search", a.withRateLimit(a.withPublicAccess(a.publicCoreSearch)))
 	publicMux.HandleFunc("/api/public/core/summary", a.withRateLimit(a.withPublicAccess(a.publicCoreSummary)))
 	publicMux.HandleFunc("/api/public/core/recent-txs", a.withRateLimit(a.withPublicAccess(a.publicCoreRecentTxs)))
 	publicMux.HandleFunc("/api/public/core/recent-blocks", a.withRateLimit(a.withPublicAccess(a.publicCoreRecentBlocks)))
-	publicMux.HandleFunc("/api/public/core/address-leaders", a.withRateLimit(a.withPublicAccess(a.publicCoreAddressLeaders)))
 	publicMux.HandleFunc("/admin/", func(w http.ResponseWriter, r *http.Request) {
 		if !a.adminIPAllowed(r) {
 			http.NotFound(w, r)
@@ -1872,17 +1835,23 @@ func main() {
 		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 		_, _ = w.Write(b)
 	})
-	uiSub, errUI := fs.Sub(staticFS, "static/ui")
-	if errUI != nil {
-		log.Fatalf("[quantum-explorer] static/ui: %v", errUI)
-	}
-	publicMux.Handle("/", http.FileServer(http.FS(uiSub)))
+	publicMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		b, err := staticFS.ReadFile("static/index.html")
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(b)
+	})
 
-	log.Printf("[quantum-explorer] routes ready on %s network=%s", publicAddr, a.cfg.Network)
+	publicAddr := ":" + strconv.Itoa(a.cfg.HTTPPort)
+	log.Printf("[quantum-explorer] public listening on %s network=%s", publicAddr, a.cfg.Network)
 	log.Printf("[quantum-explorer] admin UI path tokenized: /admin/<TOKEN>")
-	phased.enable(publicMux)
-
-	if err := <-errCh; err != nil && err != http.ErrServerClosed {
-		log.Fatal(err)
-	}
+	handler := withRequestLogging(withSecurityHeaders(publicMux))
+	log.Fatal(http.ListenAndServe(publicAddr, handler))
 }

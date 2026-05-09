@@ -183,13 +183,16 @@ func mergeTxRecords(existing []TxRecord, incoming []TxRecord) []TxRecord {
 			if t.Direction != "" && t.Direction != "unknown" {
 				restHint := strings.TrimSpace(t.RawHex) == ""
 				enrichedFromRaw := strings.TrimSpace(prev.RawHex) != ""
-				// Same-txid /getUTXOs "in" must win over a mistaken raw-hex "out" (batch payout mis-decode); never override manual sends.
+				// Same-txid /getUTXOs may carry our change output as "in". Allow "in" to correct a prior "out"
+				// only when that prior row lacks a concrete payee/amount (likely a weak heuristic), and never
+				// for manual sends.
 				spvInCorrectsOut := !manualSendPersisted &&
 					strings.EqualFold(strings.TrimSpace(t.Source), "spv") &&
 					strings.EqualFold(strings.TrimSpace(prev.Source), "spv") &&
 					strings.EqualFold(strings.TrimSpace(t.Direction), "in") &&
 					strings.EqualFold(strings.TrimSpace(prev.Direction), "out")
-				if spvInCorrectsOut {
+				prevHasConcreteOut := strings.TrimSpace(prev.Address) != "" && prev.AmountDOGE > 0
+				if spvInCorrectsOut && !prevHasConcreteOut {
 					prev.Direction = "in"
 					if t.AmountDOGE > 0 {
 						prev.AmountDOGE = t.AmountDOGE

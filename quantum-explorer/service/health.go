@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -25,6 +26,16 @@ func (p *phasedStartupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	}
 	if r.URL.Path == "/healthz" && p.app != nil {
 		p.app.healthz(w, r)
+		return
+	}
+	// Some startup checkers probe a public API endpoint instead of /healthz.
+	// Respond 200 with lightweight JSON during warm-up so can-pup-start conditions pass.
+	if strings.HasPrefix(r.URL.Path, "/api/public/") {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":       true,
+			"service":  "quantum-explorer",
+			"starting": true,
+		})
 		return
 	}
 	// Some supervisors probe "/" while the app is still warming up.

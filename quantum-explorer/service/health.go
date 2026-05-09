@@ -27,6 +27,14 @@ func (p *phasedStartupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		p.app.healthz(w, r)
 		return
 	}
+	// Some supervisors probe "/" while the app is still warming up.
+	// Return 200 here so container startup doesn't fail on probe timeout.
+	if r.URL.Path == "/" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("Quantum Explorer is starting"))
+		return
+	}
 	w.Header().Set("Retry-After", "2")
 	http.Error(w, "Quantum Explorer is starting", http.StatusServiceUnavailable)
 }

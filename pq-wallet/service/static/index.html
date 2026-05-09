@@ -22,8 +22,13 @@
     <div class="wallet-lock-panel card">
       <h2><span class="material-symbols-outlined icon-inline">lock</span> Unlock wallet</h2>
       <p class="small muted">Sealed with a PIN (Argon2id + AES-GCM). Enter your PIN to use keys and the dashboard.</p>
-      <label class="field"><span>PIN</span>
-        <input type="password" class="input-modern" id="unlock-pin-input" autocomplete="current-password" />
+      <label class="field"><span>PIN (4 digits)</span>
+        <div class="pin4-wrap">
+          <input type="password" class="input-modern pin4-input" id="unlock-pin-input" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="current-password" data-pin-masked="1" />
+          <div class="pin4-display" data-pin-display-for="unlock-pin-input" aria-hidden="true">
+            <span class="pin4-cell"></span><span class="pin4-cell"></span><span class="pin4-cell"></span><span class="pin4-cell"></span>
+          </div>
+        </div>
       </label>
       <button type="button" class="btn primary" id="btn-unlock-wallet"><span class="material-symbols-outlined btn-ico">lock_open</span> Unlock</button>
       <p class="small muted" id="unlock-err"></p>
@@ -322,8 +327,13 @@
             <summary class="settings-details-summary"><h2 class="settings-details-h2"><span class="material-symbols-outlined icon-inline">encrypted</span> Wallet encryption</h2></summary>
             <div class="settings-details-body">
             <p class="small muted">Encrypts wallet data on disk. SPV address watching still runs in the background from a public watch-state file.</p>
-            <label class="field"><span>PIN (min 6 characters)</span>
-              <input type="password" class="input-modern" id="seal-pin-input" autocomplete="new-password" />
+            <label class="field"><span>PIN (exactly 4 numbers)</span>
+              <div class="pin4-wrap">
+                <input type="text" class="input-modern pin4-input" id="seal-pin-input" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="new-password" data-pin-masked="0" />
+                <div class="pin4-display" data-pin-display-for="seal-pin-input" aria-hidden="true">
+                  <span class="pin4-cell"></span><span class="pin4-cell"></span><span class="pin4-cell"></span><span class="pin4-cell"></span>
+                </div>
+              </div>
             </label>
             <div class="toolbar toolbar-actions">
               <button type="button" class="btn primary" id="btn-seal-wallet"><span class="material-symbols-outlined btn-ico">lock</span> Enable encryption</button>
@@ -651,7 +661,12 @@
       <h3 id="pin-modal-title">Enter PIN</h3>
       <p class="small muted" id="pin-modal-sub">Authorize action</p>
       <label class="field"><span>PIN</span>
-        <input type="password" class="input-modern" id="pin-modal-input" autocomplete="current-password" />
+        <div class="pin4-wrap">
+          <input type="password" class="input-modern pin4-input" id="pin-modal-input" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="current-password" data-pin-masked="1" />
+          <div class="pin4-display" data-pin-display-for="pin-modal-input" aria-hidden="true">
+            <span class="pin4-cell"></span><span class="pin4-cell"></span><span class="pin4-cell"></span><span class="pin4-cell"></span>
+          </div>
+        </div>
       </label>
       <p class="small muted" id="pin-modal-msg"></p>
       <div class="tx-detail-actions">

@@ -75,6 +75,7 @@ function promptPinModal(title, subtitle) {
     if (subEl) subEl.textContent = subtitle || "Authorize action";
     if (msgEl) msgEl.textContent = "";
     input.value = "";
+    renderPinDisplay(input);
     modal.classList.remove("hidden");
     let done = false;
     const cleanup = () => {
@@ -91,9 +92,9 @@ function promptPinModal(title, subtitle) {
       resolve(val);
     };
     const onOk = () => {
-      const cleaned = String(input.value || "").trim();
-      if (!cleaned) {
-        if (msgEl) msgEl.textContent = "PIN is required.";
+      const cleaned = normalizePin4(input.value);
+      if (!isPin4(cleaned)) {
+        if (msgEl) msgEl.textContent = "PIN must be exactly 4 numbers.";
         input.focus();
         return;
       }
@@ -114,6 +115,49 @@ function promptPinModal(title, subtitle) {
     input.addEventListener("keydown", onKey);
     if (backdrop) backdrop.addEventListener("click", onCancel);
     setTimeout(() => input.focus(), 0);
+  });
+}
+
+function normalizePin4(v) {
+  return String(v || "").replace(/\D/g, "").slice(0, 4);
+}
+
+function isPin4(v) {
+  return /^\d{4}$/.test(String(v || ""));
+}
+
+function renderPinDisplay(input) {
+  if (!input || !input.id) return;
+  const display = document.querySelector(`[data-pin-display-for="${input.id}"]`);
+  if (!display) return;
+  const cells = display.querySelectorAll(".pin4-cell");
+  const pin = normalizePin4(input.value);
+  const masked = input.dataset.pinMasked !== "0";
+  for (let i = 0; i < cells.length; i += 1) {
+    const d = pin[i] || "";
+    cells[i].textContent = d ? (masked ? "•" : d) : "";
+    cells[i].classList.toggle("pin4-cell--filled", !!d);
+  }
+}
+
+function initPin4Inputs() {
+  document.querySelectorAll(".pin4-input").forEach((input) => {
+    const display = document.querySelector(`[data-pin-display-for="${input.id}"]`);
+    if (display) {
+      display.addEventListener("click", () => input.focus());
+    }
+    input.addEventListener("input", () => {
+      const cleaned = normalizePin4(input.value);
+      if (input.value !== cleaned) input.value = cleaned;
+      renderPinDisplay(input);
+    });
+    input.addEventListener("focus", () => {
+      if (display) display.classList.add("pin4-display--focus");
+    });
+    input.addEventListener("blur", () => {
+      if (display) display.classList.remove("pin4-display--focus");
+    });
+    renderPinDisplay(input);
   });
 }
 
@@ -2773,9 +2817,13 @@ if (qrFileInp) {
 const btnUnlock = $("btn-unlock-wallet");
 if (btnUnlock) {
   btnUnlock.addEventListener("click", async () => {
-    const pin = ($("unlock-pin-input") && $("unlock-pin-input").value) || "";
+    const pin = normalizePin4(($("unlock-pin-input") && $("unlock-pin-input").value) || "");
     const errEl = $("unlock-err");
     if (errEl) errEl.textContent = "";
+    if (!isPin4(pin)) {
+      if (errEl) errEl.textContent = "PIN must be exactly 4 numbers.";
+      return;
+    }
     const res = await api("/api/security/unlock", {
       method: "POST",
       body: JSON.stringify({ pin }),
@@ -2785,7 +2833,10 @@ if (btnUnlock) {
       return;
     }
     const inp = $("unlock-pin-input");
-    if (inp) inp.value = "";
+    if (inp) {
+      inp.value = "";
+      renderPinDisplay(inp);
+    }
     await refreshWallet();
   });
 }
@@ -2793,24 +2844,24 @@ if (btnUnlock) {
 const btnSeal = $("btn-seal-wallet");
 if (btnSeal) {
   btnSeal.addEventListener("click", async () => {
-    const pin = ($("seal-pin-input") && $("seal-pin-input").value) || "";
+    const pin = normalizePin4(($("seal-pin-input") && $("seal-pin-input").value) || "");
     const msg = $("seal-msg");
     const pin2 = await promptPinModal("Confirm wallet PIN", "Re-enter your PIN to enable encryption.");
     if (pin2 == null) {
       if (msg) msg.textContent = "Encryption cancelled.";
       return;
     }
-    if (String(pin).trim() === "" || String(pin2).trim() === "") {
-      if (msg) msg.textContent = "PIN is required.";
+    if (!isPin4(pin) || !isPin4(pin2)) {
+      if (msg) msg.textContent = "PIN must be exactly 4 numbers.";
       return;
     }
-    if (String(pin).trim() !== String(pin2).trim()) {
+    if (pin !== pin2) {
       if (msg) msg.textContent = "PIN mismatch. Enter the same PIN twice.";
       return;
     }
     const res = await api("/api/security/seal", {
       method: "POST",
-      body: JSON.stringify({ pin: String(pin).trim() }),
+      body: JSON.stringify({ pin }),
     });
     if (res.error) {
       if (msg) msg.textContent = res.error;
@@ -2818,7 +2869,10 @@ if (btnSeal) {
     }
     if (msg) msg.textContent = "Encryption enabled.";
     const sealInp = $("seal-pin-input");
-    if (sealInp) sealInp.value = "";
+    if (sealInp) {
+      sealInp.value = "";
+      renderPinDisplay(sealInp);
+    }
     window.alert(
       "Wallet encrypted successfully.\n\nYour wallet is now sealed on disk (Argon2id + AES-GCM). Use your PIN on the lock screen to unlock."
     );
@@ -2829,8 +2883,12 @@ if (btnSeal) {
 const btnUnseal = $("btn-unseal-wallet");
 if (btnUnseal) {
   btnUnseal.addEventListener("click", async () => {
-    const pin = ($("seal-pin-input") && $("seal-pin-input").value) || "";
+    const pin = normalizePin4(($("seal-pin-input") && $("seal-pin-input").value) || "");
     const msg = $("seal-msg");
+    if (!isPin4(pin)) {
+      if (msg) msg.textContent = "PIN must be exactly 4 numbers.";
+      return;
+    }
     const res = await api("/api/security/unseal", {
       method: "POST",
       body: JSON.stringify({ pin }),
@@ -2841,7 +2899,10 @@ if (btnUnseal) {
     }
     if (msg) msg.textContent = "Encryption disabled.";
     const sealInp = $("seal-pin-input");
-    if (sealInp) sealInp.value = "";
+    if (sealInp) {
+      sealInp.value = "";
+      renderPinDisplay(sealInp);
+    }
     await refreshWallet();
   });
 }
@@ -3001,6 +3062,7 @@ if (btnTxCopyRaw) {
   });
 }
 initLogCopyButtons();
+initPin4Inputs();
 
 if (typeof Notification !== "undefined" && Notification.permission === "default") {
   Notification.requestPermission().catch(() => {});

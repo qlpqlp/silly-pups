@@ -29,6 +29,19 @@ const (
 // ErrWalletLocked is returned when wallet.sealed exists and the session has not unlocked.
 var ErrWalletLocked = errors.New("wallet is sealed; unlock with PIN")
 
+func normalizePIN4(pin string) (string, error) {
+	p := strings.TrimSpace(pin)
+	if len(p) != 4 {
+		return "", errors.New("PIN must be exactly 4 digits")
+	}
+	for _, ch := range p {
+		if ch < '0' || ch > '9' {
+			return "", errors.New("PIN must contain only numbers (0-9)")
+		}
+	}
+	return p, nil
+}
+
 func (s *Server) sealedPath() string {
 	return filepath.Join(s.storageDir, sealedWalletFile)
 }
@@ -73,9 +86,10 @@ func (s *Server) persistSealedWallet(wf *WalletFile) error {
 
 // sealWalletFromPlaintext reads wallet.json, encrypts to wallet.sealed, clears session material.
 func (s *Server) sealWalletFromPlaintext(pin string) error {
-	pin = strings.TrimSpace(pin)
-	if len(pin) < 6 {
-		return errors.New("PIN must be at least 6 characters")
+	var err error
+	pin, err = normalizePIN4(pin)
+	if err != nil {
+		return err
 	}
 	wf, err := s.loadWalletRawPlaintext()
 	if err != nil {
@@ -124,9 +138,10 @@ func (s *Server) sealWalletFromPlaintext(pin string) error {
 }
 
 func (s *Server) unlockSealedWallet(pin string) error {
-	pin = strings.TrimSpace(pin)
-	if pin == "" {
-		return errors.New("missing PIN")
+	var err error
+	pin, err = normalizePIN4(pin)
+	if err != nil {
+		return err
 	}
 	b, err := os.ReadFile(s.sealedPath())
 	if err != nil {

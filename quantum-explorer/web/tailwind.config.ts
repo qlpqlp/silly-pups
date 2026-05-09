@@ -6,8 +6,8 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        comic: ["var(--font-comic)", "Comic Neue", "cursive", "system-ui"],
-        sans: ["var(--font-comic)", "ui-sans-serif", "system-ui"],
+        sans: ["var(--font-sans)", "ui-sans-serif", "system-ui"],
+        comic: ["var(--font-sans)", "ui-sans-serif", "system-ui"],
       },
       colors: {
         doge: {
@@ -17,7 +17,7 @@ export default {
         },
       },
       boxShadow: {
-        glass: "0 8px 32px rgba(0,0,0,0.12)",
+        glass: "0 4px 24px rgba(0, 0, 0, 0.06)",
       },
       backdropBlur: {
         xs: "2px",

@@ -21,6 +21,20 @@ func phase1PQTaggedCommitInRawHex(rawHex string) bool {
 	return strings.Contains(s, "6a24464c4331") || strings.Contains(s, "6a2444494c32") || strings.Contains(s, "6a2452434734")
 }
 
+// phase1PQTaggedRevealInRawHex is true when serialized tx hex contains reveal carrier ASCII markers
+// (FLC1FULL / DIL2FULL / RCG4FULL) as they appear in pushed-data / script blobs.
+func phase1PQTaggedRevealInRawHex(rawHex string) bool {
+	s := strings.TrimSpace(strings.ToLower(rawHex))
+	if len(s) < 16 {
+		return false
+	}
+	return strings.Contains(s, "464c433146554c4c") || strings.Contains(s, "44494c3246554c4c") || strings.Contains(s, "5243473446554c4c")
+}
+
+func phase1PQTaggedOpInRawHex(rawHex string) bool {
+	return phase1PQTaggedCommitInRawHex(rawHex) || phase1PQTaggedRevealInRawHex(rawHex)
+}
+
 // firstInputPrevTxidFromRawHex returns the canonical prevout txid for the first non-coinbase input
 // (wire hash byte-reversed to match explorer / normalizeTxid form). Empty if not parseable.
 func firstInputPrevTxidFromRawHex(rawHex string) string {
@@ -567,7 +581,7 @@ func (s *Server) enrichSPVTxFromRawHex(st *WalletState, wf *WalletFile) bool {
 		if strings.EqualFold(strings.TrimSpace(tx.Source), "manual") && strings.EqualFold(strings.TrimSpace(tx.Direction), "out") {
 			continue
 		}
-		want := phase1PQTaggedCommitInRawHex(raw)
+		want := phase1PQTaggedOpInRawHex(raw)
 		if tx.PQHint != want {
 			tx.PQHint = want
 			changed = true

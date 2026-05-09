@@ -49,7 +49,7 @@ function TxBody() {
     <div className="space-y-8">
       <div className="glass-card space-y-6 p-8">
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="break-all font-comic text-2xl font-bold text-doge-ink dark:text-amber-50 md:text-3xl">{txid}</h1>
+          <h1 className="break-all text-2xl font-semibold text-[#1a1814] dark:text-[#f4f0e6] md:text-3xl">{txid}</h1>
           {apiRole === "tx_c" && (
             <Badge variant="pq_carrier" title="This transaction carries OP_RETURN PQ commitments (phase 1).">
               Post-quantum carrier
@@ -62,8 +62,8 @@ function TxBody() {
           )}
         </div>
 
-        <section className="rounded-2xl border border-violet-200 bg-violet-50/80 p-5 dark:border-violet-900/50 dark:bg-violet-950/40">
-          <h2 className="flex items-center gap-2 text-lg font-bold text-violet-950 dark:text-violet-100">
+        <section className="rounded-2xl border border-[#dad6cf] bg-[#faf8f4] p-5 dark:border-[#1e2630] dark:bg-[#0f141c]">
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-[#1a1814] dark:text-[#f4f0e6]">
             <Tip label="Dogecoin PQ signatures use a carrier commitment (TX_C) and an explicit reveal (TX_R). Linkage is inferred from script markers and Falcon verification when raw hex is present.">
               <span>PQC detection</span>
             </Tip>
@@ -73,7 +73,7 @@ function TxBody() {
               <div className="text-xs font-semibold uppercase text-slate-500">Linked carrier tx</div>
               <div className="mt-1 font-mono">
                 {matchedTxc ? (
-                  <Link href={`/tx/?txid=${matchedTxc}`} className="text-amber-700 hover:underline dark:text-amber-300">
+                  <Link href={`/tx/?txid=${matchedTxc}`} className="text-[#8a7020] hover:underline dark:text-[#e8c96a]">
                     {matchedTxc}
                   </Link>
                 ) : (
@@ -85,7 +85,7 @@ function TxBody() {
               <div className="text-xs font-semibold uppercase text-slate-500">Linked reveal tx</div>
               <div className="mt-1 font-mono">
                 {matchedTxr ? (
-                  <Link href={`/tx/?txid=${matchedTxr}`} className="text-amber-700 hover:underline dark:text-amber-300">
+                  <Link href={`/tx/?txid=${matchedTxr}`} className="text-[#8a7020] hover:underline dark:text-[#e8c96a]">
                     {matchedTxr}
                   </Link>
                 ) : (

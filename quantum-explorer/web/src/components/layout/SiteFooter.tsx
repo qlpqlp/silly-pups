@@ -2,35 +2,34 @@ import Link from "next/link";
 
 export function SiteFooter() {
   return (
-    <footer className="border-t border-white/30 bg-gradient-to-b from-white/50 to-amber-50/40 py-12 text-center backdrop-blur dark:border-white/10 dark:from-slate-950/80 dark:to-slate-900/90">
-      <div className="mx-auto flex max-w-3xl flex-col items-center gap-6 px-4">
+    <footer className="mt-16 border-t border-[#dad6cf] bg-[#ebe7e0] py-10 dark:border-[#1e2630] dark:bg-[#0b0f14]">
+      <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 text-center lg:px-8">
         <a
           href="https://foundation.dogecoin.com/"
           target="_blank"
           rel="noopener noreferrer"
-          className="block transition hover:opacity-90"
+          className="text-sm font-semibold text-[#5c4810] underline-offset-4 hover:underline dark:text-[#d4b85c]"
         >
-          {/* Local SVG wordmark — swap for official artwork if you prefer */}
-          <img src="/foundation-wordmark.svg" alt="Dogecoin Foundation" className="mx-auto h-10 w-auto max-w-[260px]" />
+          Dogecoin Foundation
         </a>
-        <p className="font-comic text-base font-semibold text-doge-ink dark:text-amber-100">Coded with love to all Dogecoin community</p>
-        <p className="text-sm text-slate-600 dark:text-slate-400">
-          Learn more about post-quantum commitments and the in-browser digest playground at{" "}
+        <p className="text-sm font-medium text-[#3d3a34] dark:text-[#d4d0c4]">Built for the Dogecoin community.</p>
+        <p className="mx-auto max-w-2xl text-sm text-[#5c574f] dark:text-[#9a9a8e]">
+          Post-quantum sends use a <strong>carrier</strong> (TX_C) and a <strong>reveal</strong> (TX_R). This explorer classifies both from indexed chain data. Learn more at{" "}
           <a
             href="https://suchquantum.com/"
             target="_blank"
             rel="noopener noreferrer"
-            className="font-semibold text-amber-700 underline-offset-2 hover:underline dark:text-amber-300"
+            className="font-semibold text-[#8a7020] underline-offset-2 hover:underline dark:text-[#e8c96a]"
           >
             Such Quantum
           </a>
-          . This DogeBox explorer focuses on on-chain detection and pairing of carrier and reveal transactions.
+          .
         </p>
         <div className="flex flex-wrap justify-center gap-4 text-sm">
-          <Link href="/post-quantum/" className="text-amber-800 hover:underline dark:text-amber-200">
-            Post-quantum analytics
+          <Link href="/post-quantum/" className="text-[#8a7020] hover:underline dark:text-[#e8c96a]">
+            PQ metrics
           </Link>
-          <Link href="/api-docs/" className="text-amber-800 hover:underline dark:text-amber-200">
+          <Link href="/api-docs/" className="text-[#8a7020] hover:underline dark:text-[#e8c96a]">
             API
           </Link>
         </div>

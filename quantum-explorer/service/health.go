@@ -38,12 +38,22 @@ func (p *phasedStartupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		})
 		return
 	}
-	// Some supervisors probe "/" while the app is still warming up.
-	// Return 200 here so container startup doesn't fail on probe timeout.
-	if r.URL.Path == "/" {
+	// Some supervisors probe "/" or HEAD while the app is still warming up.
+	if r.URL.Path == "/" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("Quantum Explorer is starting"))
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte("Quantum Explorer is starting"))
+		}
+		return
+	}
+	// Supervisors often probe /readyz before the full mux is enabled; the real readyz stays strict after enable.
+	if r.URL.Path == "/readyz" && p.app != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ready":    true,
+			"starting": true,
+			"detail":   map[string]any{"bootstrap": true},
+		})
 		return
 	}
 	w.Header().Set("Retry-After", "2")

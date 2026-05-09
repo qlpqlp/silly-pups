@@ -7,14 +7,20 @@ import { StatCard } from "@/components/ui/StatCard";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { shortenHash, satsToDoge, timeAgo } from "@/lib/format";
 import { Badge } from "@/components/ui/Badge";
-import { QuantumGlyph } from "@/components/ui/QuantumGlyph";
 import { RotatingPQCaption } from "@/components/home/RotatingPQCaption";
+import { Blocks, FileJson2, FlaskConical } from "lucide-react";
 
 type PQAnalytics = {
   aggregates: Record<string, number>;
   pq_adoption_percent: number;
   pq_carrier_role_counts: Record<string, number>;
 };
+
+const quickLinks = [
+  { href: "/blocks/", label: "Blocks", hint: "Heights, hashes, miners", icon: Blocks },
+  { href: "/transactions/", label: "Transactions", hint: "Latest mempool & chain", icon: FileJson2 },
+  { href: "/post-quantum/", label: "PQ metrics", hint: "TX_C vs TX_R on-chain", icon: FlaskConical },
+];
 
 export default function HomePage() {
   const pq = useQuery({
@@ -40,23 +46,46 @@ export default function HomePage() {
   const roles = pq.data?.pq_carrier_role_counts || {};
 
   return (
-    <div className="space-y-12">
-      <section className="glass-card relative overflow-hidden p-8 md:p-12">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(139,92,246,0.2),transparent_55%),radial-gradient(ellipse_at_bottom,_rgba(242,201,76,0.25),transparent_50%)] dark:bg-[radial-gradient(ellipse_at_top,_rgba(139,92,246,0.15),transparent_50%),radial-gradient(ellipse_at_bottom,_rgba(242,201,76,0.08),transparent_45%)]" />
-        <div className="relative flex flex-col gap-6 md:flex-row md:items-start md:gap-10">
-          <QuantumGlyph className="h-16 w-16 shrink-0 drop-shadow-lg md:h-24 md:w-24" />
-          <div className="space-y-5">
-            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-violet-700 dark:text-violet-300">Quantum layer</p>
-            <h1 className="font-comic text-4xl font-bold tracking-tight text-doge-ink dark:text-amber-50 md:text-5xl lg:text-[2.75rem] lg:leading-tight">
-              Dogecoin meets quantum security
+    <div className="space-y-10">
+      <section className="glass-card p-8 md:p-10">
+        <div className="flex flex-col gap-8 md:flex-row md:items-start md:gap-10">
+          <div className="flex shrink-0 justify-center md:justify-start">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/logo.png"
+              alt=""
+              className="h-20 w-20 rounded-2xl object-cover shadow-md ring-1 ring-black/10 dark:ring-white/10 md:h-24 md:w-24"
+            />
+          </div>
+          <div className="min-w-0 flex-1 space-y-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6b655c] dark:text-[#8a8580]">
+              Dogecoin explorer
+            </p>
+            <h1 className="text-3xl font-semibold tracking-tight text-[#1a1814] dark:text-[#f4f0e6] md:text-4xl">
+              Blocks, transactions, and post-quantum flow
             </h1>
             <RotatingPQCaption />
-            <div className="flex flex-wrap gap-3 pt-2">
+            <div className="grid gap-3 sm:grid-cols-3">
+              {quickLinks.map(({ href, label, hint, icon: Icon }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  className="flex items-start gap-3 rounded-xl border border-[#dad6cf] bg-white/80 p-4 transition hover:border-[#c4a035]/60 hover:bg-[#faf8f4] dark:border-[#1e2630] dark:bg-[#0f141c] dark:hover:border-[#3d3420]/80 dark:hover:bg-[#151c26]"
+                >
+                  <Icon className="mt-0.5 h-5 w-5 shrink-0 text-[#8a7020] dark:text-[#d4b85c]" aria-hidden />
+                  <div>
+                    <div className="font-semibold text-[#1a1814] dark:text-[#f4f0e6]">{label}</div>
+                    <div className="text-xs text-[#5c574f] dark:text-[#9a9a8e]">{hint}</div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-2 pt-1 text-sm">
               <a
                 href="https://github.com/edtubbs/libdogecoin/blob/0.1.5-dev-pqc-carrier/doc/spec/bip-post-quantum-signature-commitments.mediawiki"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="rounded-xl border border-violet-300/80 bg-white/70 px-4 py-2 text-sm font-semibold text-violet-900 shadow-sm transition hover:bg-violet-50 dark:border-violet-700 dark:bg-violet-950/40 dark:text-violet-100 dark:hover:bg-violet-900/60"
+                className="rounded-lg border border-[#dad6cf] bg-white px-3 py-1.5 font-medium text-[#3d3a34] hover:bg-[#f4f2ee] dark:border-[#1e2630] dark:bg-[#111820] dark:text-[#d4d0c4] dark:hover:bg-[#151c26]"
               >
                 Draft BIP — PQ commitments
               </a>
@@ -64,51 +93,38 @@ export default function HomePage() {
                 href="https://suchquantum.com/"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="rounded-xl border border-amber-300/80 bg-amber-50/90 px-4 py-2 text-sm font-semibold text-amber-950 shadow-sm transition hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-50 dark:hover:bg-amber-900/40"
+                className="rounded-lg border border-[#c4a035]/50 bg-[#f8f0d8] px-3 py-1.5 font-medium text-[#5c4810] hover:bg-[#f2e6c4] dark:border-[#6b5a28] dark:bg-[#2a2310] dark:text-[#f0e0a8] dark:hover:bg-[#3a3020]"
               >
-                Such Quantum — verifier &amp; playground
+                Such Quantum
               </a>
-              <Link
-                href="/post-quantum/"
-                className="rounded-xl border border-slate-300 bg-white/80 px-4 py-2 text-sm font-semibold text-doge-ink shadow-sm transition hover:bg-white dark:border-white/20 dark:bg-white/10 dark:text-white dark:hover:bg-white/20"
-              >
-                Open PQ analytics
-              </Link>
             </div>
           </div>
         </div>
       </section>
 
       <section className="glass-card space-y-5 p-8">
-        <h2 className="font-comic text-2xl font-bold text-doge-ink dark:text-amber-50">Quantum transactions on Dogecoin</h2>
+        <h2 className="text-lg font-semibold text-[#1a1814] dark:text-[#f4f0e6]">How PQ shows up on-chain</h2>
         <div className="grid gap-6 md:grid-cols-2">
-          <div className="space-y-3 text-slate-700 dark:text-slate-300">
+          <div className="space-y-3 text-sm leading-relaxed text-[#3d3a34] dark:text-[#c8c4b8]">
             <p>
-              Post-quantum sends split the story across <strong>two on-chain steps</strong>: a{" "}
-              <strong>carrier</strong> transaction (TX_C) that publishes a compact commitment and locks funds, and a{" "}
-              <strong>reveal</strong> transaction (TX_R) that spends that carrier path and discloses the lattice signature
-              material validators expect — the same conceptual flow highlighted on{" "}
-              <a href="https://suchquantum.com/" className="font-semibold text-amber-700 underline-offset-2 hover:underline dark:text-amber-300">
-                Such Quantum
-              </a>
-              .
+              A typical post-quantum send uses two steps: a <strong>carrier</strong> (TX_C) that publishes a commitment and locks funds, then a{" "}
+              <strong>reveal</strong> (TX_R) that spends the carrier and exposes lattice signature material validators expect.
             </p>
-            <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-400">
-              OP_RETURN lines advertise scheme tags (<span className="font-mono text-violet-700 dark:text-violet-300">FLC1</span>,{" "}
-              <span className="font-mono text-violet-700 dark:text-violet-300">DIL2</span>,{" "}
-              <span className="font-mono text-violet-700 dark:text-violet-300">RCG4</span>) so wallets and indexers can spot Falcon, Dilithium, or Raccoon-shaped
-              payloads. Production wallets bind the real signature to the sighash; this explorer classifies what already landed in blocks from raw hex.
+            <p className="text-[#5c574f] dark:text-[#9a9a8e]">
+              Tags like <span className="font-mono text-[#8a7020] dark:text-[#e8c96a]">FLC1</span>,{" "}
+              <span className="font-mono text-[#8a7020] dark:text-[#e8c96a]">DIL2</span>,{" "}
+              <span className="font-mono text-[#8a7020] dark:text-[#e8c96a]">RCG4</span> in OP_RETURN data identify Falcon, Dilithium, or Raccoon-shaped flows. This site classifies what is already in your indexed blocks.
             </p>
           </div>
-          <ul className="space-y-3 rounded-2xl border border-violet-200/80 bg-violet-50/50 p-5 text-sm text-slate-800 dark:border-violet-900/50 dark:bg-violet-950/30 dark:text-slate-200">
+          <ul className="space-y-3 rounded-xl border border-[#dad6cf] bg-[#faf8f4] p-5 text-sm text-[#3d3a34] dark:border-[#1e2630] dark:bg-[#0f141c] dark:text-[#d4d0c4]">
             <li>
-              <strong className="text-violet-900 dark:text-violet-200">Carrier (TX_C)</strong> — commitment + locked carrier output; often the first hop you broadcast.
+              <strong className="text-[#5c4810] dark:text-[#e8c96a]">TX_C — commitment</strong> — tagged OP_RETURN + locked carrier output; usually the first broadcast.
             </li>
             <li>
-              <strong className="text-emerald-900 dark:text-emerald-200">Reveal (TX_R)</strong> — spends the carrier script path and pairs back to the commitment; watch for the green “Reveal” badge in tx lists.
+              <strong className="text-emerald-800 dark:text-emerald-300">TX_R — reveal</strong> — spends the carrier path; look for the Reveal badge in lists.
             </li>
             <li>
-              <strong className="text-doge-ink dark:text-amber-100">Why it matters</strong> — you can audit PQ adoption on Dogecoin without trusting a single API: everything here is decoded from your own indexed chain data.
+              <strong className="text-[#1a1814] dark:text-[#f4f0e6]">Audit</strong> — metrics come from decoded raw transactions in Postgres, not a third-party indexer.
             </li>
           </ul>
         </div>
@@ -119,25 +135,25 @@ export default function HomePage() {
           label="Post-quantum transactions (indexed)"
           loading={pq.isLoading}
           value={agg?.quantum != null ? agg.quantum.toLocaleString() : "—"}
-          hint="Rows classified as quantum from stored raw transaction bytes."
+          hint="Rows classified as quantum from stored raw bytes."
         />
         <StatCard
           label="PQ carrier (TX_C)"
           loading={pq.isLoading}
           value={roles.tx_c != null ? roles.tx_c.toLocaleString() : "—"}
-          hint="Strict Phase-1 commitment pattern detected on-chain."
+          hint="Phase-1 commitment pattern in raw hex."
         />
         <StatCard
           label="PQ reveal (TX_R)"
           loading={pq.isLoading}
           value={roles.tx_r != null ? roles.tx_r.toLocaleString() : "—"}
-          hint="Carrier reveal scriptSig pattern detected on-chain."
+          hint="Reveal scriptSig / carrier linkage pattern."
         />
         <StatCard
           label="Invalid / noisy PQ markers"
           loading={pq.isLoading}
           value={agg?.invalid_quantum != null ? agg.invalid_quantum.toLocaleString() : "—"}
-          hint="OP_RETURN looked PQ-adjacent but failed strict checks."
+          hint="PQ-adjacent OP_RETURN that failed strict checks."
         />
         <StatCard
           label="PQ share of indexed txs"
@@ -149,19 +165,19 @@ export default function HomePage() {
           label="Chain tip (blocks)"
           loading={net.isLoading}
           value={chain?.blocks != null ? String(chain.blocks) : "—"}
-          hint="From your Dogecoin Core node (network overview)."
+          hint="From your Dogecoin Core node."
         />
       </section>
 
       <section className="grid gap-8 lg:grid-cols-2">
         <div className="glass-card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-white/40 px-6 py-4 dark:border-white/10">
-            <h2 className="text-xl font-bold text-doge-ink dark:text-amber-50">Latest blocks</h2>
-            <Link href="/blocks/" className="text-sm font-semibold text-amber-700 hover:underline dark:text-amber-300">
+          <div className="flex items-center justify-between border-b border-[#dad6cf] px-5 py-4 dark:border-[#1e2630]">
+            <h2 className="text-base font-semibold text-[#1a1814] dark:text-[#f4f0e6]">Latest blocks</h2>
+            <Link href="/blocks/" className="text-sm font-medium text-[#8a7020] hover:underline dark:text-[#e8c96a]">
               View all
             </Link>
           </div>
-          <div className="overflow-x-auto px-4 py-2">
+          <div className="overflow-x-auto px-3 py-2">
             <table className="table-modern min-w-full">
               <thead>
                 <tr>
@@ -186,11 +202,11 @@ export default function HomePage() {
                   (blocks.data?.rows || []).map((b) => (
                     <tr key={String(b.hash)}>
                       <td className="font-mono">
-                        <Link className="text-amber-700 hover:underline dark:text-amber-300" href={`/block/?height=${b.height}`}>
+                        <Link className="text-[#8a7020] hover:underline dark:text-[#e8c96a]" href={`/block/?height=${b.height}`}>
                           {String(b.height)}
                         </Link>
                       </td>
-                      <td className="text-slate-600 dark:text-slate-300">{timeAgo(Number(b.time_unix))}</td>
+                      <td className="text-[#5c574f] dark:text-[#9a9a8e]">{timeAgo(Number(b.time_unix))}</td>
                       <td>{String(b.tx_count)}</td>
                       <td className="font-mono text-xs">
                         {(b.miner_address_short as string) || shortenHash(String(b.miner_address || ""), 8, 6)}
@@ -205,13 +221,13 @@ export default function HomePage() {
         </div>
 
         <div className="glass-card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-white/40 px-6 py-4 dark:border-white/10">
-            <h2 className="text-xl font-bold text-doge-ink dark:text-amber-50">Latest transactions</h2>
-            <Link href="/transactions/" className="text-sm font-semibold text-amber-700 hover:underline dark:text-amber-300">
+          <div className="flex items-center justify-between border-b border-[#dad6cf] px-5 py-4 dark:border-[#1e2630]">
+            <h2 className="text-base font-semibold text-[#1a1814] dark:text-[#f4f0e6]">Latest transactions</h2>
+            <Link href="/transactions/" className="text-sm font-medium text-[#8a7020] hover:underline dark:text-[#e8c96a]">
               Stream
             </Link>
           </div>
-          <div className="overflow-x-auto px-4 py-2">
+          <div className="overflow-x-auto px-3 py-2">
             <table className="table-modern min-w-full">
               <thead>
                 <tr>
@@ -236,15 +252,15 @@ export default function HomePage() {
                     return (
                       <tr key={String(t.txid)}>
                         <td className="font-mono text-xs">
-                          <Link href={`/tx/?txid=${t.txid}`} className="text-amber-700 hover:underline dark:text-amber-300">
+                          <Link href={`/tx/?txid=${t.txid}`} className="text-[#8a7020] hover:underline dark:text-[#e8c96a]">
                             {shortenHash(String(t.txid), 12, 10)}
                           </Link>
                         </td>
-                        <td className="text-slate-600 dark:text-slate-300">{timeAgo(Number(t.time_unix))}</td>
+                        <td className="text-[#5c574f] dark:text-[#9a9a8e]">{timeAgo(Number(t.time_unix))}</td>
                         <td>{satsToDoge(Number(t.value_out_sats))}</td>
                         <td>
                           {role === "tx_c" && (
-                            <Badge variant="pq_carrier" title="Phase-1 PQ carrier / commitment flow">
+                            <Badge variant="pq_carrier" title="Phase-1 PQ carrier / commitment">
                               Carrier
                             </Badge>
                           )}

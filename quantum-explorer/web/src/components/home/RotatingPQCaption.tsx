@@ -20,7 +20,7 @@ export function RotatingPQCaption() {
   return (
     <p
       key={i}
-      className="max-w-3xl animate-[qeFadeIn_0.7s_ease-out] text-lg leading-relaxed text-slate-700 dark:text-slate-200"
+      className="max-w-3xl animate-[qeFadeIn_0.7s_ease-out] text-base leading-relaxed text-[#3d3a34] dark:text-[#c8c4b8] md:text-lg"
     >
       {LINES[i]}
     </p>

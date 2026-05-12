@@ -26,10 +26,10 @@ import (
 var staticFS embed.FS
 
 // pqWalletAppVersion is shown in /api/health, education JSON, and the UI footer (keep in sync with manifest.json).
-const pqWalletAppVersion = "0.0.59"
+const pqWalletAppVersion = "0.0.60"
 
 // pqWalletBuildHash is a release fingerprint (SHA-256 hex of "pq-wallet-<version>"); bump when cutting a release.
-const pqWalletBuildHash = "bec6036a7a9f0bb82444b8a1324a29ee8e3bed69b871d963b6d7d94f4c8e9e37"
+const pqWalletBuildHash = "6c18e76553ca9c4bd3ad1037ff0fd5f45d7c438755491287b26a42cb5bc7f03d"
 
 type Server struct {
 	mu                    sync.Mutex
@@ -135,6 +135,8 @@ func (s *Server) handleWalletExport(w http.ResponseWriter, r *http.Request) {
 type createBody struct {
 	Network string `json:"network"`
 	PQKeys  bool   `json:"pq_keys"`
+	// When pq_keys is true: falcon (default), dilithium2, raccoong.
+	PQAlgo string `json:"pq_algo"`
 }
 
 func (s *Server) handleWalletCreate(w http.ResponseWriter, r *http.Request) {
@@ -162,14 +164,31 @@ func (s *Server) handleWalletCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.PQKeys {
-		pub, priv, err := s.runSuchFalconKeygen(testnet)
+		algo := strings.ToLower(strings.TrimSpace(body.PQAlgo))
+		var pub, priv string
+		var err error
+		var src string
+		switch algo {
+		case "dilithium2", "dilithium":
+			pub, priv, err = s.runSuchDilithium2Keygen(testnet)
+			src = "such_dilithium2_keygen"
+			wf.PQScheme = "Dilithium2 (DIL2, liboqs via libdogecoin, experimental)"
+		case "raccoong", "raccoon", "raccoon_g":
+			pub, priv, err = s.runSuchRaccoonKeygen(testnet)
+			src = "such_raccoong_keygen"
+			wf.PQScheme = "Raccoon-G (RCG4, libdogecoin PQC carrier, experimental)"
+		default:
+			pub, priv, err = s.runSuchFalconKeygen(testnet)
+			src = "such_falcon_keygen"
+			wf.PQScheme = "Falcon-512 (FLC1, liboqs via libdogecoin, experimental)"
+		}
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
 		wf.PQPublicHex = pub
 		wf.PQPrivateHex = priv
-		wf.PQSource = "such_falcon_keygen"
+		wf.PQSource = src
 	}
 	if err := s.saveWallet(wf); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

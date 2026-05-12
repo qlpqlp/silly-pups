@@ -78,8 +78,7 @@ noinst_HEADERS = \
     include/dogecoin/validation.h \
     include/dogecoin/vector.h \
     include/dogecoin/version.h \
-    include/dogecoin/wow.h \
-    include/dogecoin/zk_carrier.h
+    include/dogecoin/wow.h
 
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = libdogecoin.pc
@@ -130,38 +129,25 @@ libdogecoin_la_SOURCES = \
 
 if USE_LIBOQS
 libdogecoin_la_SOURCES += \
-    src/pqc_dilithium.c
-endif
-
-# pqc_falcon.c: built for USE_PQC_CARRIER_HELPERS; defines dogecoin_tx_sighash32 (needed by ZK carrier) + Falcon-specific logic guarded by USE_LIBOQS.
-if USE_PQC_CARRIER_HELPERS
-libdogecoin_la_SOURCES += \
+    src/pqc_dilithium.c \
     src/pqc_falcon.c
 endif
 
-if USE_LIBOQS_RACCOON
-libdogecoin_la_SOURCES += \
-    src/pqc_raccoon.c
-endif
-
-# pqc_carrier.c: shared P2SH carrier helpers reused by PQ and ZK carriers.
-if USE_PQC_CARRIER_HELPERS
+if USE_PQC_CARRIER
 libdogecoin_la_SOURCES += \
     src/pqc_carrier.c
 endif
 
-if USE_ZK_CARRIER
+if USE_RACCOON_G
 libdogecoin_la_SOURCES += \
-    src/zk_carrier/zk_carrier.c \
-    src/zk_carrier/zk_commit.c \
-    src/zk_carrier/zk_groth16.c \
-    src/zk_carrier/zk_plonk.c \
-    src/zk_carrier/zk_stark.c
-
-if HAVE_MCL
-# C++ verifier for Groth16 BN254 via herumi/mcl. Flags from configure.ac.
-libdogecoin_la_SOURCES += src/zk_carrier/zk_groth16_mcl.cpp
-endif
+    src/pqc_raccoon.c \
+    src/raccoon_g/polyr.c \
+    src/raccoon_g/ntt.c \
+    src/raccoon_g/gaussian.c \
+    src/raccoon_g/shake256.c \
+    src/raccoon_g/keygen_kdf.c \
+    src/raccoon_g/thrc.c \
+    src/raccoon_g/raccoong.c
 endif
 
 
@@ -223,14 +209,6 @@ endif
 
 libdogecoin_la_CFLAGS = -I$(top_srcdir)/include -I$(top_srcdir)/src/logdb/include -fPIC
 libdogecoin_la_LIBADD = $(LIBSECP256K1) $(ASM_LIB_FILES)
-
-if HAVE_MCL
-# mcl BN254: C++ verifier flags.
-libdogecoin_la_CFLAGS    += @MCL_CFLAGS@
-libdogecoin_la_CXXFLAGS   = -I$(top_srcdir)/include -fPIC @MCL_CFLAGS@ -std=c++14
-libdogecoin_la_LIBADD    += @MCL_LIBS@
-endif
-
 noinst_PROGRAMS =
 
 if USE_TESTS
@@ -273,10 +251,6 @@ tests_SOURCES = \
     test/utils_tests.c \
     test/vector_tests.c
 
-if USE_ZK_CARRIER
-tests_SOURCES += test/zk_carrier_tests.c
-endif
-
 tests_CFLAGS = $(libdogecoin_la_CFLAGS)
 tests_CPPFLAGS = -I$(top_srcdir)/src
 tests_LDADD += $(LIBSECP256K1)
@@ -311,6 +285,39 @@ tests_SOURCES += \
     src/logdb/test/logdb_tests.c \
     src/logdb/test/tests_red_black_tree.c \
     src/logdb/test/logdb_tests_sample.h
+endif
+endif
+
+if USE_RACCOON_G
+if USE_TESTS
+tests_SOURCES += \
+    test/raccoong_polyr_tests.c \
+    test/raccoong_ntt_tests.c \
+    test/raccoong_gaussian_tests.c \
+    test/raccoong_shake_tests.c \
+    test/raccoong_xof_sample_q_tests.c \
+    test/raccoong_matvec_tests.c \
+    test/raccoong_keygen_t_tests.c \
+    test/raccoong_keypair_tests.c \
+    test/raccoong_hd_derive_tests.c \
+    test/raccoong_signature_serialize_tests.c \
+    test/raccoong_chal_poly_tests.c \
+    test/raccoong_hash_vec_tests.c \
+    test/raccoong_buff_mu_tests.c \
+    test/raccoong_sign_tests.c \
+    test/data/raccoong_polyr_vectors.h \
+    test/data/raccoong_ntt_vectors.h \
+    test/data/raccoong_gaussian_vectors.h \
+    test/data/raccoong_xof_sample_q_vectors.h \
+    test/data/raccoong_matvec_vectors.h \
+    test/data/raccoong_keygen_t_vectors.h \
+    test/data/raccoong_keypair_vectors.h \
+    test/data/raccoong_hd_derive_vectors.h \
+    test/data/raccoong_signature_serialize_vectors.h \
+    test/data/raccoong_chal_poly_vectors.h \
+    test/data/raccoong_hash_vec_vectors.h \
+    test/data/raccoong_buff_mu_vectors.h \
+    test/data/raccoong_sign_vectors.h
 endif
 endif
 

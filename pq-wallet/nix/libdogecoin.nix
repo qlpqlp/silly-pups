@@ -1,5 +1,6 @@
-# libdogecoin with liboqs (Falcon-512 / Dilithium2) + such, sendtx, spvnode CLI tools.
-# Source of truth: pq-wallet/vendors/libdogecoin (your PQC-ready tree), not a fixed GitHub tarball.
+# libdogecoin with liboqs (Falcon-512 / Dilithium2 / Raccoon-G carrier) + such, sendtx, spvnode CLI tools.
+# Source: pq-wallet/vendors/libdogecoin at dogecoinfoundation/libdogecoin PR #294 head (4bd9b49).
+# Nix applies ./libdogecoin-vendor-patches.patch (liboqs pkg-config, libevent hints, link fixes, PQ wallet log hooks).
 { lib, stdenv, cmake, pkg-config, gmp, liboqs, openssl, ninja }:
 
 stdenv.mkDerivation rec {
@@ -9,11 +10,7 @@ stdenv.mkDerivation rec {
   src = ../vendors/libdogecoin;
 
   patches = [
-    ./libdogecoin-oqs.patch
-    ./libdogecoin-libevent-hints.patch
-    ./libdogecoin-with-net-link.patch
-    ./libdogecoin-pq-peer-log.patch
-    ./libdogecoin-spv-tx-raw.patch
+    ./libdogecoin-vendor-patches.patch
   ];
 
   nativeBuildInputs = [ cmake pkg-config ninja ];

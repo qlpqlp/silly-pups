@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "introduction": "Local authoring checklist for AI assistants working on DogeBox PUPs in this repository. This file is intentionally NOT for publishing; it exists to prevent repeated packaging, hash, and release mistakes. Treat all items as mandatory unless the user explicitly overrides.",
+  "rules": [
+    "Always keep manifestVersion as integer 1. Never put semver in manifestVersion.",
+    "For every pup code change, bump version consistently in ALL required files before release: manifest.json meta.version, interface version fields, pup.nix buildGoModule version, and app/runtime version constants exposed by APIs/UI.",
+    "Whenever app version changes, recompute and update app build hash constants if that pup uses them (example convention: SHA-256 of '<pup-slug>-<version>').",
+    "After ANY pup.nix change, recompute manifest.container.build.nixFileSha256 from the exact pup.nix file that will be published.",
+    "Hashes must be computed from LF-normalized bytes because DogeBox/package pipelines validate LF content. On Windows, never assume CRLF file hash is valid for release.",
+    "Before finalizing nixFileSha256, normalize pup.nix to LF and then compute SHA-256; if .gitattributes enforces LF, still verify actual bytes used for packaging.",
+    "Never guess nixFileSha256. Always compute from file bytes using SHA-256 lowercase hex.",
+    "Before telling user a release is ready, validate hash parity: manifest nixFileSha256 must exactly match computed hash of pup.nix in working tree.",
+    "If install/upgrade log reports hash mismatch, trust the computed hash from DogeBox logs and reconcile manifest immediately.",
+    "Do not ship stale metadata: if code changed but version/hash not updated, fix metadata before user tests install/upgrade.",
+    "Run compile/build checks after substantive backend changes (at minimum go build for Go pups).",
+    "Run lints on edited files after substantive edits and fix introduced issues.",
+    "Avoid relying on transient logs as primary data source when a direct API/DB source exists and is stable.",
+    "For SPV/chain data flows, prefer direct libdogecoin/spvnode interfaces (REST, wallet APIs, deterministic sources) over fragile text-log scraping.",
+    "When removing a feature from UI (like spv.log panel), also remove backend references/messages and stale help text to keep UX consistent.",
+    "When modifying user-facing transaction views, keep quick-scan summary + expandable details and preserve important fields: direction, amount, status, confirmations, txid, timestamp, address, source.",
+    "Never commit local-only operational docs accidentally; keep local guidance files excluded via .gitignore.",
+    "Never use placeholder/fake hashes in manifest or release constants.",
+    "Before final handoff, provide user with exact new versions and hashes changed."
+  ],
+  "releaseChecklist": [
+    "1) Implement code changes.",
+    "2) Build/test changed pups locally.",
+    "3) Update version fields across manifest.json, pup.nix, and runtime constants.",
+    "4) Recompute runtime build hash constants (if used).",
+    "5) Recompute manifest.container.build.nixFileSha256 from pup.nix.",
+    "6) Re-validate manifest JSON parses.",
+    "7) Re-run build once more after metadata edits.",
+    "8) Report final versions + hashes to user."
+  ],
+  "hashCommandsExamples": {
+    "powershell_nix_hash": "(Get-FileHash \"<repo>\\<pup>\\pup.nix\" -Algorithm SHA256).Hash.ToLower()",
+    "powershell_nix_hash_lf_normalized": "$p='<repo>\\\\<pup>\\\\pup.nix'; $raw=[System.IO.File]::ReadAllText($p); $lf=$raw -replace \"`r`n\",\"`n\"; $b=[System.Text.Encoding]::UTF8.GetBytes($lf); $h=[System.Security.Cryptography.SHA256]::Create().ComputeHash($b); ($h|% ToString x2)-join ''",
+    "powershell_build_hash": "$b=[System.Text.Encoding]::UTF8.GetBytes('<slug>-<version>'); $h=[System.Security.Cryptography.SHA256]::Create().ComputeHash($b); ($h|% ToString x2)-join ''"
+  },
+  "extraNotes": [
+    "This repository has multiple pups; ensure updates are scoped to the intended pup(s).",
+    "Do not assume one pup metadata bump automatically updates another.",
+    "If user asks for local-only helper files, add them to .gitignore in the same change."
+  ]
+}

@@ -113,7 +113,7 @@
             <div class="onboarding-grid">
               <section class="onboarding-panel" aria-labelledby="onb-create-title">
                 <h2 id="onb-create-title"><span class="material-symbols-outlined icon-inline">account_balance_wallet</span> Create wallet</h2>
-                <p class="small muted onboarding-lead">P2PKH + WIF via <code>such</code>; optional Falcon-512 PQ keys. State is stored under the pup volume.</p>
+                <p class="small muted onboarding-lead">P2PKH + WIF via <code>such</code>; optional Phase-1 PQ keys (Falcon-512, Dilithium2, or Raccoon-G per libdogecoin). State is stored under the pup volume.</p>
                 <div class="onboarding-body">
                   <div class="field field-tight">
                     <span class="field-label" id="net-label">Network</span>
@@ -126,11 +126,23 @@
                     </div>
                   </div>
                   <div class="field switch-row">
-                    <span>Generate Falcon-512 PQ keys</span>
+                    <span>Generate PQ keys (Phase-1)</span>
                     <label class="switch">
                       <input type="checkbox" id="pq-keys" checked />
                       <span class="slider" aria-hidden="true"></span>
                     </label>
+                  </div>
+                  <div class="field field-tight">
+                    <span class="field-label" id="pq-algo-label">PQ algorithm</span>
+                    <div class="select-wrap">
+                      <select id="pq-algo-select" class="input-modern" aria-labelledby="pq-algo-label">
+                        <option value="falcon">Falcon-512 (FLC1)</option>
+                        <option value="dilithium2">Dilithium2 (DIL2)</option>
+                        <option value="raccoong">Raccoon-G (RCG4)</option>
+                      </select>
+                      <span class="material-symbols-outlined select-caret" aria-hidden="true">expand_more</span>
+                    </div>
+                    <p class="small muted" style="margin:0.35rem 0 0">Only used when PQ keys are on; matches <code class="mono">such</code> keygen from Dogecoin Foundation libdogecoin PQC carrier work.</p>
                   </div>
                 </div>
                 <div class="onboarding-actions">

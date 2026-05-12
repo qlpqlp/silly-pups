@@ -220,28 +220,45 @@ func (s *Server) spvnodePath() string {
 	return "spvnode"
 }
 
-// runSuchFalconKeygen runs `such -c falcon_keygen` and parses Falcon-512 hex keys from stdout.
-func (s *Server) runSuchFalconKeygen(testnet bool) (pubHex, privHex string, err error) {
-	args := []string{"-c", "falcon_keygen"}
+// runSuchLibOqsKeygen runs `such -c <cmd>` (falcon_keygen, dilithium2_keygen, raccoong_keygen, …) and parses public/secret hex from stdout.
+func (s *Server) runSuchLibOqsKeygen(cmd string, testnet bool) (pubHex, privHex string, err error) {
+	cmd = strings.TrimSpace(cmd)
+	if cmd == "" {
+		return "", "", fmt.Errorf("empty liboqs keygen command")
+	}
+	args := []string{"-c", cmd}
 	if testnet {
 		args = append([]string{"-t"}, args...)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, s.suchPath(), args...)
+	execCmd := exec.CommandContext(ctx, s.suchPath(), args...)
 	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	if err := cmd.Run(); err != nil {
-		return "", "", fmt.Errorf("such falcon_keygen: %w — output: %s", err, truncateStr(out.String(), 800))
+	execCmd.Stdout = &out
+	execCmd.Stderr = &out
+	if err := execCmd.Run(); err != nil {
+		return "", "", fmt.Errorf("such %s: %w — output: %s", cmd, err, truncateStr(out.String(), 800))
 	}
 	text := out.String()
 	m1 := reSuchFalconPub.FindStringSubmatch(text)
 	m2 := reSuchFalconSec.FindStringSubmatch(text)
 	if len(m1) < 2 || len(m2) < 2 {
-		return "", "", fmt.Errorf("could not parse falcon_keygen output: %s", truncateStr(text, 1200))
+		return "", "", fmt.Errorf("could not parse %s output: %s", cmd, truncateStr(text, 1200))
 	}
 	return m1[1], m2[1], nil
+}
+
+// runSuchFalconKeygen runs `such -c falcon_keygen` and parses Falcon-512 hex keys from stdout.
+func (s *Server) runSuchFalconKeygen(testnet bool) (pubHex, privHex string, err error) {
+	return s.runSuchLibOqsKeygen("falcon_keygen", testnet)
+}
+
+func (s *Server) runSuchDilithium2Keygen(testnet bool) (pubHex, privHex string, err error) {
+	return s.runSuchLibOqsKeygen("dilithium2_keygen", testnet)
+}
+
+func (s *Server) runSuchRaccoonKeygen(testnet bool) (pubHex, privHex string, err error) {
+	return s.runSuchLibOqsKeygen("raccoong_keygen", testnet)
 }
 
 func truncateStr(s string, max int) string {
@@ -311,9 +328,10 @@ func (s *Server) runSuchTxSighash32(rawHex, scriptPubHex string, inputIndex, has
 	return h[:64], nil
 }
 
-func (s *Server) runSuchFalconSign(msgHex, privHex string, testnet bool) (string, error) {
+func (s *Server) runSuchPQSign(kind pqAlgoKind, msgHex, privHex string, testnet bool) (string, error) {
+	sc := suchSignCmd(kind)
 	args := []string{
-		"-c", "falcon_sign",
+		"-c", sc,
 		"-x", strings.TrimSpace(msgHex),
 		"-p", strings.TrimSpace(privHex),
 	}
@@ -327,13 +345,12 @@ func (s *Server) runSuchFalconSign(msgHex, privHex string, testnet bool) (string
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("such falcon_sign: %w — %s", err, truncateStr(out.String(), 800))
+		return "", fmt.Errorf("such %s: %w — %s", sc, err, truncateStr(out.String(), 800))
 	}
 	matches := reSuchAnyHexValue.FindAllStringSubmatch(out.String(), -1)
 	if len(matches) == 0 {
-		return "", fmt.Errorf("falcon signature hex not found in such output: %s", truncateStr(out.String(), 1200))
+		return "", fmt.Errorf("%s: signature hex not found in such output: %s", sc, truncateStr(out.String(), 1200))
 	}
-	// Keep longest hex value as signature.
 	best := ""
 	for _, m := range matches {
 		if len(m) < 2 {
@@ -344,9 +361,13 @@ func (s *Server) runSuchFalconSign(msgHex, privHex string, testnet bool) (string
 		}
 	}
 	if best == "" {
-		return "", fmt.Errorf("falcon signature parse failed")
+		return "", fmt.Errorf("%s: signature parse failed", sc)
 	}
 	return strings.ToLower(strings.TrimSpace(best)), nil
+}
+
+func (s *Server) runSuchFalconSign(msgHex, privHex string, testnet bool) (string, error) {
+	return s.runSuchPQSign(pqAlgoFalcon, msgHex, privHex, testnet)
 }
 
 // parseSuchTransactionHex extracts raw transaction hex from such stdout (sign / set_scriptsig / falcon_add_*).
@@ -383,19 +404,20 @@ func parseSuchTransactionHex(text string) string {
 	return best
 }
 
-func (s *Server) runSuchFalconAddCommitAndCarrierTx(unsignedHex, commit32Hex, pubHex, sigHex string, carrierKoinu int64, testnet bool) (string, error) {
+func (s *Server) runSuchAddCommitAndCarrierTx(kind pqAlgoKind, unsignedHex, commit32Hex, pubHex, sigHex string, carrierKoinu int64, testnet bool) (string, error) {
 	unsignedHex = strings.TrimSpace(unsignedHex)
 	commit32Hex = strings.TrimSpace(commit32Hex)
 	pubHex = strings.TrimSpace(pubHex)
 	sigHex = strings.TrimSpace(sigHex)
+	cc := suchAddCommitCarrierCmd(kind)
 	if unsignedHex == "" || commit32Hex == "" || pubHex == "" || sigHex == "" {
-		return "", fmt.Errorf("missing falcon_add_commit_and_carrier_tx argument")
+		return "", fmt.Errorf("missing %s argument", cc)
 	}
 	if carrierKoinu <= 0 {
 		carrierKoinu = 100_000_000
 	}
 	args := []string{
-		"-c", "falcon_add_commit_and_carrier_tx",
+		"-c", cc,
 		"-x", unsignedHex,
 		"-m", commit32Hex,
 		"-k", pubHex,
@@ -412,13 +434,17 @@ func (s *Server) runSuchFalconAddCommitAndCarrierTx(unsignedHex, commit32Hex, pu
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("such falcon_add_commit_and_carrier_tx: %w — %s", err, truncateStr(out.String(), 800))
+		return "", fmt.Errorf("such %s: %w — %s", cc, err, truncateStr(out.String(), 800))
 	}
 	h := parseSuchTransactionHex(out.String())
 	if h == "" {
-		return "", fmt.Errorf("falcon_add_commit_and_carrier_tx: no transaction hex in output: %s", truncateStr(out.String(), 1200))
+		return "", fmt.Errorf("%s: no transaction hex in output: %s", cc, truncateStr(out.String(), 1200))
 	}
 	return h, nil
+}
+
+func (s *Server) runSuchFalconAddCommitAndCarrierTx(unsignedHex, commit32Hex, pubHex, sigHex string, carrierKoinu int64, testnet bool) (string, error) {
+	return s.runSuchAddCommitAndCarrierTx(pqAlgoFalcon, unsignedHex, commit32Hex, pubHex, sigHex, carrierKoinu, testnet)
 }
 
 func (s *Server) runSuchPqcCarrierScriptPubkey(testnet bool) (string, error) {

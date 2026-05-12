@@ -31,13 +31,11 @@ SET(USE_SSE2 FALSE CACHE BOOL "enable scrypt sse2")
 SET(USE_ARMV8 FALSE CACHE BOOL "enable armv8 crypto")
 SET(USE_ARMV82 FALSE CACHE BOOL "enable armv8.2 crypto")
 SET(USE_TPM2 TRUE CACHE BOOL "enable tpm2")
+SET(TEST_TPM_AUTO FALSE CACHE BOOL "disable TPM UI policy for automated tests")
 SET(USE_OPENENCLAVE FALSE CACHE BOOL "enable openenclave")
 SET(USE_YUBIKEY FALSE CACHE BOOL "enable yubikey")
 SET(USE_LIBOQS FALSE CACHE BOOL "enable liboqs")
-SET(USE_LIBOQS_RACCOON FALSE CACHE BOOL "enable liboqs raccoon fork")
-SET(USE_ZK_CARRIER TRUE CACHE BOOL "enable ZK carrier (Groth16/PLONK/STARK)")
-SET(USE_RAPIDSNARK FALSE CACHE BOOL "link rapidsnark Groth16 verifier")
-SET(TEST_PASSWD FALSE CACHE BOOL "enable test password")
+SET(USE_RACCOON_G FALSE CACHE BOOL "enable in-tree Raccoon-G-44 (experimental, requires GMP/MPFR)")
 string(RANDOM LENGTH 12 ALPHABET abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 PASSWD_STR)
 SET(RANDOM_DEVICE "/dev/urandom" CACHE STRING "set the device to read random data from")
 
@@ -215,23 +213,15 @@ IF(USE_YUBIKEY)
     FIND_LIBRARY(LIBYKPIV NAMES ykpiv REQUIRED HINTS /usr/lib/x86_64-linux-gnu)
     ADD_DEFINITIONS(-DUSE_YUBIKEY=1)
 ENDIF()
-IF(USE_LIBOQS_RACCOON)
-    SET(USE_LIBOQS TRUE)
-ENDIF()
 IF(USE_LIBOQS)
     ADD_DEFINITIONS(-DUSE_LIBOQS=1)
 ENDIF()
-IF(USE_LIBOQS_RACCOON)
-    ADD_DEFINITIONS(-DUSE_LIBOQS_RACCOON=1)
+IF(USE_RACCOON_G)
+    FIND_LIBRARY(LIBGMP NAMES gmp REQUIRED)
+    FIND_LIBRARY(LIBMPFR NAMES mpfr REQUIRED)
+    ADD_DEFINITIONS(-DUSE_RACCOON_G=1)
 ENDIF()
-IF(USE_ZK_CARRIER)
-    ADD_DEFINITIONS(-DUSE_ZK_CARRIER=1)
-ENDIF()
-IF(USE_RAPIDSNARK)
-    ADD_DEFINITIONS(-DHAVE_RAPIDSNARK=1)
-ENDIF()
-IF(TEST_PASSWD)
-    ADD_DEFINITIONS(-DTEST_PASSWD=1)
+IF(USE_TESTS)
     ADD_DEFINITIONS(-DPASSWD_STR="${PASSWD_STR}")
 ENDIF()
 
@@ -250,17 +240,16 @@ MESSAGE(STATUS "  USE_SSE2       = ${USE_SSE2}")
 MESSAGE(STATUS "  USE_ARMV8      = ${USE_ARMV8}")
 MESSAGE(STATUS "  USE_ARMV82     = ${USE_ARMV82}")
 MESSAGE(STATUS "  USE_TPM2       = ${USE_TPM2}")
-MESSAGE(STATUS "  TEST_PASSWD    = ${TEST_PASSWD}")
-IF(TEST_PASSWD)
-MESSAGE(STATUS "                   ${PASSWD_STR}")
+MESSAGE(STATUS "  TEST_TPM_AUTO  = ${TEST_TPM_AUTO}")
+MESSAGE(STATUS "")
+IF(USE_TESTS)
+MESSAGE(STATUS "  test password  = ${PASSWD_STR}")
 ENDIF()
 MESSAGE(STATUS "")
 MESSAGE(STATUS "  openenclave    = ${USE_OPENENCLAVE}")
 MESSAGE(STATUS "  yubikey        = ${USE_YUBIKEY}")
 MESSAGE(STATUS "  liboqs         = ${USE_LIBOQS}")
-MESSAGE(STATUS "  liboqs_raccoon = ${USE_LIBOQS_RACCOON}")
-MESSAGE(STATUS "  zk_carrier     = ${USE_ZK_CARRIER}")
-MESSAGE(STATUS "  rapidsnark     = ${USE_RAPIDSNARK}")
+MESSAGE(STATUS "  raccoon_g      = ${USE_RACCOON_G} (experimental, in-tree)")
 MESSAGE(STATUS "")
 message(STATUS "  library type   = ${library_type}")
 MESSAGE(STATUS "")
@@ -327,37 +316,31 @@ TARGET_SOURCES(${LIBDOGECOIN_NAME} PRIVATE
 )
 IF(USE_LIBOQS)
 TARGET_SOURCES(${LIBDOGECOIN_NAME} PRIVATE
-    src/pqc_dilithium.c
-)
-ENDIF()
-# pqc_falcon.c also defines dogecoin_tx_sighash32 (used by the ZK carrier),
-# so build it whenever either PQC or ZK helpers are enabled.
-IF(USE_LIBOQS OR USE_ZK_CARRIER)
-TARGET_SOURCES(${LIBDOGECOIN_NAME} PRIVATE
     src/pqc_carrier.c
+    src/pqc_dilithium.c
     src/pqc_falcon.c
 )
 ENDIF()
-IF(USE_LIBOQS_RACCOON)
+IF(USE_RACCOON_G)
 TARGET_SOURCES(${LIBDOGECOIN_NAME} PRIVATE
     src/pqc_raccoon.c
+    src/raccoon_g/polyr.c
+    src/raccoon_g/ntt.c
+    src/raccoon_g/gaussian.c
+    src/raccoon_g/shake256.c
+    src/raccoon_g/thrc.c
+    src/raccoon_g/keygen_kdf.c
+    src/raccoon_g/raccoong.c
 )
-ENDIF()
-IF(USE_ZK_CARRIER)
-TARGET_SOURCES(${LIBDOGECOIN_NAME} PRIVATE
-    src/zk_carrier/zk_carrier.c
-    src/zk_carrier/zk_commit.c
-    src/zk_carrier/zk_groth16.c
-    src/zk_carrier/zk_plonk.c
-    src/zk_carrier/zk_stark.c
-)
-IF(USE_RAPIDSNARK)
-    TARGET_LINK_LIBRARIES(${LIBDOGECOIN_NAME} PRIVATE rapidsnark)
-ENDIF()
+TARGET_LINK_LIBRARIES(${LIBDOGECOIN_NAME} ${LIBMPFR} ${LIBGMP})
 ENDIF()
 TARGET_SOURCES(${LIBDOGECOIN_NAME} PUBLIC
     src/chainparams.c
 )
+
+IF(WIN32 AND USE_TPM2)
+    TARGET_LINK_LIBRARIES(${LIBDOGECOIN_NAME} tbs ncrypt crypt32)
+ENDIF()
 
 IF(USE_SSE2)
 TARGET_SOURCES(${LIBDOGECOIN_NAME} ${visibility}
@@ -447,21 +430,19 @@ IF(USE_TESTS)
         test/utils_tests.c
         test/vector_tests.c
 )
-IF(USE_ZK_CARRIER)
-TARGET_SOURCES(tests ${visibility}
-        test/zk_carrier_tests.c
-)
-ENDIF()
 IF (USE_YUBIKEY)
     SET(LIBS ${LIBDOGECOIN_NAME} ${LIBYKPIV})
 ELSE()
     SET(LIBS ${LIBDOGECOIN_NAME})
 ENDIF()
 
-IF (WIN32 AND USE_TPM2)
-    TARGET_LINK_LIBRARIES(tests ${LIBS} tbs ncrypt crypt32)
-ELSE()
-    TARGET_LINK_LIBRARIES(tests ${LIBS})
+    IF (WIN32 AND USE_TPM2)
+        IF (TEST_TPM_AUTO)
+            TARGET_COMPILE_DEFINITIONS(tests PRIVATE TEST_TPM_AUTO=1)
+        ENDIF()
+        TARGET_LINK_LIBRARIES(tests ${LIBS} tbs ncrypt crypt32)
+    ELSE()
+        TARGET_LINK_LIBRARIES(tests ${LIBS})
 ENDIF()
     ADD_TEST(NAME ${LIBDOGECOIN_NAME}_tests COMMAND tests)
     # move test/wordlist to build

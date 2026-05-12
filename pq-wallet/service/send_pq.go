@@ -154,6 +154,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	testnet := strings.EqualFold(wf.Network, "testnet")
+	pqAlgo := inferPQAlgo(wf)
 
 	carrierKoinu := int64(100_000_000) // 1 DOGE — canonical carrier output (libdogecoin default)
 	if v := strings.TrimSpace(os.Getenv("PUP_PQ_CARRIER_KOINU")); v != "" {
@@ -227,9 +228,9 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	var carrierBaseHex string
 	var pqCommitment32Hex string
 	var pqMode string
-	var falconSigHex string
+	var pqSigHex string
 	var carrierFlow bool
-	var pqCarrierExtendErr string // last falcon_add_commit_and_carrier_tx failure (or decode/short tx) when carrier was wished
+	var pqCarrierExtendErr string // last *_add_commit_and_carrier_tx failure (or decode/short tx) when carrier was wished
 	econDowngraded := false
 	var errUtx error
 	var unsignedBase []byte
@@ -311,7 +312,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 
 		pqCommitment32Hex = ""
 		pqMode = "none"
-		falconSigHex = ""
+		pqSigHex = ""
 		// PQ signing must use the same TX base template that carrier extension consumes.
 		// In carrier mode we reorder outputs to [change, pay_to] for libdogecoin's vout0 expectation.
 		pqSigBaseHex := baseHex
@@ -324,17 +325,17 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		if includePQCommitment && strings.TrimSpace(wf.PQPublicHex) != "" && strings.TrimSpace(wf.PQPrivateHex) != "" && len(selected) > 0 {
 			if scr, err := s.scriptPubHexForUTXO(wf, &selected[0]); err == nil {
 				if sighashHex, err2 := s.runSuchTxSighash32(pqSigBaseHex, scr, 0, 1, testnet); err2 == nil {
-					if sigHex, err3 := s.runSuchFalconSign(sighashHex, wf.PQPrivateHex, testnet); err3 == nil {
-						falconSigHex = strings.TrimSpace(sigHex)
+					if sigHex, err3 := s.runSuchPQSign(pqAlgo, sighashHex, wf.PQPrivateHex, testnet); err3 == nil {
+						pqSigHex = strings.TrimSpace(sigHex)
 						pubB, pubErr := hex.DecodeString(strings.TrimSpace(wf.PQPublicHex))
-						sigB, sigErr := hex.DecodeString(falconSigHex)
+						sigB, sigErr := hex.DecodeString(pqSigHex)
 						if pubErr == nil && sigErr == nil && len(pubB) > 0 && len(sigB) > 0 {
 							buf := make([]byte, 0, len(pubB)+len(sigB))
 							buf = append(buf, pubB...)
 							buf = append(buf, sigB...)
 							h := sha256.Sum256(buf)
 							pqCommitment32Hex = hex.EncodeToString(h[:])
-							pqMode = "phase1_canonical_falcon"
+							pqMode = pqPhase1CanonicalMode(pqAlgo)
 						}
 					}
 				}
@@ -355,7 +356,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		}
 		carrierFlow = false
 		carrierWish := includePQReveal && !carrierEnvDisabled &&
-			includePQCommitment && pqCommitment32Hex != "" && falconSigHex != "" &&
+			includePQCommitment && pqCommitment32Hex != "" && pqSigHex != "" &&
 			pqMode != "legacy_pubkey_hash_fallback"
 		carrierKoinuApplied = carrierKoinu
 		if carrierWish {
@@ -373,7 +374,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 			if changeOut <= dustLimitKoinu {
 				pqCarrierExtendErr = fmt.Sprintf("PQC carrier needs change above dust on vout 0 (changeOut=%d koinu)", changeOut)
 			} else {
-				pt := estimateCarrierPartTotal(strings.TrimSpace(wf.PQPublicHex), falconSigHex)
+				pt := estimateCarrierPartTotal(strings.TrimSpace(wf.PQPublicHex), pqSigHex)
 				if pt < 1 {
 					pt = 1
 				}
@@ -392,7 +393,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 			}
 			carrierKoinuApplied = eff
 			if pqCarrierExtendErr == "" {
-				extHex, errC := s.runSuchFalconAddCommitAndCarrierTx(carrierBaseHex, pqCommitment32Hex, strings.TrimSpace(wf.PQPublicHex), falconSigHex, eff, testnet)
+				extHex, errC := s.runSuchAddCommitAndCarrierTx(pqAlgo, carrierBaseHex, pqCommitment32Hex, strings.TrimSpace(wf.PQPublicHex), pqSigHex, eff, testnet)
 				if errC != nil {
 					pqCarrierExtendErr = errC.Error()
 					// Safety net: if libdogecoin still reports "change output too small", parse values and retry once
@@ -409,7 +410,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 							if maxPer >= dustLimitKoinu && maxPer < eff {
 								log.Printf("[pq-wallet] send_pq_safe carrier retry with reduced per-part koinu %d -> %d (parsed change=%d total=%d parts=%d)",
 									eff, maxPer, chgParsed, totalParsed, parts)
-								if extHex2, errC2 := s.runSuchFalconAddCommitAndCarrierTx(carrierBaseHex, pqCommitment32Hex, strings.TrimSpace(wf.PQPublicHex), falconSigHex, maxPer, testnet); errC2 == nil {
+								if extHex2, errC2 := s.runSuchAddCommitAndCarrierTx(pqAlgo, carrierBaseHex, pqCommitment32Hex, strings.TrimSpace(wf.PQPublicHex), pqSigHex, maxPer, testnet); errC2 == nil {
 									carrierKoinuApplied = maxPer
 									extHex = extHex2
 									pqCarrierExtendErr = ""
@@ -422,9 +423,9 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 				}
 				if pqCarrierExtendErr == "" {
 					if b, errH := hex.DecodeString(extHex); errH != nil {
-						pqCarrierExtendErr = "decode falcon_add_commit_and_carrier_tx hex: " + errH.Error()
+						pqCarrierExtendErr = "decode " + suchAddCommitCarrierCmd(pqAlgo) + " hex: " + errH.Error()
 					} else if len(b) <= 80 {
-						pqCarrierExtendErr = "falcon_add_commit_and_carrier_tx produced tx too short for carrier layout"
+						pqCarrierExtendErr = suchAddCommitCarrierCmd(pqAlgo) + " produced tx too short for carrier layout"
 					} else {
 						unsignedForSign = b
 						carrierFlow = true
@@ -517,7 +518,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	txRID := ""
 	var txRErr string
 	pqMkParts := 0
-	if carrierFlow && txCTxid != "" && falconSigHex != "" {
+	if carrierFlow && txCTxid != "" && pqSigHex != "" {
 		txcBytes, errD := hex.DecodeString(strings.TrimSpace(rawHex))
 		if errD != nil || len(txcBytes) < 50 {
 			txRErr = "decode TX_C hex failed"
@@ -538,7 +539,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 						if len(carrierIdx) == 0 {
 							txRErr = "carrier P2SH output not found on TX_C"
 						} else {
-							scriptSigs, errM := s.collectCarrierScriptSigs("464c4331", strings.TrimSpace(wf.PQPublicHex), falconSigHex, testnet)
+							scriptSigs, errM := s.collectCarrierScriptSigs(pqCarrierTag4Hex(pqAlgo), strings.TrimSpace(wf.PQPublicHex), pqSigHex, testnet)
 							if errM != nil {
 								txRErr = errM.Error()
 							} else if len(carrierIdx) < len(scriptSigs) {
@@ -637,7 +638,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		"carrier_koinu_configured":        carrierKoinu,
 		"pq_reveal_requested":             includePQCommitment && includePQReveal,
 		"pq_carrier_economics_downgraded": econDowngraded,
-		"signing_note":                    "ECDSA P2PKH via such -c sign. With libdogecoin liboqs: TX_C adds FLC1 OP_RETURN + canonical P2SH carrier; TX_R reveals Falcon payload via pqc_carrier_mkpart (+ multi-part set_scriptsig when the payload spans several carrier outputs).",
+		"signing_note":                    "ECDSA P2PKH via such -c sign. With libdogecoin PQC (PR #294): TX_C adds canonical OP_RETURN (FLC1 / DIL2 / RCG4) + P2SH carrier; TX_R reveals the matching PQ payload via pqc_carrier_mkpart -k (+ multi-part set_scriptsig when the payload spans several carrier outputs).",
 		"transport":                       "libdogecoin_sendtx_p2p",
 		"transport_note":                  "Same model as Dogecoin Wallet (Android): broadcast is wallet-to-network P2P (here libdogecoin sendtx), not JSON-RPC sendrawtransaction to a local Core node.",
 	}
@@ -656,8 +657,8 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case carrierEnvDisabled:
 			pqRevealSkipReason = "PUP_PQ_DISABLE_CARRIER"
-		case falconSigHex == "":
-			pqRevealSkipReason = "no_falcon_sig_sighash_or_falcon_sign_failed"
+		case pqSigHex == "":
+			pqRevealSkipReason = "no_pq_sig_or_tx_sighash_or_pq_sign_failed"
 		case strings.HasPrefix(pqMode, "legacy_pubkey_hash_fallback"):
 			pqRevealSkipReason = "legacy_pubkey_hash_fallback_no_carrier_path"
 		case strings.TrimSpace(pqCarrierExtendErr) != "":
@@ -666,7 +667,7 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 			pqRevealSkipReason = "carrier_extend_failed_unknown"
 		}
 	}
-	s.logBroadcastPQSafeSummary("send_pq_safe", txCTxid, pqMode, pqCommitment32Hex != "", carrierFlow, pqRevealRequested, carrierEnvDisabled, falconSigHex != "", econDowngraded, pqCarrierExtendErr, txRID, txRErr, pqRevealSkipReason, pqMkParts)
+	s.logBroadcastPQSafeSummary("send_pq_safe", txCTxid, pqMode, pqCommitment32Hex != "", carrierFlow, pqRevealRequested, carrierEnvDisabled, pqSigHex != "", econDowngraded, pqCarrierExtendErr, txRID, txRErr, pqRevealSkipReason, pqMkParts)
 	writeJSON(w, http.StatusOK, resp)
 }
 

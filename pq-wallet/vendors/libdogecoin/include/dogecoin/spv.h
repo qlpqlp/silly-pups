@@ -107,17 +107,6 @@ typedef struct dogecoin_spv_client_
     uint256_t filtered_history_last_rerequest_txid; /* dedupe repeated tail re-requests for the same matched tx */
     int32_t  filtered_history_last_rerequest_height;
 
-    /* ZK carrier verification key (optional).  When the operator passes
-       --zk-vkey to spvnode (or any caller invokes
-       dogecoin_spv_client_set_zk_vkey), the bytes of verification_key.json
-       are stored here and threaded into dogecoin_zk_verify_proof() at
-       reveal time.  When the build has no in-process verifier compiled in
-       (no --with-rapidsnark / --with-mcl), the verifier returns DELEGATED
-       and SPV still emits 'Reveal validated' on commit-match.  Owned by
-       the client (freed in dogecoin_spv_client_free). */
-    uint8_t* zk_vkey_blob;
-    size_t   zk_vkey_blob_len;
-
     /* callbacks */
     /* ========= */
     void (*header_connected)(struct dogecoin_spv_client_ *client);
@@ -125,6 +114,12 @@ typedef struct dogecoin_spv_client_
     dogecoin_bool (*header_message_processed)(struct dogecoin_spv_client_ *client, dogecoin_node *node, dogecoin_blockindex *newtip);
     void (*sync_transaction)(void *ctx, dogecoin_tx *tx, unsigned int pos, dogecoin_blockindex *blockindex);
     void *sync_transaction_ctx;
+
+    /* Per-client pending PQC OP_RETURN commitments awaiting carrier TX_R match.
+       Opaque pointer (spv_pqc_pending_commit_t* internally); NULL when no PQC
+       backends are compiled in. Owned by the client and freed on
+       dogecoin_spv_client_free so multiple clients do not share state. */
+    void* pqc_pending_commits;
 } dogecoin_spv_client;
 
 LIBDOGECOIN_API dogecoin_spv_client* dogecoin_spv_client_new(const dogecoin_chainparams *params, dogecoin_bool debug, dogecoin_bool headers_memonly, dogecoin_bool use_checkpoints, dogecoin_bool full_sync, int maxnodes, const char *http_server);
@@ -158,15 +153,6 @@ LIBDOGECOIN_API dogecoin_bool dogecoin_spv_client_filteradd(
     uint32_t data_len);
 
 LIBDOGECOIN_API dogecoin_bool dogecoin_spv_client_filterclear(dogecoin_spv_client* client);
-
-/* ZK carrier: install the verification key blob (verification_key.json bytes)
-   that will be passed to dogecoin_zk_verify_proof() during reveal scanning.
-   Returns true on success.  The bytes are copied into the client; the caller
-   may free its own buffer immediately after this call.  Pass NULL/0 to clear. */
-LIBDOGECOIN_API dogecoin_bool dogecoin_spv_client_set_zk_vkey(
-    dogecoin_spv_client* client,
-    const uint8_t* vkey_blob,
-    size_t vkey_blob_len);
 
 LIBDOGECOIN_END_DECL
 

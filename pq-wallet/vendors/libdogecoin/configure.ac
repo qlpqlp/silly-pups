@@ -39,8 +39,6 @@ AC_HEADER_STDBOOL
 m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
 
 AC_PROG_CC
-# AC_PROG_CXX: always called so automake defines am__fastdepCXX for both --with-mcl and default configs.
-AC_PROG_CXX
 AM_PROG_AS
 AM_PROG_AR
 
@@ -180,45 +178,20 @@ AC_ARG_ENABLE([liboqs],
   [use_liboqs=$enableval],
   [use_liboqs=no])
 
-AC_ARG_ENABLE([liboqs-raccoon],
-  [AS_HELP_STRING([--enable-liboqs-raccoon],
-  [Build with liboqs raccoon fork for Falcon-512, Dilithium2, and Raccoon-G-44 (default is no)])],
-  [use_liboqs_raccoon=$enableval],
-  [use_liboqs_raccoon=no])
-
-if test "x$use_liboqs_raccoon" = xyes; then
-  use_liboqs=yes
-fi
-
-AC_ARG_ENABLE([zk-carrier],
-  [AS_HELP_STRING([--enable-zk-carrier],
-  [Build with ZK carrier (Groth16/PLONK/STARK on top of PQ carrier) (default is yes)])],
-  [use_zk_carrier=$enableval],
-  [use_zk_carrier=yes])
-
-AC_ARG_WITH([rapidsnark],
-  [AS_HELP_STRING([--with-rapidsnark],
-  [Link the rapidsnark Groth16 verifier into libdogecoin (default is no; verification falls back to delegated mode without it)])],
-  [use_rapidsnark=$withval],
-  [use_rapidsnark=no])
-
-AC_ARG_WITH([mcl],
-  [AS_HELP_STRING([--with-mcl@<:@=DIR@:>@],
-  [Link the herumi/mcl BN254 pairing library + the libdogecoin Groth16 mcl verifier into libdogecoin (default is no; verification falls back to delegated mode without it).  DIR may point to a manual mcl install (uses DIR/include and DIR/lib); when omitted, the standard search path / depends-staged mcl is used.])],
-  [use_mcl=$withval],
-  [use_mcl=no])
+dnl --enable-raccoon-g selects the in-tree Raccoon-G-44 backend. It is
+dnl experimental and gated; byte-exact agreement with the upstream Python
+dnl reference (p-11/lattice-hd-wallets) KATs is a release-blocking gate.
+AC_ARG_ENABLE([raccoon-g],
+  [AS_HELP_STRING([--enable-raccoon-g],
+  [Build with the in-tree Raccoon-G-44 implementation backed by GMP/MPFR (default is no, experimental)])],
+  [use_raccoon_g=$enableval],
+  [use_raccoon_g=no])
 
 
 AC_ARG_ENABLE(tests,
   AS_HELP_STRING([--enable-tests],[compile tests (default is yes)]),
   [use_tests=$enableval],
   [use_tests=yes])
-
-AC_ARG_ENABLE([test-passwd],
-  [AS_HELP_STRING([--enable-test-passwd],
-  [enable test password for encrypt/decrypt (default is no)])],
-  [test_passwd=$enableval],
-  [test_passwd=no])
 
 AC_MSG_CHECKING([for __builtin_expect])
 AC_COMPILE_IFELSE([AC_LANG_SOURCE([[void myfunc() {__builtin_expect(0,0);}]])],
@@ -300,8 +273,7 @@ if test "x$enable_debug" = xyes; then
   AC_DEFINE_UNQUOTED([ENABLE_DEBUG],[1],[Define to 1 to enable debug output])
 fi
 
-if test "x$test_passwd" = xyes; then
-  AC_DEFINE_UNQUOTED([TEST_PASSWD],[1],[Define to 1 to enable test password])
+if test "x$use_tests" = xyes; then
   PASSWD_STR=`head /dev/urandom | tr -dc A-Za-z0-9 | head -c 12`
   AC_DEFINE_UNQUOTED([PASSWD_STR],["$PASSWD_STR"],[Define to set test password])
 fi
@@ -339,64 +311,16 @@ if test "x$use_liboqs" = xyes; then
   AC_CHECK_LIB([oqs],[main],[LIBOQS=-loqs],AC_MSG_ERROR(liboqs missing))
   LIBS="$LIBS $LIBOQS"
   AC_DEFINE(USE_LIBOQS, 1, [Define this symbol if liboqs works])
-  if test "x$use_liboqs_raccoon" = xyes; then
-    AC_DEFINE(USE_LIBOQS_RACCOON, 1, [Define this symbol if liboqs raccoon fork is used])
-  fi
 fi
 
-if test "x$use_zk_carrier" = xyes; then
-  AC_DEFINE(USE_ZK_CARRIER, 1, [Define this symbol to enable the ZK carrier module])
-fi
-
-if test "x$use_rapidsnark" != xno -a "x$use_rapidsnark" != x; then
-  AC_CHECK_LIB([rapidsnark],[groth16_verify],[
-    LIBS="$LIBS -lrapidsnark"
-    AC_DEFINE([HAVE_RAPIDSNARK], [1], [Define if rapidsnark is available for in-process Groth16 verification])
-  ],[
-    AC_MSG_WARN([--with-rapidsnark requested but librapidsnark not found; falling back to delegated verification])
-  ])
-fi
-
-# --with-mcl[=DIR]: link herumi/mcl BN254 pairing + Groth16 verifier.
-have_mcl=no
-if test "x$use_mcl" != xno -a "x$use_mcl" != x; then
-  case "x$use_mcl" in
-    xyes)
-      MCL_CFLAGS=""
-      MCL_LIBS="-lmcl -lstdc++"
-      ;;
-    *)
-      MCL_CFLAGS="-I$use_mcl/include"
-      MCL_LIBS="-L$use_mcl/lib -lmcl -lstdc++"
-      ;;
-  esac
-  saved_CPPFLAGS="$CPPFLAGS"
-  saved_LIBS="$LIBS"
-  CPPFLAGS="$CPPFLAGS $MCL_CFLAGS"
-  LIBS="$LIBS $MCL_LIBS"
-  AC_LANG_PUSH([C++])
-  AC_MSG_CHECKING([for mcl/bn.hpp + BN_SNARK1 link])
-  AC_LINK_IFELSE([AC_LANG_PROGRAM([[
-    #include <mcl/bn.hpp>
-  ]], [[
-    using namespace mcl::bn;
-    initPairing(mcl::BN_SNARK1);
-    return 0;
-  ]])],[
-    AC_MSG_RESULT([yes])
-    have_mcl=yes
-    AC_DEFINE([HAVE_MCL], [1], [Define if herumi/mcl BN254 pairing is available for Groth16 verification])
-    AC_SUBST([MCL_CFLAGS])
-    AC_SUBST([MCL_LIBS])
-  ],[
-    AC_MSG_RESULT([no])
-    AC_MSG_WARN([--with-mcl requested but mcl link failed; falling back to delegated verification])
-    CPPFLAGS="$saved_CPPFLAGS"
-    LIBS="$saved_LIBS"
-    MCL_CFLAGS=""
-    MCL_LIBS=""
-  ])
-  AC_LANG_POP([C++])
+if test "x$use_raccoon_g" = xyes; then
+  AC_CHECK_HEADER([gmp.h],,[AC_MSG_ERROR([gmp.h missing (required by --enable-raccoon-g; build via depends RACCOON_G=y or install libgmp-dev)])])
+  AC_CHECK_HEADER([mpfr.h],,[AC_MSG_ERROR([mpfr.h missing (required by --enable-raccoon-g; build via depends RACCOON_G=y or install libmpfr-dev)])])
+  AC_CHECK_LIB([gmp],[__gmpz_init],[LIBGMP=-lgmp],AC_MSG_ERROR(libgmp missing))
+  AC_CHECK_LIB([mpfr],[mpfr_init],[LIBMPFR=-lmpfr],AC_MSG_ERROR(libmpfr missing),[$LIBGMP])
+  AC_CHECK_LIB([m],[sqrt],[LIBM=-lm],AC_MSG_ERROR(libm missing))
+  LIBS="$LIBS $LIBMPFR $LIBGMP $LIBM"
+  AC_DEFINE(USE_RACCOON_G, 1, [Define this symbol to enable the in-tree Raccoon-G-44 backend])
 fi
 
 AC_CONFIG_HEADERS([config/libdogecoin-config.h])
@@ -422,10 +346,8 @@ AM_CONDITIONAL([USE_OPENENCLAVE], [test "x$use_openenclave" = "xyes"])
 AM_CONDITIONAL([USE_OPTEE], [test "x$use_optee" = "xyes"])
 AM_CONDITIONAL([USE_YUBIKEY], [test "x$use_yubikey" = "xyes"])
 AM_CONDITIONAL([USE_LIBOQS], [test "x$use_liboqs" = "xyes"])
-AM_CONDITIONAL([USE_LIBOQS_RACCOON], [test "x$use_liboqs_raccoon" = "xyes"])
-AM_CONDITIONAL([USE_ZK_CARRIER], [test "x$use_zk_carrier" = "xyes"])
-AM_CONDITIONAL([HAVE_MCL], [test "x$have_mcl" = "xyes"])
-AM_CONDITIONAL([USE_PQC_CARRIER_HELPERS], [test "x$use_liboqs" = "xyes" -o "x$use_zk_carrier" = "xyes"])
+AM_CONDITIONAL([USE_RACCOON_G], [test "x$use_raccoon_g" = "xyes"])
+AM_CONDITIONAL([USE_PQC_CARRIER], [test "x$use_liboqs" = "xyes" -o "x$use_raccoon_g" = "xyes"])
 AM_CONDITIONAL([USE_ARMV8], [test "x$armv8_crypto" = "xyes"])
 AM_CONDITIONAL([USE_ARMV82], [test "x$armv82_crypto" = "xyes"])
 AC_SUBST(LIB_VERSION_CURRENT, _LIB_VERSION_CURRENT)
@@ -452,18 +374,15 @@ echo "  SSE2 Scrypt     = $use_scrypt_sse2"
 echo "  ARMv8 crypto    = $armv8_crypto"
 echo "  ARMv8.2 crypto  = $armv82_crypto"
 echo
-echo "  test password   = $test_passwd"
-if test "x$test_passwd" = xyes; then
-echo "                    $PASSWD_STR"
+if test "x$use_tests" = xyes; then
+echo "  test password   = $PASSWD_STR"
 fi
 echo
 echo "  openenclave     = $use_openenclave"
 echo "  optee           = $use_optee"
 echo "  Yubikey         = $use_yubikey"
 echo "  liboqs          = $use_liboqs"
-echo "  liboqs-raccoon  = $use_liboqs_raccoon"
-echo "  zk-carrier      = $use_zk_carrier"
-echo "  rapidsnark      = $use_rapidsnark"
+echo "  raccoon-g       = $use_raccoon_g (experimental, in-tree)"
 echo
 echo "  host            = $host"
 echo "  target os       = $TARGET_OS"

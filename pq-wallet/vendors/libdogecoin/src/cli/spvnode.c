@@ -41,7 +41,6 @@
 #endif
 
 #include <ctype.h>
-#include <errno.h>
 #include <inttypes.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -64,7 +63,6 @@
 #include <dogecoin/bip37.h>
 #include <dogecoin/bip39.h>
 #include <dogecoin/ecc.h>
-#include <dogecoin/mem.h>
 #include <dogecoin/headersdb_file.h>
 #include <dogecoin/koinu.h>
 #include <dogecoin/net.h>
@@ -200,7 +198,6 @@ static struct option long_options[] = {
         {"filtered_blocks", no_argument, NULL, 'g'},
         {"select_checkpoint", no_argument, NULL, 'q'},
         {"daemon", no_argument, NULL, 'z'},
-        {"zk-vkey", required_argument, NULL, 'V'},
         {NULL, 0, NULL, 0} };
 
 /**
@@ -218,7 +215,7 @@ static void print_usage() {
     printf("Usage: spvnode (-c|continuous) (-i|--ips <ip,ip,...>) (-m[--maxpeers] <int>) (-f <headersfile|0 for in mem only>) \
 (-a|--address <address>) (-n|--mnemonic <seed_phrase>) (-s|[--pass_phrase]) (-y|--encrypted_file <file_num 0-999>) \
 (-w|--wallet_file <filename>) (-h|--headers_file <filename>) (-l|[--no_prompt]) (-b[--full_sync]) (-p[--checkpoint]) (-k[--master_key]) (-j[--use_tpm]) \
-(-u|--http_server <ip:port>) (-x|--smpv) (-g|--filtered_blocks) (-q|--select_checkpoint) (-V|--zk-vkey <verification_key.json>) (-t|--testnet) (-r|--regtest) (-d|--debug) <command>\n");
+(-u|--http_server <ip:port>) (-x|--smpv) (-g|--filtered_blocks) (-q|--select_checkpoint) (-t|--testnet) (-r|--regtest) (-d|--debug) <command>\n");
     printf("Supported commands:\n");
     printf("        scan      (scan blocks up to the tip, creates header.db file)\n");
     printf("\nExamples: \n");
@@ -488,7 +485,6 @@ int main(int argc, char* argv[]) {
     int file_num = NO_FILE;
     dogecoin_bool smpv_cli_enable = false;
     int selected_checkpoint_index = -1;
-    char* zk_vkey_path = NULL;
 
     if (argc <= 1 || strlen(argv[argc - 1]) == 0 || argv[argc - 1][0] == '-') {
         /* exit if no command was provided */
@@ -498,7 +494,7 @@ int main(int argc, char* argv[]) {
     data = argv[argc - 1];
 
     /* get arguments */
-    while ((opt = getopt_long_only(argc, argv, "i:ctrdsm:n:f:y:u:w:h:a:lbpzkj:xgqV:", long_options, &long_index)) != -1) {
+    while ((opt = getopt_long_only(argc, argv, "i:ctrdsm:n:f:y:u:w:h:a:lbpzkj:xgq", long_options, &long_index)) != -1) {
         switch (opt) {
                 case 'c':
                     quit_when_synced = false;
@@ -579,9 +575,6 @@ int main(int argc, char* argv[]) {
                     spv_select_checkpoint = true;
                     use_checkpoint = true;
                     break;
-                case 'V':
-                    zk_vkey_path = optarg;
-                    break;
                 default:
                     print_usage();
                     exit(EXIT_FAILURE);
@@ -599,38 +592,6 @@ int main(int argc, char* argv[]) {
         if (smpv_cli_enable) {
             dogecoin_spv_enable_smpv(client, true);
             printf("[smpv] enabled via CLI flag\n");
-        }
-        /* Optional: load Groth16 verification key from disk and install on the
-         * client so reveal scanning can run in-process verification.  When
-         * absent or unreadable, libdogecoin will return DELEGATED and SPV
-         * still emits "Reveal validated" on commit-match alone. */
-        if (zk_vkey_path && zk_vkey_path[0] != '\0') {
-            FILE* fp = fopen(zk_vkey_path, "rb");
-            if (!fp) {
-                fprintf(stderr, "[zk-vkey] WARN: could not open %s: %s — verification will be DELEGATED\n",
-                        zk_vkey_path, strerror(errno));
-            } else {
-                if (fseek(fp, 0, SEEK_END) != 0) { fclose(fp); fp = NULL; }
-                long sz = fp ? ftell(fp) : -1;
-                if (fp && sz > 0 && sz < (1L << 22) /* 4 MiB sanity cap */) {
-                    rewind(fp);
-                    uint8_t* buf = (uint8_t*)dogecoin_malloc((size_t)sz);
-                    if (buf && fread(buf, 1, (size_t)sz, fp) == (size_t)sz) {
-                        if (dogecoin_spv_client_set_zk_vkey(client, buf, (size_t)sz)) {
-                            printf("[zk-vkey] loaded %ld bytes from %s\n", sz, zk_vkey_path);
-                        } else {
-                            fprintf(stderr, "[zk-vkey] WARN: install failed — verification will be DELEGATED\n");
-                        }
-                    } else {
-                        fprintf(stderr, "[zk-vkey] WARN: read failed — verification will be DELEGATED\n");
-                    }
-                    if (buf) { dogecoin_mem_zero(buf, (size_t)sz); dogecoin_free(buf); }
-                } else if (fp) {
-                    fprintf(stderr, "[zk-vkey] WARN: %s is empty or too large (%ld bytes) — DELEGATED\n",
-                            zk_vkey_path, sz);
-                }
-                if (fp) fclose(fp);
-            }
         }
         client->header_message_processed = spv_header_message_processed;
         client->sync_completed = spv_sync_completed;
@@ -798,70 +759,33 @@ int main(int argc, char* argv[]) {
             dogecoin_ecc_stop();
             return EXIT_FAILURE;
         } else {
-            /* Lowest on-disk header height (>0), or -1 if none / genesis-only. Used for -q and PQ_SPV_CHECKPOINT_HEIGHT. */
-            int loaded_chain_bottom_height = -1;
-            {
+            if (spv_select_checkpoint) {
+                int loaded_start_height = -1;
                 dogecoin_blockindex* loaded_tip = client->headers_db->getchaintip(client->headers_db_ctx);
                 if (loaded_tip) {
                     dogecoin_blockindex* start_cursor = loaded_tip;
                     while (start_cursor && start_cursor->prev) start_cursor = start_cursor->prev;
                     if (start_cursor && start_cursor->height > 0) {
-                        loaded_chain_bottom_height = (int)start_cursor->height;
+                        loaded_start_height = (int)start_cursor->height;
                     }
                 }
-            }
-            /* pq-wallet sets PQ_SPV_CHECKPOINT_HEIGHT when restoring from a bundled checkpoint row (see pq-wallet service). */
-            if (use_checkpoint && !spv_select_checkpoint && !in_memory_headers &&
-                !(loaded_chain_bottom_height > 0) &&
-                !client->headers_db->has_checkpoint_start(client->headers_db_ctx)) {
-                const char* env_ch = getenv("PQ_SPV_CHECKPOINT_HEIGHT");
-                if (env_ch && env_ch[0] != '\0') {
-                    unsigned long want_h = strtoul(env_ch, NULL, 10);
-                    if (want_h > 0UL && want_h <= 300000000UL) {
-                        const dogecoin_checkpoint* checkpoints = (chain == &dogecoin_chainparams_main) ?
-                            dogecoin_mainnet_checkpoint_array : dogecoin_testnet_checkpoint_array;
-                        int cp_count = (chain == &dogecoin_chainparams_main) ?
-                            (int)(sizeof(dogecoin_mainnet_checkpoint_array) / sizeof(dogecoin_mainnet_checkpoint_array[0])) :
-                            (int)(sizeof(dogecoin_testnet_checkpoint_array) / sizeof(dogecoin_testnet_checkpoint_array[0]));
-                        int found = -1;
-                        int ci;
-                        for (ci = 0; ci < cp_count; ci++) {
-                            if (checkpoints[ci].height == (uint32_t)want_h) {
-                                found = ci;
-                                break;
-                            }
-                        }
-                        if (found >= 0) {
-                            uint256_t hash;
-                            utils_uint256_sethex((char*)checkpoints[found].hash, (uint8_t*)&hash);
-                            client->headers_db->set_checkpoint_start(
-                                client->headers_db_ctx,
-                                hash,
-                                checkpoints[found].height,
-                                (uint8_t*)client->chainparams->minimumchainwork);
-                            printf("[spvnode] PQ_SPV_CHECKPOINT_HEIGHT anchored header sync at height %u\n", checkpoints[found].height);
-                        } else {
-                            fprintf(stderr, "[spvnode] PQ_SPV_CHECKPOINT_HEIGHT=%lu does not match a bundled checkpoint; using default checkpoint logic\n", want_h);
-                        }
-                    }
-                }
-            }
-            if (spv_select_checkpoint) {
-                if (!in_memory_headers && loaded_chain_bottom_height > 0) {
-                    printf("Ignoring checkpoint selection: existing headers are already loaded (start height %d).\n", loaded_chain_bottom_height);
+                if (!in_memory_headers && loaded_start_height > 0) {
+                    printf("Ignoring checkpoint selection: existing headers are already loaded (start height %d).\n", loaded_start_height);
                     printf("Checkpoint selection is only available for new headers storage or in-memory headers mode.\n");
                 } else {
-                    selected_checkpoint_index = spv_choose_checkpoint_index(chain, prompt, (prompt ? loaded_chain_bottom_height : -1));
+                    selected_checkpoint_index = spv_choose_checkpoint_index(chain, prompt, (prompt ? loaded_start_height : -1));
                     if (selected_checkpoint_index >= 0) {
                         const dogecoin_checkpoint* checkpoints = (chain == &dogecoin_chainparams_main) ?
                             dogecoin_mainnet_checkpoint_array : dogecoin_testnet_checkpoint_array;
                         uint256_t hash;
                         utils_uint256_sethex((char*)checkpoints[selected_checkpoint_index].hash, (uint8_t*)&hash);
+                        arith_uint256 checkpoint_chainwork;
+                        uint_to_arith(&checkpoint_chainwork, &client->chainparams->minimumchainwork);
                         client->headers_db->set_checkpoint_start(
                             client->headers_db_ctx,
                             hash,
                             checkpoints[selected_checkpoint_index].height,
-                            (uint8_t*)client->chainparams->minimumchainwork);
+                            checkpoint_chainwork);
                         printf("Selected checkpoint height %u\n", checkpoints[selected_checkpoint_index].height);
                     }
                 }

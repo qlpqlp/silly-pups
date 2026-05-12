@@ -2399,6 +2399,14 @@ if (sendAccTriggerManual) {
 }
 setSendTab(0);
 
+const pqKeysEl = document.getElementById("pq-keys");
+const pqAlgoSelectEl = document.getElementById("pq-algo-select");
+function syncPqAlgoSelectEnabled() {
+  if (pqAlgoSelectEl && pqKeysEl) pqAlgoSelectEl.disabled = !pqKeysEl.checked;
+}
+if (pqKeysEl) pqKeysEl.addEventListener("change", syncPqAlgoSelectEnabled);
+syncPqAlgoSelectEnabled();
+
 /** Keep only digits and at most one '.' for DOGE amount fields. */
 function sanitizeDecimalDogeString(raw) {
   let t = String(raw).replace(/[^\d.]/g, "");
@@ -2431,9 +2439,12 @@ wireDecimalDogeInput(document.getElementById("send-amt"));
 document.getElementById("btn-create").addEventListener("click", async () => {
   const network = document.getElementById("net-select").value;
   const pqKeys = document.getElementById("pq-keys").checked;
+  const pqAlgoEl = document.getElementById("pq-algo-select");
+  const payload = { network, pq_keys: pqKeys };
+  if (pqKeys && pqAlgoEl) payload.pq_algo = pqAlgoEl.value;
   const data = await api("/api/wallet", {
     method: "POST",
-    body: JSON.stringify({ network, pq_keys: pqKeys }),
+    body: JSON.stringify(payload),
   });
   if (data.error) {
     alert(data.error);

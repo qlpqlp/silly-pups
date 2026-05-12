@@ -49,18 +49,14 @@ The `such` tool can be used by simply running the command `./such` in the top le
 - dilithium2_commit (requires --enable-liboqs)
 - dilithium2_add_commit_tx (requires --enable-liboqs)
 - dilithium2_add_commit_and_carrier_tx (requires --enable-liboqs)
-- raccoong_keygen (requires --enable-liboqs-raccoon)
-- raccoong_sign (requires --enable-liboqs-raccoon)
-- raccoong_verify (requires --enable-liboqs-raccoon)
-- raccoong_commit (requires --enable-liboqs-raccoon)
-- raccoong_hd_derive (requires --enable-liboqs-raccoon)
-- raccoong_hd_derive_pub (requires --enable-liboqs-raccoon)
-- raccoong_add_commit_tx (requires --enable-liboqs-raccoon)
-- raccoong_add_commit_and_carrier_tx (requires --enable-liboqs-raccoon)
-- zk_encode_payload (requires --enable-zk-carrier)
-- zk_commit (requires --enable-zk-carrier)
-- zk_add_commit_and_carrier_tx (requires --enable-zk-carrier)
-- zk_extract_carrier (requires --enable-zk-carrier)
+- raccoong_keygen (requires --enable-raccoon-g)
+- raccoong_sign (requires --enable-raccoon-g)
+- raccoong_verify (requires --enable-raccoon-g)
+- raccoong_commit (requires --enable-raccoon-g)
+- raccoong_hd_derive (requires --enable-raccoon-g)
+- raccoong_hd_derive_pub (requires --enable-raccoon-g)
+- raccoong_add_commit_tx (requires --enable-raccoon-g)
+- raccoong_add_commit_and_carrier_tx (requires --enable-raccoon-g)
 
 So an example run of `such` could be something like this:
 ```
@@ -438,7 +434,6 @@ To choose a checkpoint start manually (all available checkpoints shown), apply t
 | `-x`, `--smpv` | Enable SMPV | No | Enabled SMPV: `./spvnode -x scan` |
 | `-g`, `--filtered_blocks` | Filtered Blocks | No | Enable BIP37 filtered blocks: `./spvnode -g scan` |
 | `-q`, `--select_checkpoint` | Select Checkpoint | No | Prompt for checkpoint start (defaults to latest when used with `-l`): `./spvnode -q scan` |
-| `-V`, `--zk-vkey` | ZK Verification Key | Yes | Path to a Groth16 verification key JSON; enables in-process ZK reveal verification (requires `--enable-zk-carrier` and `--with-rapidsnark` or `--with-mcl`). Without this flag, verification is delegated and reveals are logged but not cryptographically checked: `./spvnode -V ./verification_key.json scan` |
 
 ### Commands
 
@@ -511,7 +506,7 @@ When using -n with a mnemonic, instead of main_wallet.db, spvnode will generate 
 
 ## Post-Quantum Cryptography (PQC) Commands
 
-> **Note**: Falcon-512, Dilithium2, and shared PQC carrier/utility commands require the `--enable-liboqs` configure flag. Raccoon-G-44 commands additionally require `--enable-liboqs-raccoon`.
+> **Note**: Falcon-512, Dilithium2, and shared PQC carrier/utility commands require the `--enable-liboqs` configure flag. Raccoon-G-44 commands additionally require `--enable-raccoon-g`.
 
 The `such` tool includes PQC commands for three signature algorithms — **Falcon-512**, **Dilithium2** (ML-DSA-44), and **Raccoon-G-44** — plus shared carrier infrastructure and transaction helpers.
 
@@ -551,7 +546,7 @@ The `such` tool includes PQC commands for three signature algorithms — **Falco
 | dilithium2_add_commit_tx | -x, -s | Appends an OP_RETURN output carrying `DIL2` ‖ commit32 to a raw transaction |
 | dilithium2_add_commit_and_carrier_tx | -x, -m, -k, -s | Appends both OP_RETURN commitment and P2SH carrier outputs to a raw transaction |
 
-#### Raccoon-G-44 Commands (requires `--enable-liboqs-raccoon`)
+#### Raccoon-G-44 Commands (requires `--enable-raccoon-g`)
 
 | Command | Required Flags | Description |
 | - | - | - |
@@ -689,7 +684,7 @@ OP_RETURN script (prefix 6a24 + tag 44494c32='DIL2'): 6a2444494c322935837d2f042a
 
 #### Raccoon-G-44
 
-> **Note**: Raccoon-G-44 keys and signatures are very large (pk: 16,144 bytes, sk: 32,272 bytes, sig: ~20,768 bytes). Full hex output is truncated in the examples below — only the first and last bytes are shown. Actual `such` output prints the complete hex strings.
+> **Note**: Raccoon-G-44 keys and signatures are very large (pk: 16,144 bytes, sk: 32,272 bytes, sig: 20,768 bytes). Full hex output is truncated in the examples below — only the first and last bytes are shown. Actual `such` output prints the complete hex strings. The example byte values were captured from the in-tree `--enable-raccoon-g` backend (byte-exact against the upstream `p-11/lattice-hd-wallets` reference; see `src/raccoon_g/README.md`). Raccoon-G public keys, secret keys and HD-derived children share the same 16-byte `A_seed` prefix (the first 32 hex characters); the differing bytes are in the remainder.
 
 ##### Generate a Raccoon-G-44 keypair:
 ```
@@ -697,25 +692,25 @@ OP_RETURN script (prefix 6a24 + tag 44494c32='DIL2'): 6a2444494c322935837d2f042a
 Generating Raccoon-G-44 keypair...
 
 === Raccoon-G-44 Keypair Generated ===
-public key:  e489c389ea3b61e9a1d4068cf2283cfc7909d6bf279100ce38eef0b63700e6dd...<32,288 hex chars total>...4f7a7500
-secret key:  e489c389ea3b61e9a1d4068cf2283cfc7909d6bf279100ce38eef0b63700e6dd...<64,544 hex chars total>...7b507d01
+public key:  5166c7c3ba5be0aa4da46150890f0b3d...<32,288 hex chars total>...e4019816454757dc014c450405f5b601
+secret key:  5166c7c3ba5be0aa4da46150890f0b3d...<64,544 hex chars total>...00029043000000000254000000000000
 pk length:   16144 bytes
 sk length:   32272 bytes
 ```
 
 ##### Sign a message with Raccoon-G-44:
 ```
-> ./such -c raccoong_sign -p <secret_key_hex> -x deadbeef...deadbeef
+> ./such -c raccoong_sign -p <secret_key_hex> -x deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
 
 === Raccoon-G-44 Signature Generated ===
-signature:   1a0a27cc33a160141ccc090f17a8c3ef7fbeb157acdcc52ff8705234484caacb...<41,536 hex chars total>...6c004203
+signature:   7a6f30d5a0130a4c2e24a5481d0355fe...<41,536 hex chars total>...ff070300fe0702000600fd0707000100
 sig length:  20768 bytes
 msg length:  32 bytes
 ```
 
 ##### Verify a Raccoon-G-44 signature:
 ```
-> ./such -c raccoong_verify -k <public_key_hex> -x deadbeef...deadbeef -s <signature_hex>
+> ./such -c raccoong_verify -k <public_key_hex> -x deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef -s <signature_hex>
 
 === Raccoon-G-44 Verification Result ===
 ✓ VERIFIED: Signature is valid!
@@ -726,11 +721,11 @@ msg length:  32 bytes
 > ./such -c raccoong_commit -k <public_key_hex> -s <signature_hex>
 
 === Raccoon-G-44 Commitment Generated ===
-commitment:  fc83de81d0790fd8148c2bf84493a2e4b1c0311c053f283410113c9c6a5ebe9d
+commitment:  b36140f6a30ac6fa0742bcae1704c81f7a584e89ce5bd60cac989275e94e4c3e
 length:      32 bytes
 
 This commitment can be included in an OP_RETURN output:
-OP_RETURN script (prefix 6a24 + tag 52434734='RCG4'): 6a2452434734fc83de81d0790fd8148c2bf84493a2e4b1c0311c053f283410113c9c6a5ebe9d
+OP_RETURN script (prefix 6a24 + tag 52434734='RCG4'): 6a2452434734b36140f6a30ac6fa0742bcae1704c81f7a584e89ce5bd60cac989275e94e4c3e
 ```
 
 ##### Derive a child key from a Raccoon-G-44 parent key (HD derivation):
@@ -740,24 +735,26 @@ OP_RETURN script (prefix 6a24 + tag 52434734='RCG4'): 6a2452434734fc83de81d0790f
 
 === Raccoon-G-44 HD Child Key (Private Derivation) ===
 child index: 0
-child public key:  7ae1192dff39e6...  (16144 bytes)
-child secret key:  7ae1192dff39e6...  (32272 bytes)
+child public key:  5166c7c3ba5be0aa4da46150890f0b3d...<32,288 hex chars total>...b500ccffe7b0a4fc01c4c5f2efd83400
+child secret key:  5166c7c3ba5be0aa4da46150890f0b3d...<64,544 hex chars total>...00028c4300000000021a000000000000
 
 > ./such -c raccoong_hd_derive -p <secret_key_hex> -k <public_key_hex> \
     -s 0000000000000000000000000000000000000000000000000000000000000001 -i 0 -g 1
 
 === Raccoon-G-44 HD Child Key (Private Derivation) ===
 child index: 0 (hardened)
-child public key:  ...  (16144 bytes)
-child secret key:  ...  (32272 bytes)
+child public key:  5166c7c3ba5be0aa4da46150890f0b3d...<32,288 hex chars total>...df01a1ba860cfbaf008048af21713200
+child secret key:  5166c7c3ba5be0aa4da46150890f0b3d...<64,544 hex chars total>...0002ee4200000000029d430000000002
 
 > ./such -c raccoong_hd_derive_pub -k <public_key_hex> \
     -s 0000000000000000000000000000000000000000000000000000000000000001 -i 0
 
 === Raccoon-G-44 HD Child Key (Public Derivation) ===
 child index: 0
-child public key:  ...  (16144 bytes)
+child public key:  5166c7c3ba5be0aa4da46150890f0b3d...<32,288 hex chars total>...b500ccffe7b0a4fc01c4c5f2efd83400
 ```
+
+The non-hardened private-derivation child public key matches the public-only-derivation child public key (same chaincode and index), demonstrating BIP-32-style HD consistency for Raccoon-G-44.
 
 ##### Add Raccoon-G-44 commitment and carrier to a transaction:
 ```bash
@@ -988,113 +985,3 @@ Summary: 17 total validations (12 op_return_only TX_C, 5 carrier_scriptsig TX_R,
 - TX_R `3bee4f9c`: https://chain.so/tx/DOGE/3bee4f9c11c6e03ab7117e4198a272b08b61546d7da85edef9c5ec6f74dd5f55
 - TX_C `30792ead`: https://chain.so/tx/DOGE/30792ead6159203b9b87f3c5ad323e9086b51fc038a8e1f8da14c1e61dcfd961
 - TX_R `ff82dc5d`: https://chain.so/tx/DOGE/ff82dc5d1ba99528adc8754354c4c44149cfaf3d2e26fefd2ee7922280863813
-
-## Zero-Knowledge Proof Carrier (ZK) Commands
-
-> **Note**: ZK carrier commands require the `--enable-zk-carrier` configure flag (default **on**). In-process Groth16 verification additionally requires `--with-rapidsnark` or `--with-mcl[=DIR]`; without either, verification is *delegated* (the reveal payload is reassembled and logged, but the proof itself must be checked by an external `snarkjs` / `rapidsnark` invocation).
-
-The `such` tool exposes the on-chain side of the ZK carrier flow — a canonical `ZKP1` payload (Groth16 / PLONK / STARK), a 32-byte `SHA256d(payload)` commitment broadcast in a tagged `OP_RETURN DZKC` output, and a P2SH data-carrier reveal that publishes the full proof bytes on-chain.  The transaction shape is the same `OP_DROP×5 OP_TRUE` redeem script used by the PQC carrier — only the 8-byte tag differs (`ZKP1FULL` vs `FLC1FULL` / `DIL2FULL` / `RCG4FULL`).
-
-The `spvnode` tool exposes the verifying side via `-V, --zk-vkey <verification_key.json>`.
-
-For the protocol-level encoding and rationale, see [`doc/spec/bip-zk-carrier-commitments.mediawiki`](spec/bip-zk-carrier-commitments.mediawiki); for the C API and module layout, see [`doc/zk.md`](zk.md); for end-to-end driver scripts, see [`contrib/zk_carrier/scripts/`](../contrib/zk_carrier/scripts/).
-
-### Available ZK Commands
-
-| Command | Required Flags | Description |
-| - | - | - |
-| zk_encode_payload | -m, -i, -k, -s | Encodes a canonical ZKP1 payload from `mode` (0=Groth16, 1=PLONK, 2=STARK_S2), 4-byte `circuit_id` (hex), public-inputs hex, and proof hex. Prints the resulting `zk_payload` (hex) and `zk_payload_len` |
-| zk_commit | -x | Decodes a ZKP1 payload hex, computes `SHA256d(payload)`, and prints the canonical `OP_RETURN DZKC <mode> <commit32>` scriptPubKey (39 bytes) |
-| zk_add_commit_and_carrier_tx | -x, -m, -s, (-h optional) | Appends both the OP_RETURN commitment and the chunked P2SH carrier outputs to a raw transaction. Prints `zk_carrier_part_total`, `zk_carrier_first_vout`, `zk_opreturn_vout`, `zk_carrier_p2sh_scriptpubkey`, and the per-part scriptSig hexes (`zk_carrier_part_scriptsig[i]`) the operator pastes into TX_R |
-| zk_extract_carrier | -x | Reassembles the ZKP1 payload from a TX_R hex (walking the per-part scriptSigs) and prints the decoded mode / `circuit_id` / `public_inputs_len` / `proof_len` |
-
-### Flag Usage for ZK Commands
-
-| Flag | Description | Format |
-| - | - | - |
-| -m | Proof-system mode | `0` = Groth16, `1` = PLONK, `2` = STARK_S2 |
-| -i | 4-byte `circuit_id` (registry key for `(mode, circuit)`) | Hex string (8 chars) |
-| -k | Public inputs (typically the snarkjs `public.json` blob) | Hex string |
-| -s | Proof bytes (typically the snarkjs `proof.json` blob), or ZKP1 payload hex (for `zk_add_commit_and_carrier_tx`) | Hex string |
-| -x | ZKP1 payload hex (for `zk_commit`), raw tx hex (for `zk_add_commit_and_carrier_tx`), or TX_R hex (for `zk_extract_carrier`) | Hex string |
-| -h | Carrier value in koinu (for `zk_add_commit_and_carrier_tx`, default `100000000` = 1 DOGE) | Integer |
-
-### Examples
-
-#### Encode a ZKP1 payload from snarkjs `proof.json` + `public.json`:
-
-```
-./such -c zk_encode_payload \
-       -m 0 \
-       -i 00000001 \
-       -k <public_json_hex> \
-       -s <proof_json_hex>
-```
-
-This is normally produced for you by `contrib/zk_carrier/witness_helper.py`.
-
-#### Compute the commitment + canonical OP_RETURN scriptPubKey:
-
-```
-./such -c zk_commit -x <payload_hex>
-```
-
-Output:
-
-```
-=== ZK Carrier Commitment ===
-zk_mode: 0
-zk_commit32: a2a0a0f2f273806763ff28a306316c7e557a90f161dc3f535cec88d2d8c56c57
-zk_opreturn_scriptpubkey: 6a25445a4b4300a2a0a0f2f273806763ff28a306316c7e557a90f161dc3f535cec88d2d8c56c57
-```
-
-#### Append the OP_RETURN + P2SH carrier outputs to a base unsigned tx:
-
-```
-./such -c zk_add_commit_and_carrier_tx \
-       -x <raw_tx_hex> \
-       -m 0 \
-       -s <payload_hex>
-```
-
-Output (excerpt):
-
-```
-zk_carrier_part_total: 1
-zk_carrier_output_value_koinu: 100000000
-zk_carrier_first_vout: 2
-zk_opreturn_vout: 1
-zk_carrier_p2sh_scriptpubkey: a9149b402803555511d15d81207d3e2cb3e6bc365e0e87
-zk_carrier_part_scriptsig[0]: <hex to paste into TX_R>
-```
-
-The P2SH carrier outputs are spent by TX_R; the printed scriptSig hexes are the values that go into each TX_R input.
-
-#### Reassemble the payload from a TX_R for round-trip verification:
-
-```
-./such -c zk_extract_carrier -x <tx_r_hex>
-```
-
-Output:
-
-```
-zk_payload: 5a4b503100000000000100000014…
-zk_payload_len: 840
-zk_mode: 0
-zk_circuit_id: 0x00000001
-zk_public_inputs_len: 20
-zk_proof_len: 804
-```
-
-#### Verify ZK reveals during SPV scan:
-
-```
-./spvnode --zk-vkey ./verification_key.json -d -p -b scan
-```
-
-When built `--with-mcl=…` or `--with-rapidsnark`, this loads the verification key into the SPV client and runs `groth16_verify` in-process against every reassembled `ZKP1` reveal that matches a previously seen `OP_RETURN DZKC` commitment, emitting deterministic `[zk-commit]` log lines (`Pending` → `Valid` → `ZK verification PASSED` → `Reveal validated`).  Without the flag, the reveal is reassembled and logged but the proof check is left to an external verifier.
-
-### End-to-end mainnet runs
-
-End-to-end PASSED runs of the demo drivers (`contrib/zk_carrier/scripts/run_full_zk_carrier_demo.sh` for single pairs, `contrib/zk_carrier/scripts/broadcast_set.sh` for multi-pair sets) are committed under [`test-logs/`](../test-logs/) (`mainnet_zk_carrier_e2e_*PASSED*.txt`, `mainnet_zk_carrier_spvnode_PASSED_*.txt`).  They cover both Groth16 (in-process via mcl) and PLONK (external `snarkjs plonk verify`).  See the [BIP](spec/bip-zk-carrier-commitments.mediawiki) *Mainnet Examples* section for the corresponding TX_C / TX_R explorer links and reveal-decoded log excerpts.

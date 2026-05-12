@@ -1,0 +1,135 @@
+﻿diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b22c64d..ce3f179 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -75,7 +75,9 @@ IF(WITH_NET)
+         file(COPY "${PROJECT_SOURCE_DIR}/src/libevent/include/event2" DESTINATION "${PROJECT_SOURCE_DIR}/include")
+         find_path(LIBEVENT_INCLUDE_DIR event.h PATHS "${PROJECT_SOURCE_DIR}/include/event2" REQUIRED)
+         find_path(LIBEVENT_INCLUDE_DIR event-config.h PATHS "${PROJECT_SOURCE_DIR}/include/event2" REQUIRED)
+-        FIND_LIBRARY(LIBEVENT NAMES event event_core event_extras event_pthreads HINTS "${PROJECT_SOURCE_DIR}/src/libevent/build/lib/${CMAKE_BUILD_TYPE}" REQUIRED)
++        FIND_LIBRARY(LIBEVENT NAMES event event_core event_extras event_pthreads
++            HINTS "${PROJECT_SOURCE_DIR}/src/libevent/build/lib" "${PROJECT_SOURCE_DIR}/src/libevent/build/lib/${CMAKE_BUILD_TYPE}"
++            REQUIRED)
+         FIND_LIBRARY(WINPTHREADS NAMES pthreadVC2 pthreadwin32 pthreads pthread HINTS "${PROJECT_SOURCE_DIR}/contrib/winpthreads/include/lib/x64/" REQUIRED)
+     ELSE()
+         # build libevent
+@@ -97,7 +99,9 @@ IF(WITH_NET)
+         file(COPY "${PROJECT_SOURCE_DIR}/src/libevent/include/event2" DESTINATION "${PROJECT_SOURCE_DIR}/include")
+         find_path(LIBEVENT_INCLUDE_DIR event.h PATHS "${PROJECT_SOURCE_DIR}/include/event2" REQUIRED)
+         find_path(LIBEVENT_INCLUDE_DIR event-config.h PATHS "${PROJECT_SOURCE_DIR}/include/event2" REQUIRED)
+-        FIND_LIBRARY(LIBEVENT NAMES event event_core event_extras event_pthreads HINTS "${PROJECT_SOURCE_DIR}/src/libevent/build/lib/${CMAKE_BUILD_TYPE}" REQUIRED)
++        FIND_LIBRARY(LIBEVENT NAMES event event_core event_extras event_pthreads
++            HINTS "${PROJECT_SOURCE_DIR}/src/libevent/build/lib" "${PROJECT_SOURCE_DIR}/src/libevent/build/lib/${CMAKE_BUILD_TYPE}"
++            REQUIRED)
+     ENDIF()
+ ENDIF()
+ 
+@@ -215,6 +219,8 @@ IF(USE_YUBIKEY)
+ ENDIF()
+ IF(USE_LIBOQS)
+     ADD_DEFINITIONS(-DUSE_LIBOQS=1)
++    find_package(PkgConfig REQUIRED)
++    pkg_check_modules(OQS REQUIRED liboqs)
+ ENDIF()
+ IF(USE_RACCOON_G)
+     FIND_LIBRARY(LIBGMP NAMES gmp REQUIRED)
+@@ -321,6 +327,11 @@ TARGET_SOURCES(${LIBDOGECOIN_NAME} PRIVATE
+     src/pqc_falcon.c
+ )
+ ENDIF()
++IF(USE_LIBOQS)
++    target_include_directories(${LIBDOGECOIN_NAME} PUBLIC ${OQS_INCLUDE_DIRS})
++    target_link_libraries(${LIBDOGECOIN_NAME} PUBLIC ${OQS_LIBRARIES})
++ENDIF()
++
+ IF(USE_RACCOON_G)
+ TARGET_SOURCES(${LIBDOGECOIN_NAME} PRIVATE
+     src/pqc_raccoon.c
+@@ -510,9 +521,9 @@ IF(WITH_NET)
+     )
+ 
+     IF(WIN32 AND USE_TPM2)
+-        TARGET_LINK_LIBRARIES(${LIBS} ${LIBEVENT} ${LIBEVENT_PTHREADS} tbs ncrypt crypt32)
++        TARGET_LINK_LIBRARIES(${LIBDOGECOIN_NAME} PUBLIC ${LIBEVENT} ${LIBEVENT_PTHREADS} tbs ncrypt crypt32)
+     ELSE()
+-        TARGET_LINK_LIBRARIES(${LIBS} ${LIBEVENT} ${LIBEVENT_PTHREADS})
++        TARGET_LINK_LIBRARIES(${LIBDOGECOIN_NAME} PUBLIC ${LIBEVENT} ${LIBEVENT_PTHREADS})
+     ENDIF()
+     IF(USE_TESTS)
+         TARGET_SOURCES(tests ${visibility}
+@@ -533,9 +544,9 @@ IF(WITH_TOOLS)
+     ADD_EXECUTABLE(such src/cli/such.c)
+     INSTALL(TARGETS such RUNTIME)
+     IF (WIN32 AND USE_TPM2)
+-        TARGET_LINK_LIBRARIES(such ${LIBS} tbs ncrypt crypt32)
++        TARGET_LINK_LIBRARIES(such ${LIBDOGECOIN_NAME} tbs ncrypt crypt32)
+     ELSE()
+-        TARGET_LINK_LIBRARIES(such ${LIBS})
++        TARGET_LINK_LIBRARIES(such ${LIBDOGECOIN_NAME})
+     ENDIF()
+     TARGET_INCLUDE_DIRECTORIES(such ${visibility} src)
+ 
+diff --git a/src/net.c b/src/net.c
+index 1e14c0a..dc944b5 100644
+--- a/src/net.c
++++ b/src/net.c
+@@ -71,6 +71,7 @@
+ #include <dogecoin/mem.h>
+ 
+ #define UNUSED(x) (void)(x)
++#define PQ_INET6_BUF 64
+ static const int DOGECOIN_PERIODICAL_NODE_TIMER_S = 3;
+ static const int DOGECOIN_PING_INTERVAL_S = 120;
+ static const int DOGECOIN_CONNECT_TIMEOUT_S = 10;
+@@ -743,6 +744,20 @@ int dogecoin_node_parse_message(dogecoin_node* node, dogecoin_p2p_msg_hdr* hdr,
+             node->services = v_msg_check.services;
+             node->bestknownheight = v_msg_check.start_height;
+             node->nodegroup->log_write_cb("Connected to node %d: %s (%d)\n", node->nodeid, v_msg_check.useragent, v_msg_check.start_height);
++            {
++                char pq_ip[PQ_INET6_BUF];
++                pq_ip[0] = '\0';
++                if (node->addr.sa_family == AF_INET) {
++                    struct sockaddr_in* ad4 = (struct sockaddr_in*)&node->addr;
++                    evutil_inet_ntop(AF_INET, &ad4->sin_addr, pq_ip, sizeof(pq_ip));
++                } else if (node->addr.sa_family == AF_INET6) {
++                    struct sockaddr_in6* ad6 = (struct sockaddr_in6*)&node->addr;
++                    evutil_inet_ntop(AF_INET6, &ad6->sin6_addr, pq_ip, sizeof(pq_ip));
++                }
++                if (pq_ip[0] != '\0') {
++                    node->nodegroup->log_write_cb("PQ_PEER node=%d ip=%s height=%d\n", node->nodeid, pq_ip, (int)v_msg_check.start_height);
++                }
++            }
+             /* confirm version via verack */
+             cstring* verack = dogecoin_p2p_message_new(node->nodegroup->chainparams->netmagic, DOGECOIN_MSG_VERACK, NULL, 0);
+             dogecoin_node_send(node, verack);
+diff --git a/src/spv.c b/src/spv.c
+index 4734df1..6c9189d 100644
+--- a/src/spv.c
++++ b/src/spv.c
+@@ -1596,6 +1596,26 @@ void dogecoin_net_spv_post_cmd(dogecoin_node *node, dogecoin_p2p_msg_hdr *hdr, s
+     }
+ 
+     if (strcmp(hdr->command, DOGECOIN_MSG_TX) == 0) {
++        if (client && client->nodegroup && client->nodegroup->log_write_cb &&
++            hdr && hdr->data_len > 0 && buf && buf->p && buf->len > 0) {
++            size_t raw_consumedlength = 0;
++            dogecoin_tx* raw_tx = dogecoin_tx_new();
++            if (raw_tx && dogecoin_tx_deserialize(buf->p, buf->len, raw_tx, &raw_consumedlength)) {
++                uint256_t raw_txid;
++                dogecoin_tx_hash(raw_tx, raw_txid);
++                char raw_txid_hex[65];
++                utils_bin_to_hex(raw_txid, 32, raw_txid_hex);
++                size_t raw_hex_len = ((size_t)hdr->data_len * 2u) + 1u;
++                char* raw_hex = (char*)dogecoin_calloc(1, raw_hex_len);
++                if (raw_hex) {
++                    utils_bin_to_hex((unsigned char*)buf->p, (size_t)hdr->data_len, raw_hex);
++                    client->nodegroup->log_write_cb("PQ_SPV_TX_RAW txid=%s raw=%s\n",
++                        raw_txid_hex, raw_hex);
++                    dogecoin_free(raw_hex);
++                }
++            }
++            if (raw_tx) dogecoin_tx_free(raw_tx);
++        }
+         if (client && client->merkle_match_active && client->merkle_match_pending > 0 &&
+             client->merkle_match_tree && client->sync_transaction) {
+             size_t consumedlength = 0;

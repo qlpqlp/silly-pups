@@ -42,12 +42,10 @@ The following can be set when running make: make FOO=bar
     ANDROID_API_LEVEL: API level corresponding to the Android version targeted
     FALLBACK_DOWNLOAD_PATH: If a source file can't be fetched, try here before giving up
     NO_LIBOQS: set to skip building liboqs (PQC library). Leave empty to include it (e.g. NO_LIBOQS=)
-    LIBOQS_RACCOON: set to 'y' to build the Raccoon-G fork of liboqs (edtubbs/liboqs).
-                    When omitted or empty, upstream liboqs (open-quantum-safe/liboqs) is used.
-    ZK_CARRIER: set to 'y' or '1' to vendor mcl and rapidsnark (Groth16 verifier-only)
-                for the ZK carrier module.  Disabled by default.  Without this, the C
-                library returns DOGECOIN_ZK_ERR_DELEGATED for verify and callers fall
-                back to off-box verification with snarkjs (recommended mobile-friendly default).
+    RACCOON_G: set to 'y' to build GMP and MPFR for the in-tree Raccoon-G
+               implementation (--enable-raccoon-g). MPFR is the C analogue of
+               Python's mpmath and is required to make the Raccoon-G Gaussian
+               sampler byte-exact against the upstream Python reference.
     DEBUG: disable some optimizations and enable more runtime checking
     HOST_ID_SALT: Optional salt to use when generating host package ids
     BUILD_ID_SALT: Optional salt to use when generating build package ids

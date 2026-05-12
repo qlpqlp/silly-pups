@@ -67,11 +67,8 @@
 #include <dogecoin/pqc_dilithium.h>
 #include <dogecoin/pqc_falcon.h>
 #include <dogecoin/pqc_carrier.h>
-#ifdef USE_LIBOQS_RACCOON
+#ifdef USE_RACCOON_G
 #include <dogecoin/pqc_raccoon.h>
-#endif
-#ifdef USE_ZK_CARRIER
-#include <dogecoin/zk_carrier.h>
 #endif
 
 // ******************************** SUCH -C TRANSACTION MENU ********************************
@@ -618,6 +615,8 @@ void main_menu() {
 static struct option long_options[] =
     {
         {"privkey", required_argument, NULL, 'p'},
+        {"sk_file", required_argument, NULL, 0x100},
+        {"sk-file", required_argument, NULL, 0x100},
         {"pubkey", required_argument, NULL, 'k'},
         {"derived_path", required_argument, NULL, 'm'},
         {"chunks", required_argument, NULL, 'm'},
@@ -685,37 +684,35 @@ static void print_usage()
     printf("transaction,\n");
 #ifdef USE_LIBOQS
     printf("falcon_keygen (generates Falcon-512 keypair),\n");
-    printf("falcon_sign (requires -p <falcon_secret_key_hex> -x <message_hex|tx_sighash_hex>),\n");
+    printf("falcon_sign (requires -p <falcon_secret_key_hex>|--sk-file <path> and -x <message_hex|tx_sighash_hex>),\n");
     printf("falcon_verify (requires -k <falcon_public_key_hex> -x <message_hex|tx_sighash_hex> -s <signature_hex>),\n");
     printf("falcon_commit (requires -k <falcon_public_key_hex> -s <signature_hex>),\n");
     printf("dilithium2_keygen (generates Dilithium2 keypair),\n");
-    printf("dilithium2_sign (requires -p <dilithium2_secret_key_hex> -x <message_hex|tx_sighash_hex>),\n");
+    printf("dilithium2_sign (requires -p <dilithium2_secret_key_hex>|--sk-file <path> and -x <message_hex|tx_sighash_hex>),\n");
     printf("dilithium2_verify (requires -k <dilithium2_public_key_hex> -x <message_hex|tx_sighash_hex> -s <signature_hex>),\n");
     printf("dilithium2_commit (requires -k <dilithium2_public_key_hex> -s <signature_hex>),\n");
-#ifdef USE_LIBOQS_RACCOON
+#endif
+#ifdef USE_RACCOON_G
     printf("raccoong_keygen (generates Raccoon-G-44 keypair),\n");
-    printf("raccoong_sign (requires -p <raccoong_secret_key_hex> -x <message_hex|tx_sighash_hex>),\n");
+    printf("raccoong_sign (requires -p <raccoong_secret_key_hex>|--sk-file <path> and -x <message_hex|tx_sighash_hex>),\n");
     printf("raccoong_verify (requires -k <raccoong_public_key_hex> -x <message_hex|tx_sighash_hex> -s <signature_hex>),\n");
     printf("raccoong_commit (requires -k <raccoong_public_key_hex> -s <signature_hex>),\n");
-    printf("raccoong_hd_derive (requires -p <raccoong_secret_key_hex> -s <chaincode_hex> -i <child_index>, optional -g <0|1 hardened>),\n");
+    printf("raccoong_hd_derive (requires -p <raccoong_secret_key_hex>|--sk-file <path>, -s <chaincode_hex>, -i <child_index>, optional -g <0|1 hardened>),\n");
     printf("raccoong_hd_derive_pub (requires -k <raccoong_public_key_hex> -s <chaincode_hex> -i <child_index>),\n");
 #endif
+#ifdef USE_LIBOQS
     printf("falcon_add_commit_tx (requires -x <raw_tx_hex> -s <falcon_commitment_hex>),\n");
     printf("dilithium2_add_commit_tx (requires -x <raw_tx_hex> -s <dilithium2_commitment_hex>),\n");
-#ifdef USE_LIBOQS_RACCOON
+#endif
+#ifdef USE_RACCOON_G
     printf("raccoong_add_commit_tx (requires -x <raw_tx_hex> -s <raccoong_commitment_hex>),\n");
 #endif
+#ifdef USE_LIBOQS
     printf("falcon_add_commit_and_carrier_tx (requires -x <raw_tx_hex> -m <falcon_commitment_hex> -k <falcon_pubkey_hex> -s <falcon_signature_hex> [-h <carrier_value_koinu, default 100000000>]),\n");
     printf("dilithium2_add_commit_and_carrier_tx (requires -x <raw_tx_hex> -m <dilithium2_commitment_hex> -k <dilithium2_pubkey_hex> -s <dilithium2_signature_hex> [-h <carrier_value_koinu, default 100000000>]),\n");
-#ifdef USE_LIBOQS_RACCOON
+#endif
+#ifdef USE_RACCOON_G
     printf("raccoong_add_commit_and_carrier_tx (requires -x <raw_tx_hex> -m <raccoong_commitment_hex> -k <raccoong_pubkey_hex> -s <raccoong_signature_hex> [-h <carrier_value_koinu, default 100000000>]),\n");
-#endif
-#endif
-#ifdef USE_ZK_CARRIER
-    printf("zk_encode_payload (requires -m <mode 0=groth16|1=plonk|2=stark> -i <circuit_id_hex> -k <public_inputs_hex> -s <proof_hex>),\n");
-    printf("zk_commit (requires -x <payload_hex>; emits SHA256d(payload) and the OP_RETURN script),\n");
-    printf("zk_add_commit_and_carrier_tx (requires -x <raw_tx_hex> -m <mode 0|1|2> -s <payload_hex> [-h <carrier_value_koinu, default 100000000>]),\n");
-    printf("zk_extract_carrier (requires -x <tx_r_hex>; reassembles ZKP1 payload),\n");
 #endif
     printf("\nExamples: \n");
     printf("Generate a testnet private ec keypair wif/hex:\n");
@@ -773,7 +770,10 @@ static dogecoin_bool such_hex_payload_chunks(const char* payload_hex, size_t max
     return true;
 }
 
-#ifdef USE_LIBOQS
+#if defined(USE_LIBOQS) || defined(USE_RACCOON_G)
+#if defined(__GNUC__) || defined(__clang__)
+static dogecoin_bool such_tag4_hex_to_tag8(const char* tag4_hex, char out_tag8[8]) __attribute__((unused));
+#endif
 static dogecoin_bool such_tag4_hex_to_tag8(const char* tag4_hex, char out_tag8[8])
 {
     if (!tag4_hex || !out_tag8 || strlen(tag4_hex) != 8) {
@@ -806,6 +806,104 @@ static dogecoin_bool such_commit_hex_to_bytes32(const char* commit_hex, uint8_t 
     size_t commit_len = 0;
     utils_hex_to_bin(commit_hex, out_commit32, 64, &commit_len);
     return commit_len == 32;
+}
+
+/* Read a PQC secret key (hex) from a file. Caller owns the returned heap
+   buffer and must release it with dogecoin_mem_zero() + dogecoin_free().
+   Whitespace (newlines, spaces, tabs, CR) inside the file is ignored so a
+   trailing newline from `echo "...hex..." > sk.hex` is accepted. Reading
+   from a file avoids exposing secret bytes through argv / /proc/<pid>/cmdline.
+   Returns a NUL-terminated hex string on success, NULL on any error. */
+static char* such_read_sk_hex_from_file(const char* path)
+{
+    if (!path) return NULL;
+    FILE* f = fopen(path, "rb");
+    if (!f) return NULL;
+    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return NULL; }
+    long raw_len = ftell(f);
+    if (raw_len < 0 || raw_len > (1L << 22) /* 4 MiB hard cap */) {
+        fclose(f);
+        return NULL;
+    }
+    rewind(f);
+    char* raw = (char*)dogecoin_malloc((size_t)raw_len + 1);
+    if (!raw) { fclose(f); return NULL; }
+    size_t got = fread(raw, 1, (size_t)raw_len, f);
+    fclose(f);
+    if (got != (size_t)raw_len) {
+        dogecoin_mem_zero(raw, (size_t)raw_len);
+        dogecoin_free(raw);
+        return NULL;
+    }
+    raw[raw_len] = '\0';
+
+    char* out = (char*)dogecoin_malloc((size_t)raw_len + 1);
+    if (!out) {
+        dogecoin_mem_zero(raw, (size_t)raw_len);
+        dogecoin_free(raw);
+        return NULL;
+    }
+    size_t w = 0;
+    for (long i = 0; i < raw_len; i++) {
+        unsigned char c = (unsigned char)raw[i];
+        if (c == '\n' || c == '\r' || c == ' ' || c == '\t') continue;
+        if (!isxdigit(c)) {
+            dogecoin_mem_zero(raw, (size_t)raw_len);
+            dogecoin_free(raw);
+            dogecoin_mem_zero(out, (size_t)raw_len + 1);
+            dogecoin_free(out);
+            return NULL;
+        }
+        out[w++] = (char)c;
+    }
+    out[w] = '\0';
+    dogecoin_mem_zero(raw, (size_t)raw_len);
+    dogecoin_free(raw);
+    if (w == 0 || (w % 2) != 0) {
+        dogecoin_mem_zero(out, w);
+        dogecoin_free(out);
+        return NULL;
+    }
+    return out;
+}
+
+/* Resolve which secret-key hex string the PQC sign/derive commands should
+   use. Prefers --sk-file (safer: not visible in /proc/<pid>/cmdline) over
+   -p. On success returns a heap buffer the caller must release via
+   such_release_sk_hex(); on failure returns NULL. If both -p and --sk-file
+   are supplied -p wins for backward compatibility but a warning is printed
+   so users know the argv path leaks the secret. */
+static char* such_resolve_sk_hex(const char* pkey, const char* sk_file, dogecoin_bool* out_owned)
+{
+    if (out_owned) *out_owned = false;
+    if (pkey) {
+        if (sk_file) {
+            fprintf(stderr,
+                    "warning: both -p and --sk-file supplied; using -p. "
+                    "Note: secret bytes passed on argv are visible to other "
+                    "users via /proc/<pid>/cmdline — prefer --sk-file.\n");
+        } else {
+            fprintf(stderr,
+                    "warning: PQC secret key passed via -p is visible to other "
+                    "users via /proc/<pid>/cmdline. Prefer --sk-file <path>.\n");
+        }
+        return (char*)pkey;
+    }
+    if (sk_file) {
+        char* loaded = such_read_sk_hex_from_file(sk_file);
+        if (!loaded) return NULL;
+        if (out_owned) *out_owned = true;
+        return loaded;
+    }
+    return NULL;
+}
+
+static void such_release_sk_hex(char* sk_hex, dogecoin_bool owned)
+{
+    if (owned && sk_hex) {
+        dogecoin_mem_zero(sk_hex, strlen(sk_hex));
+        dogecoin_free(sk_hex);
+    }
 }
 
 static dogecoin_bool such_tx_add_commit_and_carrier_outputs(
@@ -929,6 +1027,11 @@ int main(int argc, char* argv[])
     int long_index = 0;
     int opt = 0;
     char* pkey = 0;
+    /* Path to a file containing the PQC secret key as hex (one line). Used by
+       PQC sign/derive commands as a safer alternative to -p, which exposes
+       secret bytes through /proc/<pid>/cmdline on multi-user hosts and in CI
+       runners. Mutually exclusive with passing the secret directly via -p. */
+    char* sk_file = 0;
     char* pubkey = 0;
     char* cmd = 0;
     char* derived_path = 0;
@@ -958,6 +1061,9 @@ int main(int argc, char* argv[])
         switch (opt) {
                 case 'p':
                     pkey = optarg;
+                    break;
+                case 0x100:
+                    sk_file = optarg;
                     break;
                 case 'c':
                     cmd = optarg;
@@ -1605,11 +1711,7 @@ int main(int argc, char* argv[])
         }
         vector_free(chunks, true);
     }
-    /* tx_sighash32 is built unconditionally because the underlying helper
-     * (dogecoin_tx_sighash32) is now compiled regardless of USE_LIBOQS — the
-     * ZK carrier needs it to compute the tx_base sighash that ZK proofs are
-     * bound to as their `tx_binding` public input, mirroring the PQC carrier
-     * signing model. */
+#if defined(USE_LIBOQS) || defined(USE_RACCOON_G)
     else if (strcmp(cmd, "tx_sighash32") == 0) {
         // ./such -c tx_sighash32 -x <raw hex tx> -s <script pubkey> -i <input index> -h <sighash type>
         if (!txhex || !scripthex) {
@@ -1654,6 +1756,7 @@ int main(int argc, char* argv[])
         cstr_free(script, true);
         dogecoin_tx_free(tx);
     }
+#endif
     else if (strcmp(cmd, "comp2der") == 0) {
         // ./such -c comp2der -s <compact signature>
         if (!scripthex || strlen(scripthex) != 128) {
@@ -2126,22 +2229,28 @@ int main(int argc, char* argv[])
         }
     else if (strcmp(cmd, "falcon_sign") == 0) {
         // ./such -c falcon_sign -p <secret_key_hex> -x <message_hex>
-        if (!pkey) {
-            return showError("Missing secret key (use -p)\n");
+        // or:    -c falcon_sign --sk-file <path> -x <message_hex>
+        dogecoin_bool sk_hex_owned = false;
+        char* sk_hex = such_resolve_sk_hex(pkey, sk_file, &sk_hex_owned);
+        if (!sk_hex) {
+            return showError("Missing secret key (use -p <hex> or --sk-file <path>)\n");
         }
         if (!txhex) {
+            such_release_sk_hex(sk_hex, sk_hex_owned);
             return showError("Missing message (use -x)\n");
         }
         
         printf("Signing message with Falcon-512...\n");
         
-        if ((strlen(pkey) % 2) != 0) {
+        if ((strlen(sk_hex) % 2) != 0) {
+            such_release_sk_hex(sk_hex, sk_hex_owned);
             return showError("Invalid secret key hex\n");
         }
-        size_t sk_len = strlen(pkey) / 2;
+        size_t sk_len = strlen(sk_hex) / 2;
         uint8_t* sk = dogecoin_malloc(sk_len);
         size_t sk_outlen = 0;
-        utils_hex_to_bin(pkey, sk, strlen(pkey), &sk_outlen);
+        utils_hex_to_bin(sk_hex, sk, strlen(sk_hex), &sk_outlen);
+        such_release_sk_hex(sk_hex, sk_hex_owned);
         if (sk_outlen != sk_len) {
             dogecoin_free(sk);
             return showError("Invalid secret key hex\n");
@@ -2351,13 +2460,16 @@ int main(int argc, char* argv[])
         dogecoin_free(sk);
     }
     else if (strcmp(cmd, "dilithium2_sign") == 0) {
-        if (!pkey) return showError("Missing secret key (use -p)\n");
-        if (!txhex) return showError("Missing message (use -x)\n");
-        if ((strlen(pkey) % 2) != 0) return showError("Invalid secret key hex\n");
-        size_t sk_len = strlen(pkey) / 2;
+        dogecoin_bool sk_hex_owned = false;
+        char* sk_hex = such_resolve_sk_hex(pkey, sk_file, &sk_hex_owned);
+        if (!sk_hex) return showError("Missing secret key (use -p <hex> or --sk-file <path>)\n");
+        if (!txhex) { such_release_sk_hex(sk_hex, sk_hex_owned); return showError("Missing message (use -x)\n"); }
+        if ((strlen(sk_hex) % 2) != 0) { such_release_sk_hex(sk_hex, sk_hex_owned); return showError("Invalid secret key hex\n"); }
+        size_t sk_len = strlen(sk_hex) / 2;
         uint8_t* sk = dogecoin_malloc(sk_len);
         size_t sk_outlen = 0;
-        utils_hex_to_bin(pkey, sk, strlen(pkey), &sk_outlen);
+        utils_hex_to_bin(sk_hex, sk, strlen(sk_hex), &sk_outlen);
+        such_release_sk_hex(sk_hex, sk_hex_owned);
         if (sk_outlen != sk_len) { dogecoin_free(sk); return showError("Invalid secret key hex\n"); }
         if ((strlen(txhex) % 2) != 0) { dogecoin_free(sk); return showError("Invalid message hex\n"); }
         size_t msg_len = strlen(txhex) / 2;
@@ -2433,7 +2545,8 @@ int main(int argc, char* argv[])
         printf("OP_RETURN script (prefix 6a24 + tag 44494c32='DIL2'): 6a2444494c32%s\n", commit_hex);
         dogecoin_free(pk); dogecoin_free(sig);
     }
-#ifdef USE_LIBOQS_RACCOON
+#endif /* USE_LIBOQS (keygen/sign/verify/commit commands) */
+#ifdef USE_RACCOON_G
     else if (strcmp(cmd, "raccoong_keygen") == 0) {
         uint8_t *pk = NULL, *sk = NULL;
         size_t pk_len = 0, sk_len = 0;
@@ -2463,13 +2576,16 @@ int main(int argc, char* argv[])
         dogecoin_free(sk);
     }
     else if (strcmp(cmd, "raccoong_sign") == 0) {
-        if (!pkey) return showError("Missing secret key (use -p)\n");
-        if (!txhex) return showError("Missing message (use -x)\n");
-        if ((strlen(pkey) % 2) != 0) return showError("Invalid secret key hex\n");
-        size_t sk_len = strlen(pkey) / 2;
+        dogecoin_bool sk_hex_owned = false;
+        char* sk_hex = such_resolve_sk_hex(pkey, sk_file, &sk_hex_owned);
+        if (!sk_hex) return showError("Missing secret key (use -p <hex> or --sk-file <path>)\n");
+        if (!txhex) { such_release_sk_hex(sk_hex, sk_hex_owned); return showError("Missing message (use -x)\n"); }
+        if ((strlen(sk_hex) % 2) != 0) { such_release_sk_hex(sk_hex, sk_hex_owned); return showError("Invalid secret key hex\n"); }
+        size_t sk_len = strlen(sk_hex) / 2;
         uint8_t* sk = dogecoin_malloc(sk_len);
         size_t sk_outlen = 0;
-        utils_hex_to_bin(pkey, sk, strlen(pkey), &sk_outlen);
+        utils_hex_to_bin(sk_hex, sk, strlen(sk_hex), &sk_outlen);
+        such_release_sk_hex(sk_hex, sk_hex_owned);
         if (sk_outlen != sk_len) { dogecoin_free(sk); return showError("Invalid secret key hex\n"); }
         if ((strlen(txhex) % 2) != 0) { dogecoin_free(sk); return showError("Invalid message hex\n"); }
         size_t msg_len = strlen(txhex) / 2;
@@ -2546,16 +2662,19 @@ int main(int argc, char* argv[])
         dogecoin_free(pk); dogecoin_free(sig);
     }
     else if (strcmp(cmd, "raccoong_hd_derive") == 0) {
-        if (!pkey) return showError("Missing parent secret key (use -p)\n");
-        if (!pubkey) return showError("Missing parent public key (use -k)\n");
-        if (!scripthex) return showError("Missing chaincode hex (use -s)\n");
-        if ((strlen(scripthex) % 2) != 0 || strlen(scripthex) != 64) return showError("Chaincode must be 32 bytes (64 hex)\n");
-        if ((strlen(pkey) % 2) != 0) return showError("Invalid parent secret key hex\n");
-        if ((strlen(pubkey) % 2) != 0) return showError("Invalid parent public key hex\n");
-        size_t psk_len = strlen(pkey) / 2;
+        dogecoin_bool sk_hex_owned = false;
+        char* sk_hex = such_resolve_sk_hex(pkey, sk_file, &sk_hex_owned);
+        if (!sk_hex) return showError("Missing parent secret key (use -p <hex> or --sk-file <path>)\n");
+        if (!pubkey) { such_release_sk_hex(sk_hex, sk_hex_owned); return showError("Missing parent public key (use -k)\n"); }
+        if (!scripthex) { such_release_sk_hex(sk_hex, sk_hex_owned); return showError("Missing chaincode hex (use -s)\n"); }
+        if ((strlen(scripthex) % 2) != 0 || strlen(scripthex) != 64) { such_release_sk_hex(sk_hex, sk_hex_owned); return showError("Chaincode must be 32 bytes (64 hex)\n"); }
+        if ((strlen(sk_hex) % 2) != 0) { such_release_sk_hex(sk_hex, sk_hex_owned); return showError("Invalid parent secret key hex\n"); }
+        if ((strlen(pubkey) % 2) != 0) { such_release_sk_hex(sk_hex, sk_hex_owned); return showError("Invalid parent public key hex\n"); }
+        size_t psk_len = strlen(sk_hex) / 2;
         uint8_t* psk = dogecoin_malloc(psk_len);
         size_t psk_outlen = 0;
-        utils_hex_to_bin(pkey, psk, strlen(pkey), &psk_outlen);
+        utils_hex_to_bin(sk_hex, psk, strlen(sk_hex), &psk_outlen);
+        such_release_sk_hex(sk_hex, sk_hex_owned);
         if (psk_outlen != psk_len) { dogecoin_free(psk); return showError("Invalid parent secret key hex\n"); }
         size_t ppk_len = strlen(pubkey) / 2;
         uint8_t* ppk = dogecoin_malloc(ppk_len);
@@ -2639,8 +2758,8 @@ int main(int argc, char* argv[])
         dogecoin_free(child_pk);
         dogecoin_free(child_pk_hex);
     }
-    #endif /* USE_LIBOQS_RACCOON */
-#endif /* USE_LIBOQS (keygen/sign/verify/commit commands) */
+    #endif /* USE_RACCOON_G */
+#if defined(USE_LIBOQS) || defined(USE_RACCOON_G)
 #ifdef USE_LIBOQS
     else if (strcmp(cmd, "falcon_add_commit_tx") == 0) {
         // ./such -c falcon_add_commit_tx -x <raw_tx_hex> -s <falcon_commitment_hex>
@@ -2753,7 +2872,8 @@ int main(int argc, char* argv[])
         dogecoin_free(tx_with_commit_hex);
         dogecoin_tx_free(tx);
     }
-#ifdef USE_LIBOQS_RACCOON
+#endif /* USE_LIBOQS (falcon/dilithium add_commit_tx) */
+#ifdef USE_RACCOON_G
     else if (strcmp(cmd, "raccoong_add_commit_tx") == 0) {
         if (!txhex || !scripthex) {
             return showError("Missing tx hex or commitment hex (use -x, -s)\n");
@@ -2808,10 +2928,13 @@ int main(int argc, char* argv[])
         dogecoin_free(tx_with_commit_hex);
         dogecoin_tx_free(tx);
     }
-#endif /* USE_LIBOQS_RACCOON */
-    else if (strcmp(cmd, "falcon_add_commit_and_carrier_tx") == 0 ||
+#endif /* USE_RACCOON_G */
+    else if (
+#ifdef USE_LIBOQS
+             strcmp(cmd, "falcon_add_commit_and_carrier_tx") == 0 ||
              strcmp(cmd, "dilithium2_add_commit_and_carrier_tx") == 0 ||
-#ifdef USE_LIBOQS_RACCOON
+#endif
+#ifdef USE_RACCOON_G
              strcmp(cmd, "raccoong_add_commit_and_carrier_tx") == 0 ||
 #endif
              0) {
@@ -2842,6 +2965,7 @@ int main(int argc, char* argv[])
 
         dogecoin_bool (*add_commit_fn)(dogecoin_tx*, const uint8_t*) = NULL;
         const char* tag4_ascii = NULL;
+#ifdef USE_LIBOQS
         if (strcmp(cmd, "falcon_add_commit_and_carrier_tx") == 0) {
             add_commit_fn = dogecoin_tx_add_falcon512_commit;
             tag4_ascii = "FLC1";
@@ -2849,8 +2973,9 @@ int main(int argc, char* argv[])
             add_commit_fn = dogecoin_tx_add_dilithium2_commit;
             tag4_ascii = "DIL2";
         }
-#ifdef USE_LIBOQS_RACCOON
-        else if (strcmp(cmd, "raccoong_add_commit_and_carrier_tx") == 0) {
+#endif
+#ifdef USE_RACCOON_G
+        if (strcmp(cmd, "raccoong_add_commit_and_carrier_tx") == 0) {
             add_commit_fn = dogecoin_tx_add_raccoong44_commit;
             tag4_ascii = "RCG4";
         }
@@ -2963,247 +3088,6 @@ int main(int argc, char* argv[])
         cstr_free(redeem, true);
         dogecoin_free(full);
         cstr_free(carrier_spk, true);
-        dogecoin_tx_free(tx);
-    }
-#endif
-#ifdef USE_ZK_CARRIER
-    else if (strcmp(cmd, "zk_encode_payload") == 0) {
-        // ./such -c zk_encode_payload -m <mode> -i <circuit_id_hex> -k <public_inputs_hex> -s <proof_hex>
-        if (!derived_path || !pubkey || !scripthex) {
-            return showError("Missing -m <mode>, -k <public_inputs_hex>, or -s <proof_hex>\n");
-        }
-        long mode_l = strtol(derived_path, NULL, 0);
-        if (mode_l < 0 || mode_l > 0xFF) return showError("Invalid -m mode\n");
-        uint32_t circuit_id = 0;
-        if (inputindex > 0) circuit_id = (uint32_t)inputindex;
-
-        if ((strlen(pubkey) % 2) != 0 || (strlen(scripthex) % 2) != 0) {
-            return showError("public_inputs/proof hex must be even-length\n");
-        }
-        size_t pi_len = strlen(pubkey) / 2;
-        size_t prf_len = strlen(scripthex) / 2;
-        uint8_t* pi = dogecoin_malloc(pi_len ? pi_len : 1);
-        uint8_t* prf = dogecoin_malloc(prf_len ? prf_len : 1);
-        if (!pi || !prf) {
-            if (pi) dogecoin_free(pi);
-            if (prf) dogecoin_free(prf);
-            return showError("OOM\n");
-        }
-        size_t outlen = 0;
-        utils_hex_to_bin(pubkey, pi, strlen(pubkey), &outlen);
-        if (outlen != pi_len) { dogecoin_free(pi); dogecoin_free(prf); return showError("Invalid public_inputs hex\n"); }
-        outlen = 0;
-        utils_hex_to_bin(scripthex, prf, strlen(scripthex), &outlen);
-        if (outlen != prf_len) { dogecoin_free(pi); dogecoin_free(prf); return showError("Invalid proof hex\n"); }
-
-        uint8_t* payload = NULL;
-        size_t payload_len = 0;
-        /* such -c zk_encode_payload does not currently take a vk argument from
-         * the CLI; emit a v0 payload (no embedded vk).  The supported way to
-         * produce a v1 (vk-included, self-contained-reveal) payload is
-         * contrib/zk_carrier/witness_helper.py --vkey, which has the vk file
-         * already on hand. */
-        dogecoin_zk_err_t e = dogecoin_zk_encode_payload(
-            (dogecoin_zk_mode_t)mode_l, circuit_id, pi, pi_len, prf, prf_len,
-            NULL, 0,
-            &payload, &payload_len);
-        dogecoin_free(pi);
-        dogecoin_free(prf);
-        if (e != DOGECOIN_ZK_OK) return showError(dogecoin_zk_strerror(e));
-        char* hex = dogecoin_malloc(payload_len * 2 + 1);
-        utils_bin_to_hex(payload, payload_len, hex);
-        printf("zk_payload: %s\n", hex);
-        printf("zk_payload_len: %zu\n", payload_len);
-        dogecoin_free(hex);
-        dogecoin_free(payload);
-    }
-    else if (strcmp(cmd, "zk_commit") == 0) {
-        // ./such -c zk_commit -x <payload_hex>
-        if (!txhex) return showError("Missing -x <payload_hex>\n");
-        if ((strlen(txhex) % 2) != 0) return showError("payload hex must be even-length\n");
-        size_t plen = strlen(txhex) / 2;
-        if (plen == 0) return showError("empty payload\n");
-        uint8_t* p = dogecoin_malloc(plen);
-        if (!p) return showError("OOM\n");
-        size_t outlen = 0;
-        utils_hex_to_bin(txhex, p, strlen(txhex), &outlen);
-        if (outlen != plen) { dogecoin_free(p); return showError("Invalid payload hex\n"); }
-
-        /* Decode mode out of the payload header so the OP_RETURN gets the right
-         * mode byte without an extra flag. */
-        dogecoin_zk_mode_t mode;
-        uint32_t cid;
-        const uint8_t* pi; size_t pi_len;
-        const uint8_t* prf; size_t prf_len;
-        const uint8_t* vk_ptr = NULL; size_t vk_len = 0;
-        dogecoin_zk_err_t e = dogecoin_zk_decode_payload(p, plen, &mode, &cid,
-                                                         &pi, &pi_len,
-                                                         &prf, &prf_len,
-                                                         &vk_ptr, &vk_len);
-        if (e != DOGECOIN_ZK_OK) { dogecoin_free(p); return showError(dogecoin_zk_strerror(e)); }
-
-        uint8_t commit[32];
-        e = dogecoin_zk_get_commitment_hash(p, plen, commit);
-        if (e != DOGECOIN_ZK_OK) { dogecoin_free(p); return showError(dogecoin_zk_strerror(e)); }
-        char commit_hex[65];
-        utils_bin_to_hex(commit, 32, commit_hex);
-
-        cstring* spk = NULL;
-        e = dogecoin_zk_build_opreturn_scriptpubkey(mode, commit, &spk);
-        if (e != DOGECOIN_ZK_OK) { dogecoin_free(p); return showError(dogecoin_zk_strerror(e)); }
-        char* spk_hex = utils_uint8_to_hex((const uint8_t*)spk->str, spk->len);
-
-        printf("\n=== ZK Carrier Commitment ===\n");
-        printf("mode:        %u\n", (unsigned)mode);
-        printf("circuit_id:  0x%08x\n", (unsigned)cid);
-        printf("public_inputs_len: %zu\n", pi_len);
-        printf("proof_len:   %zu\n", prf_len);
-        printf("vk_len:      %zu%s\n", vk_len,
-               vk_len > 0 ? " (v1: self-contained reveal)" : " (v0: vk distributed out-of-band)");
-        printf("commitment:  %s\n", commit_hex);
-        printf("opreturn_spk: %s\n", spk_hex ? spk_hex : "");
-        cstr_free(spk, true);
-        dogecoin_free(p);
-    }
-    else if (strcmp(cmd, "zk_add_commit_and_carrier_tx") == 0) {
-        // ./such -c zk_add_commit_and_carrier_tx -x <raw_tx_hex> -m <mode> -s <payload_hex> [-h <carrier_value_koinu>]
-        if (!txhex || !derived_path || !scripthex) {
-            return showError("Missing -x <raw_tx_hex>, -m <mode>, or -s <payload_hex>\n");
-        }
-        long mode_l = strtol(derived_path, NULL, 0);
-        if (mode_l < 0 || mode_l > 0xFF) return showError("Invalid -m mode\n");
-        uint64_t carrier_value_koinu = (sighashtype > 0) ? (uint64_t)sighashtype : 100000000;
-        if ((strlen(txhex) % 2) != 0 || (strlen(scripthex) % 2) != 0) {
-            return showError("hex must be even-length\n");
-        }
-
-        /* Deserialize tx. */
-        dogecoin_tx* tx = dogecoin_tx_new();
-        size_t tx_bin_len = strlen(txhex) / 2;
-        uint8_t* tx_bin = dogecoin_malloc(tx_bin_len + 1);
-        size_t outlen = 0;
-        utils_hex_to_bin(txhex, tx_bin, strlen(txhex), &outlen);
-        if (!dogecoin_tx_deserialize(tx_bin, outlen, tx, NULL)) {
-            dogecoin_free(tx_bin);
-            dogecoin_tx_free(tx);
-            return showError("Invalid tx hex\n");
-        }
-        dogecoin_free(tx_bin);
-
-        /* Decode payload. */
-        size_t payload_len = strlen(scripthex) / 2;
-        uint8_t* payload = dogecoin_malloc(payload_len ? payload_len : 1);
-        outlen = 0;
-        utils_hex_to_bin(scripthex, payload, strlen(scripthex), &outlen);
-        if (outlen != payload_len) {
-            dogecoin_free(payload);
-            dogecoin_tx_free(tx);
-            return showError("Invalid payload hex\n");
-        }
-
-        cstring* carrier_spk = NULL;
-        uint8_t part_total = 0;
-        dogecoin_zk_err_t e = dogecoin_zk_build_carrier_tx_c(
-            tx, payload, payload_len, (dogecoin_zk_mode_t)mode_l,
-            carrier_value_koinu, &carrier_spk, &part_total);
-        if (e != DOGECOIN_ZK_OK) {
-            dogecoin_free(payload);
-            dogecoin_tx_free(tx);
-            return showError(dogecoin_zk_strerror(e));
-        }
-
-        /* Serialize TX_C. */
-        cstring* tx_out = cstr_new_sz(1024);
-        dogecoin_tx_serialize(tx_out, tx);
-        char* tx_out_hex = dogecoin_malloc(tx_out->len * 2 + 1);
-        utils_bin_to_hex((unsigned char*)tx_out->str, tx_out->len, tx_out_hex);
-        char* carrier_spk_hex = utils_uint8_to_hex((const uint8_t*)carrier_spk->str, carrier_spk->len);
-
-        /* Find the OP_RETURN vout (it's the one we just added before the carriers). */
-        uint32_t carrier_first_vout = (uint32_t)tx->vout->len - part_total;
-        uint32_t opret_vout = carrier_first_vout - 1;
-
-        printf("tx with commitment and carrier outputs: %s\n", tx_out_hex);
-        printf("zk_carrier_part_total: %u\n", (unsigned)part_total);
-        printf("zk_carrier_output_value_koinu: %llu\n", (unsigned long long)carrier_value_koinu);
-        printf("zk_carrier_first_vout: %u\n", (unsigned)carrier_first_vout);
-        printf("zk_opreturn_vout: %u\n", (unsigned)opret_vout);
-        printf("zk_carrier_p2sh_scriptpubkey: %s\n", carrier_spk_hex ? carrier_spk_hex : "");
-
-        /* Emit per-part scriptSigs for TX_R. */
-        cstring** sigs = NULL;
-        uint8_t pt2 = 0;
-        e = dogecoin_zk_build_carrier_tx_r_scriptsigs(payload, payload_len, &sigs, &pt2);
-        if (e == DOGECOIN_ZK_OK && sigs) {
-            for (uint8_t i = 0; i < pt2; i++) {
-                char* ss_hex = utils_uint8_to_hex((const uint8_t*)sigs[i]->str, sigs[i]->len);
-                printf("zk_carrier_part_scriptsig[%u]: %s\n", (unsigned)i, ss_hex ? ss_hex : "");
-                cstr_free(sigs[i], true);
-            }
-            dogecoin_free(sigs);
-        }
-
-        dogecoin_free(tx_out_hex);
-        cstr_free(tx_out, true);
-        cstr_free(carrier_spk, true);
-        dogecoin_free(payload);
-        dogecoin_tx_free(tx);
-    }
-    else if (strcmp(cmd, "zk_extract_carrier") == 0) {
-        // ./such -c zk_extract_carrier -x <tx_r_hex>
-        if (!txhex) return showError("Missing -x <tx_r_hex>\n");
-        if ((strlen(txhex) % 2) != 0) return showError("tx hex must be even-length\n");
-        size_t bin_len = strlen(txhex) / 2;
-        uint8_t* bin = dogecoin_malloc(bin_len + 1);
-        size_t outlen = 0;
-        utils_hex_to_bin(txhex, bin, strlen(txhex), &outlen);
-        dogecoin_tx* tx = dogecoin_tx_new();
-        if (!dogecoin_tx_deserialize(bin, outlen, tx, NULL)) {
-            dogecoin_free(bin);
-            dogecoin_tx_free(tx);
-            return showError("Invalid tx hex\n");
-        }
-        dogecoin_free(bin);
-
-        uint8_t* payload = NULL;
-        size_t payload_len = 0;
-        dogecoin_zk_err_t e = dogecoin_zk_extract_carrier_payload(tx, &payload, &payload_len);
-        if (e != DOGECOIN_ZK_OK) {
-            dogecoin_tx_free(tx);
-            return showError(dogecoin_zk_strerror(e));
-        }
-        char* hex = dogecoin_malloc(payload_len * 2 + 1);
-        utils_bin_to_hex(payload, payload_len, hex);
-
-        dogecoin_zk_mode_t mode;
-        uint32_t cid;
-        const uint8_t* pi; size_t pi_len;
-        const uint8_t* prf; size_t prf_len;
-        const uint8_t* vk_ptr = NULL; size_t vk_len = 0;
-        e = dogecoin_zk_decode_payload(payload, payload_len, &mode, &cid,
-                                       &pi, &pi_len, &prf, &prf_len,
-                                       &vk_ptr, &vk_len);
-
-        printf("zk_payload: %s\n", hex);
-        printf("zk_payload_len: %zu\n", payload_len);
-        if (e == DOGECOIN_ZK_OK) {
-            printf("zk_mode: %u\n", (unsigned)mode);
-            printf("zk_circuit_id: 0x%08x\n", (unsigned)cid);
-            printf("zk_public_inputs_len: %zu\n", pi_len);
-            printf("zk_proof_len: %zu\n", prf_len);
-            printf("zk_vk_len: %zu\n", vk_len);
-            if (vk_len > 0) {
-                /* v1 self-contained reveal: emit the vk bytes verbatim so
-                 * downstream tooling (snarkjs verify) can validate the proof
-                 * using only data extracted from the on-chain reveal. */
-                char* vk_hex = dogecoin_malloc(vk_len * 2 + 1);
-                utils_bin_to_hex((uint8_t*)vk_ptr, vk_len, vk_hex);
-                printf("zk_vk_hex: %s\n", vk_hex);
-                dogecoin_free(vk_hex);
-            }
-        }
-        dogecoin_free(hex);
-        dogecoin_free(payload);
         dogecoin_tx_free(tx);
     }
 #endif

@@ -1877,6 +1877,9 @@ func main() {
 	publicMux.HandleFunc("/api/public/core/summary", a.withRateLimit(a.withPublicAccess(a.publicCoreSummary)))
 	publicMux.HandleFunc("/api/public/core/recent-txs", a.withRateLimit(a.withPublicAccess(a.publicCoreRecentTxs)))
 	publicMux.HandleFunc("/api/public/core/recent-blocks", a.withRateLimit(a.withPublicAccess(a.publicCoreRecentBlocks)))
+	// Legacy Next.js export paths (same payloads; trailing slash handled by normalizeTrailingSlash).
+	publicMux.HandleFunc("/api/public/pq/analytics", a.withRateLimit(a.publicPQAnalytics))
+	publicMux.HandleFunc("/api/public/network-overview", a.withRateLimit(a.publicNetworkOverview))
 	publicMux.HandleFunc("/admin/", func(w http.ResponseWriter, r *http.Request) {
 		if !a.adminIPAllowed(r) {
 			http.NotFound(w, r)
@@ -1984,6 +1987,6 @@ func main() {
 	publicAddr := ":" + strconv.Itoa(a.cfg.HTTPPort)
 	log.Printf("[quantum-explorer] public listening on %s network=%s", publicAddr, a.cfg.Network)
 	log.Printf("[quantum-explorer] admin UI path tokenized: /admin/<TOKEN>")
-	handler := withRequestLogging(withSecurityHeaders(publicMux))
+	handler := withRequestLogging(withSecurityHeaders(normalizeTrailingSlash(publicMux)))
 	log.Fatal(http.ListenAndServe(publicAddr, handler))
 }

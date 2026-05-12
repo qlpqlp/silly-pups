@@ -70,6 +70,24 @@ func withSecurityHeaders(next http.Handler) http.Handler {
 	})
 }
 
+// normalizeTrailingSlash strips a single trailing '/' from the request path so
+// clients that use trailingSlash URLs (e.g. Next.js static export) still match
+// HandleFunc patterns registered without a trailing slash.
+func normalizeTrailingSlash(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := r.URL.Path
+		if len(p) > 1 && p[len(p)-1] == '/' {
+			r2 := r.Clone(r.Context())
+			u := *r.URL
+			u.Path = strings.TrimSuffix(p, "/")
+			r2.URL = &u
+			next.ServeHTTP(w, r2)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func withRequestLogging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()

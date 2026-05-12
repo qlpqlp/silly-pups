@@ -541,6 +541,63 @@ func (a *app) publicCoreRecentBlocks(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// publicPQAnalytics is a compact PQ aggregate feed for legacy Next.js pages (charts / post-quantum).
+func (a *app) publicPQAnalytics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	a.mu.RLock()
+	net := strings.ToLower(strings.TrimSpace(a.cfg.Network))
+	a.mu.RUnlock()
+	out := map[string]any{
+		"app_version": qeAppVersion,
+		"network":     net,
+	}
+	if a.cidx != nil {
+		out["pq_totals"] = a.cidx.pqAggregates(ctx)
+		out["indexer"] = a.cidx.summary(ctx)
+		if txc, txr, err := a.cidx.pqPhase1RoleCounts(ctx); err == nil {
+			out["pq_phase1_roles"] = map[string]int64{"committed_tx_c": txc, "revealed_tx_r": txr}
+		}
+	} else {
+		out["note"] = "core indexer unavailable (requires postgres + QE_POSTGRES_URL)"
+	}
+	writeJSON(w, 200, out)
+}
+
+// publicNetworkOverview exposes chain tip vs indexer progress for dashboards (legacy Next.js + API clients).
+func (a *app) publicNetworkOverview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	a.mu.RLock()
+	net := strings.ToLower(strings.TrimSpace(a.cfg.Network))
+	a.mu.RUnlock()
+	out := map[string]any{
+		"network": net,
+	}
+	if a.cidx != nil {
+		out["indexer"] = a.cidx.summary(ctx)
+	}
+	if a.core != nil && a.core.enabled() {
+		var bc map[string]any
+		if err := a.core.call(ctx, "getblockchaininfo", []any{}, &bc); err == nil {
+			out["blockchaininfo"] = bc
+		}
+		var mem map[string]any
+		if err := a.core.call(ctx, "getmempoolinfo", []any{}, &mem); err == nil {
+			out["mempoolinfo"] = mem
+		}
+	}
+	writeJSON(w, 200, out)
+}
+
 func (a *app) adminStartCoreIndexer(w http.ResponseWriter) {
 	if a.cidx == nil {
 		writeJSON(w, 503, map[string]string{"error": "core indexer unavailable"})

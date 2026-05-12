@@ -161,26 +161,23 @@ function initPin4Inputs() {
   });
 }
 
-async function ensurePinForSensitiveAction(actionLabel) {
+/**
+ * Sealed wallets: prompt for PIN to send in sensitive API bodies (server re-verifies each request).
+ * Plaintext wallets: no PIN; returns empty string for optional JSON fields.
+ * @returns {{ ok: boolean, pin: string }}
+ */
+async function getPinForSensitiveAction(actionLabel) {
   try {
     const sec = await api("/api/security/status");
     const sealed = !!(sec && sec.sealed);
-    if (!sealed) return true;
+    if (!sealed) return { ok: true, pin: "" };
     const promptLabel = actionLabel || "this action";
     const pin = await promptPinModal("Wallet PIN required", `Enter wallet PIN to authorize ${promptLabel}.`);
-    if (pin == null) return false;
-    const res = await api("/api/security/unlock", {
-      method: "POST",
-      body: JSON.stringify({ pin }),
-    });
-    if (!res || res.error) {
-      alert((res && res.error) ? String(res.error) : "Could not verify PIN.");
-      return false;
-    }
-    return true;
+    if (pin == null) return { ok: false, pin: "" };
+    return { ok: true, pin: String(pin).trim() };
   } catch (e) {
-    alert(e && e.message ? e.message : "Could not verify PIN.");
-    return false;
+    alert(e && e.message ? e.message : "Could not read wallet security status.");
+    return { ok: false, pin: "" };
   }
 }
 
@@ -1968,9 +1965,11 @@ function renderAddresses(w) {
         '<span class="material-symbols-outlined btn-ico" aria-hidden="true">star</span>Set primary';
       bPrim.addEventListener("click", async (e) => {
         e.stopPropagation();
+        const auth = await getPinForSensitiveAction("changing primary address");
+        if (!auth.ok) return;
         const r = await api("/api/wallet/primary", {
           method: "POST",
-          body: JSON.stringify({ id: a.id }),
+          body: JSON.stringify({ id: a.id, pin: auth.pin }),
         });
         if (r.error) alert(r.error);
         await refreshWallet();
@@ -1985,9 +1984,11 @@ function renderAddresses(w) {
         e.stopPropagation();
         const typed = prompt(`Type this address to confirm removal:\n\n${a.p2pkh_address || ""}`);
         if (typed == null) return;
+        const auth = await getPinForSensitiveAction("removing an address");
+        if (!auth.ok) return;
         const r = await api("/api/wallet/addresses/" + encodeURIComponent(a.id), {
           method: "DELETE",
-          body: JSON.stringify({ confirm_address: typed.trim() }),
+          body: JSON.stringify({ confirm_address: typed.trim(), pin: auth.pin }),
         });
         if (r.error) {
           alert(r.error);
@@ -2484,7 +2485,9 @@ document.getElementById("btn-import").addEventListener("click", async () => {
 });
 
 document.getElementById("btn-new-addr").addEventListener("click", async () => {
-  const data = await api("/api/wallet/addresses", { method: "POST", body: "{}" });
+  const auth = await getPinForSensitiveAction("generating a new address");
+  if (!auth.ok) return;
+  const data = await api("/api/wallet/addresses", { method: "POST", body: JSON.stringify({ pin: auth.pin }) });
   if (data.error) {
     alert(data.error);
     return;
@@ -2523,6 +2526,9 @@ if (btnSpvRb) {
     if (rbLabel) rbLabel.textContent = "Working…";
     try {
       const out = $("spv-rescan-out");
+      const auth = await getPinForSensitiveAction("SPV checkpoint rollback");
+      if (!auth.ok) return;
+      body.pin = auth.pin;
       const res = await api("/api/spv/rescan", { method: "POST", body: JSON.stringify(body) });
       if (out) out.textContent = JSON.stringify(res, null, 2);
       if (res.error) {
@@ -2548,8 +2554,13 @@ if (btnSpvRepairClose) btnSpvRepairClose.addEventListener("click", closeSpvRepai
 
 
 document.getElementById("btn-backup").addEventListener("click", async () => {
-  if (!(await ensurePinForSensitiveAction("backup"))) return;
-  const data = await api("/api/wallet");
+  const auth = await getPinForSensitiveAction("wallet backup download");
+  if (!auth.ok) return;
+  const data = await api("/api/wallet/export", { method: "POST", body: JSON.stringify({ pin: auth.pin }) });
+  if (data.error) {
+    alert(String(data.error));
+    return;
+  }
   if (!data.wallet) return;
   const blob = new Blob([JSON.stringify(data.wallet, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
@@ -2564,11 +2575,12 @@ document.getElementById("delete-confirm").addEventListener("input", (e) => {
 });
 
 document.getElementById("btn-delete").addEventListener("click", async () => {
-  if (!(await ensurePinForSensitiveAction("wallet deletion"))) return;
+  const auth = await getPinForSensitiveAction("wallet deletion");
+  if (!auth.ok) return;
   if (!confirm("Permanently delete wallet and SPV data on this pup?")) return;
   const data = await api("/api/wallet", {
     method: "DELETE",
-    body: JSON.stringify({ confirm: "DELETE" }),
+    body: JSON.stringify({ confirm: "DELETE", pin: auth.pin }),
   });
   if (data.error) {
     alert(data.error);
@@ -2647,9 +2659,11 @@ if (btnCarrierRecover) {
       return;
     }
     if (!confirm("Broadcast recovery spend for this TX_C carrier output back to your wallet?")) return;
+    const auth = await getPinForSensitiveAction("PQ carrier recovery");
+    if (!auth.ok) return;
     if (msg) msg.textContent = "Recovering carrier funds...";
     try {
-      const payload = { tx_c_txid: txid };
+      const payload = { tx_c_txid: txid, pin: auth.pin };
       if (rawHex) payload.tx_c_raw_hex = rawHex;
       const res = await api("/api/pq/carrier/recover", {
         method: "POST",
@@ -2713,7 +2727,8 @@ if (btnSpvRestProbe) {
 });
 
 document.getElementById("btn-send-pq-safe").addEventListener("click", async () => {
-  if (!(await ensurePinForSensitiveAction("transaction send"))) return;
+  const auth = await getPinForSensitiveAction("transaction send");
+  if (!auth.ok) return;
   const btn = document.getElementById("btn-send-pq-safe");
   const out = $("send-pq-out");
   const to_address = document.getElementById("send-to").value.trim();
@@ -2739,7 +2754,14 @@ document.getElementById("btn-send-pq-safe").addEventListener("click", async () =
     const fee_doge_per_kb = getSendFeeDogePerKb();
     const res = await api("/api/send/pq-safe", {
       method: "POST",
-      body: JSON.stringify({ to_address, amount_doge, include_pq_commitment, include_pq_reveal, fee_doge_per_kb }),
+      body: JSON.stringify({
+        to_address,
+        amount_doge,
+        include_pq_commitment,
+        include_pq_reveal,
+        fee_doge_per_kb,
+        pin: auth.pin,
+      }),
       signal: sendSignal,
     });
     const sum = res && res.sendtx_summary ? res.sendtx_summary : null;
@@ -2775,9 +2797,11 @@ document.getElementById("btn-send-pq-safe").addEventListener("click", async () =
 document.getElementById("btn-sign").addEventListener("click", async () => {
   const raw = document.getElementById("raw-hex").value.trim();
   const inputIndex = parseInt(document.getElementById("vin-idx").value, 10) || 0;
+  const auth = await getPinForSensitiveAction("ECDSA transaction signing");
+  if (!auth.ok) return;
   const res = await api("/api/tx/sign", {
     method: "POST",
-    body: JSON.stringify({ raw_hex: raw, input_index: inputIndex, sighash_type: 1 }),
+    body: JSON.stringify({ raw_hex: raw, input_index: inputIndex, sighash_type: 1, pin: auth.pin }),
   });
   $("sign-out").textContent = JSON.stringify(res, null, 2);
   if (res.signed_raw_hex) {
@@ -2789,9 +2813,11 @@ document.getElementById("btn-sign").addEventListener("click", async () => {
 document.getElementById("btn-manual-broadcast").addEventListener("click", async () => {
   const hex = document.getElementById("manual-signed-hex").value.trim();
   const peers = document.getElementById("manual-peers").value.trim();
+  const auth = await getPinForSensitiveAction("transaction broadcast");
+  if (!auth.ok) return;
   const bc = await api("/api/tx/broadcast", {
     method: "POST",
-    body: JSON.stringify({ raw_hex: hex, peers }),
+    body: JSON.stringify({ raw_hex: hex, peers, pin: auth.pin }),
   });
   $("manual-bc-out").textContent = JSON.stringify(bc, null, 2);
 });

@@ -89,6 +89,7 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 		// RollbackHeight is a pointer so JSON rollback_height: 0 is valid (genesis checkpoint).
 		RollbackHeight *int64 `json:"rollback_height"`
 		UseCheckpoint  *bool  `json:"use_checkpoint"`
+		PIN            string `json:"pin"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
@@ -103,6 +104,9 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.requireSealedWalletPINForAction(w, body.PIN) {
+		return
+	}
 	wf, err := s.loadWallet()
 	if err != nil {
 		if errors.Is(err, ErrWalletLocked) {

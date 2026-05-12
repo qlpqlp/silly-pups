@@ -304,6 +304,7 @@ func (s *Server) handlePQCarrierRecover(w http.ResponseWriter, r *http.Request) 
 	var body struct {
 		TxCTxid   string `json:"tx_c_txid"`
 		TxCRawHex string `json:"tx_c_raw_hex"`
+		PIN       string `json:"pin"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	pasted := strings.TrimSpace(body.TxCRawHex)
@@ -313,6 +314,10 @@ func (s *Server) handlePQCarrierRecover(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	s.mu.Lock()
+	if !s.requireSealedWalletPINForAction(w, body.PIN) {
+		s.mu.Unlock()
+		return
+	}
 	wf, err := s.loadWallet()
 	s.mu.Unlock()
 	if err != nil {

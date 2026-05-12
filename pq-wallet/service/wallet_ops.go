@@ -14,7 +14,8 @@ import (
 )
 
 type primaryBody struct {
-	ID string `json:"id"`
+	ID  string `json:"id"`
+	PIN string `json:"pin"`
 }
 
 type spvWatchState struct {
@@ -132,6 +133,32 @@ func (s *Server) loadSPVWatchState() (*spvWatchState, error) {
 	return &st, nil
 }
 
+// requireSealedWalletPINForAction re-verifies the PIN on sensitive requests when wallet.sealed exists.
+// Caller must hold s.mu. On success, decrypts into the session (same as /api/security/unlock) and restarts SPV if needed.
+// Plaintext wallets always succeed (no PIN check). Returns false if an error JSON response was already written.
+func (s *Server) requireSealedWalletPINForAction(w http.ResponseWriter, pin string) bool {
+	if !s.hasSealedWallet() {
+		return true
+	}
+	pin = strings.TrimSpace(pin)
+	if pin == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{
+			"error":       "pin_required",
+			"detail":      `Sealed wallet: include "pin" (4 digits) in the JSON body for this action.`,
+			"need_unlock": false,
+		})
+		return false
+	}
+	if err := s.unlockSealedWallet(pin); err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
+		return false
+	}
+	if s.memWallet != nil {
+		s.startSPVNode(s.memWallet)
+	}
+	return true
+}
+
 func (s *Server) handleWalletDelete(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "DELETE only"})
@@ -139,6 +166,7 @@ func (s *Server) handleWalletDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Confirm string `json:"confirm"`
+		PIN     string `json:"pin"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if strings.TrimSpace(body.Confirm) != "DELETE" {
@@ -147,6 +175,9 @@ func (s *Server) handleWalletDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.requireSealedWalletPINForAction(w, body.PIN) {
+		return
+	}
 	s.stopSPVNode()
 	s.wipeAuxiliaryWalletRuntimeState()
 	s.lockWalletSession()
@@ -289,8 +320,15 @@ func (s *Server) handleWalletNewAddress(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST only"})
 		return
 	}
+	var body struct {
+		PIN string `json:"pin"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.requireSealedWalletPINForAction(w, body.PIN) {
+		return
+	}
 	wf, err := s.loadWallet()
 	if err != nil {
 		if errors.Is(err, ErrWalletLocked) {
@@ -343,6 +381,9 @@ func (s *Server) handleWalletSetPrimary(w http.ResponseWriter, r *http.Request) 
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.requireSealedWalletPINForAction(w, body.PIN) {
+		return
+	}
 	wf, err := s.loadWallet()
 	if err != nil {
 		if errors.Is(err, ErrWalletLocked) {
@@ -382,10 +423,14 @@ func (s *Server) handleWalletDeleteAddress(w http.ResponseWriter, r *http.Reques
 	}
 	var body struct {
 		ConfirmAddress string `json:"confirm_address"`
+		PIN            string `json:"pin"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.requireSealedWalletPINForAction(w, body.PIN) {
+		return
+	}
 	wf, err := s.loadWallet()
 	if err != nil {
 		if errors.Is(err, ErrWalletLocked) {

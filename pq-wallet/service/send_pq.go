@@ -80,6 +80,7 @@ type sendPQSafeBody struct {
 	IncludePQReveal     *bool  `json:"include_pq_reveal"`
 	// FeeDogePerKB is economic fee rate in DOGE per kilobyte (default 0.01). Clamped to [0.001, 1.0] DOGE/kB.
 	FeeDogePerKB string `json:"fee_doge_per_kb"`
+	PIN          string `json:"pin"`
 }
 
 func (s *Server) scriptPubHexForUTXO(wf *WalletFile, u *ExplorerUTXO) (string, error) {
@@ -129,6 +130,10 @@ func (s *Server) handleSendPQSafe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.Lock()
+	if !s.requireSealedWalletPINForAction(w, body.PIN) {
+		s.mu.Unlock()
+		return
+	}
 	wf, err := s.loadWallet()
 	s.mu.Unlock()
 	if err != nil {

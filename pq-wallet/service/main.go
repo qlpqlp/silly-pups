@@ -26,10 +26,10 @@ import (
 var staticFS embed.FS
 
 // pqWalletAppVersion is shown in /api/health, education JSON, and the UI footer (keep in sync with manifest.json).
-const pqWalletAppVersion = "0.0.57"
+const pqWalletAppVersion = "0.0.58"
 
 // pqWalletBuildHash is a release fingerprint (SHA-256 hex of "pq-wallet-<version>"); bump when cutting a release.
-const pqWalletBuildHash = "3ddfebc8b79644f7c45dc147472d65e22a3f8299a738a0795e849345ad128aee"
+const pqWalletBuildHash = "f6b2a3d9c332c208bbf579e8ee1fedc0d8349fd0e205e10ac744bab3ade8573d"
 
 type Server struct {
 	mu                    sync.Mutex
@@ -88,6 +88,45 @@ func (s *Server) handleWalletGet(w http.ResponseWriter, _ *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if wf == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"wallet": nil})
+		return
+	}
+	out := map[string]any{"wallet": wf}
+	if s.hasSealedWallet() {
+		out["wallet"] = wf.redactedAPIView()
+		out["keys_redacted"] = true
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleWalletExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST required"})
+		return
+	}
+	var body struct {
+		PIN string `json:"pin"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.requireSealedWalletPINForAction(w, body.PIN) {
+		return
+	}
+	wf, err := s.loadWallet()
+	if err != nil {
+		if errors.Is(err, ErrWalletLocked) {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "locked", "need_unlock": true})
+			return
+		}
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if wf == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no wallet"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"wallet": wf})
@@ -186,6 +225,7 @@ func main() {
 	mux.HandleFunc("/api/security/seal", srv.handleSecuritySeal)
 	mux.HandleFunc("/api/security/unseal", srv.handleSecurityUnseal)
 	mux.HandleFunc("/api/education", srv.handleEducation)
+	mux.HandleFunc("/api/wallet/export", srv.handleWalletExport)
 	mux.HandleFunc("/api/wallet", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:

@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -43,6 +44,28 @@ type WalletFile struct {
 	HDMasterXPub      string          `json:"hd_master_xpub,omitempty"`
 	HDNextIndex       int             `json:"hd_next_index,omitempty"`
 	HDLastRotateTxID  string          `json:"hd_last_rotate_txid,omitempty"`
+}
+
+// redactedAPIView returns a deep copy with signing / HD seed material stripped for JSON APIs.
+func (w *WalletFile) redactedAPIView() *WalletFile {
+	if w == nil {
+		return nil
+	}
+	b, err := json.Marshal(w)
+	if err != nil {
+		return w
+	}
+	var out WalletFile
+	if err := json.Unmarshal(b, &out); err != nil {
+		return w
+	}
+	out.WIFPrivateKey = ""
+	out.PQPrivateHex = ""
+	out.HDMasterXPrv = ""
+	for i := range out.Addresses {
+		out.Addresses[i].WIF = ""
+	}
+	return &out
 }
 
 func newAddressID() string {

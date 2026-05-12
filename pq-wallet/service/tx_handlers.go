@@ -12,11 +12,13 @@ type signBody struct {
 	RawHex      string `json:"raw_hex"`
 	InputIndex  int    `json:"input_index"`
 	SighashType int    `json:"sighash_type"`
+	PIN         string `json:"pin"`
 }
 
 type broadcastBody struct {
 	RawHex string `json:"raw_hex"`
 	Peers  string `json:"peers"`
+	PIN    string `json:"pin"`
 }
 
 func (s *Server) handleTxSign(w http.ResponseWriter, r *http.Request) {
@@ -34,6 +36,10 @@ func (s *Server) handleTxSign(w http.ResponseWriter, r *http.Request) {
 		body.SighashType = 1
 	}
 	s.mu.Lock()
+	if !s.requireSealedWalletPINForAction(w, body.PIN) {
+		s.mu.Unlock()
+		return
+	}
 	wf, err := s.loadWallet()
 	s.mu.Unlock()
 	if err != nil {
@@ -85,6 +91,10 @@ func (s *Server) handleTxBroadcast(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Lock()
+	if !s.requireSealedWalletPINForAction(w, body.PIN) {
+		s.mu.Unlock()
+		return
+	}
 	wf, _ := s.loadWallet()
 	s.mu.Unlock()
 	testnet := wf != nil && strings.EqualFold(wf.Network, "testnet")

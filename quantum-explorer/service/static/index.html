@@ -1,1738 +1,626 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Quantum Explorer</title>
-  <link rel="icon" href="/logo.png" type="image/png" sizes="any" />
-  <link rel="apple-touch-icon" href="/logo.png" />
+  <title>Quantum Dogecoin Explorer</title>
+  <meta name="theme-color" content="#0b0f14" />
   <link rel="manifest" href="/static/manifest.webmanifest" />
-  <meta name="theme-color" content="#0c121a" />
+  <link rel="icon" href="/logo.png" type="image/png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&display=swap" rel="stylesheet" />
-  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@400" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:ital,wght@0,300;0,400;0,700;1,400&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet" />
   <style>
-    :root { --bg:#0c121a; --card:#121c29; --txt:#eef5ff; --muted:#95a7c2; --doge:#f2cb2c; --line:#26384f; --ok:#41d18e; --warn:#ffb347; --bad:#ff7d7d; }
-    * { box-sizing:border-box; }
-    body { margin:0; font-family:"Comic Neue","Segoe UI",sans-serif; background:
-      radial-gradient(900px 540px at 90% -20%, rgba(61,214,224,.12) 0%, rgba(61,214,224,0) 55%),
-      radial-gradient(900px 540px at -15% -10%, rgba(242,203,44,.1) 0%, rgba(242,203,44,0) 55%),
-      radial-gradient(1000px 600px at 80% -10%,#1d2a3d 0,var(--bg) 60%);
-      color:var(--txt); }
-    .wrap { max-width:1100px; margin:0 auto; padding:1rem; }
-    .hero { display:flex; align-items:flex-start; gap:.75rem; margin:.2rem 0 1rem; }
-    .hero img { width:40px; height:40px; flex:0 0 40px; }
-    .hero-main { min-width:0; flex:1 1 auto; }
-    .hero h1 { margin:0; font-size:clamp(1.02rem, 2.2vw, 1.45rem); letter-spacing:-.02em; line-height:1.15; overflow-wrap:anywhere; }
-    .sub { color:var(--muted); margin:.22rem 0 0; line-height:1.35; overflow-wrap:anywhere; }
-    .grid { display:grid; grid-template-columns:2fr 1fr; gap:.8rem; }
-    .card { background:linear-gradient(180deg, rgba(18,28,41,.94) 0%, rgba(15,24,36,.94) 100%); border:1px solid var(--line); border-radius:14px; padding:.9rem; box-shadow:0 8px 22px rgba(0,0,0,.22); backdrop-filter: blur(2px); }
-    .card h2 { margin:0 0 .6rem; font-size:1.05rem; }
-    .row { display:flex; gap:.5rem; flex-wrap:wrap; }
-    .search-wrap { position:relative; max-width:100%; }
-    .search-wrap input { padding-right:5.3rem; }
-    .search-inside-btn { position:absolute; right:.35rem; top:50%; transform:translateY(-50%); width:2.2rem; height:2.2rem; border-radius:9px; border:1px solid #b48a0f; background:linear-gradient(135deg,var(--doge),#e6a317); color:#1a1408; display:flex; align-items:center; justify-content:center; cursor:pointer; }
-    .search-inside-btn:hover { filter:brightness(1.05); }
-    .search-clear-btn { position:absolute; right:2.85rem; top:50%; transform:translateY(-50%); width:2.1rem; height:2.1rem; border-radius:9px; border:1px solid var(--line); background:#162232; color:var(--muted); display:none; align-items:center; justify-content:center; cursor:pointer; }
-    .search-clear-btn.show { display:flex; }
-    .search-clear-btn:hover, .search-clear-btn:focus-visible { color:var(--txt); border-color:rgba(242,203,44,.45); outline:none; }
-    input,select { background:#0d1622; color:var(--txt); border:1px solid var(--line); border-radius:10px; padding:.6rem .7rem; font:inherit; width:100%; }
-    .btn { border:1px solid var(--line); background:#162232; color:var(--txt); border-radius:10px; padding:.6rem .8rem; font:inherit; cursor:pointer; width:100%; transition:background .15s,border-color .15s,box-shadow .15s,transform .08s; }
-    .btn.primary { background:linear-gradient(135deg,var(--doge),#e6a317); color:#1a1408; border-color:transparent; font-weight:700; }
-    .btn:hover, .btn:focus-visible { background:#1a2b40; border-color:rgba(242,203,44,.55); box-shadow:0 0 0 2px rgba(242,203,44,.16); outline:none; }
-    .btn:active { transform:translateY(1px) scale(.995); }
-    .kpi { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.55rem; }
-    .kpi-card { border:1px solid var(--line); border-radius:12px; padding:.65rem .7rem; background:linear-gradient(180deg,#101b28 0%,#0f1824 100%); }
-    .kpi-label { color:var(--muted); font-size:.74rem; text-transform:uppercase; letter-spacing:.05em; }
-    .kpi-value { display:block; font-size:1.2rem; font-weight:700; margin-top:.15rem; }
-    .kpi-tone-ok { color:var(--ok); }
-    .kpi-tone-warn { color:var(--warn); }
-    .kpi-tone-bad { color:var(--bad); }
-    .kpi-tone-info { color:#9fd6ff; }
-    @media (min-width:980px){ .kpi { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-    .muted { color:var(--muted); font-size:.86rem; }
-    .tx { border:1px solid var(--line); border-radius:12px; padding:.6rem; margin-bottom:.5rem; background:#0f1824; }
-    .headers { margin-top:.6rem; }
-    .head-row { border:1px solid var(--line); border-radius:10px; padding:.45rem .55rem; margin-bottom:.4rem; background:#0f1824; }
-    .mono { font-family:ui-monospace,Consolas,monospace; word-break:break-all; }
-    .badges { display:flex; gap:.35rem; flex-wrap:wrap; margin:.35rem 0; }
-    .badge { border:1px solid var(--line); border-radius:999px; padding:.12rem .5rem; font-size:.72rem; }
-    .pending { color:var(--warn); }
-    .confirmed { color:var(--ok); }
-    .pq-ok { color:#9fd6ff; }
-    .pq-bad { color:var(--bad); }
-    .banner { display:none; background:rgba(255,125,125,.12); border:1px solid rgba(255,125,125,.45); color:#ffc2c2; border-radius:12px; padding:.65rem .75rem; margin-bottom:.75rem; }
-    .banner.show { display:block; }
-    .pq-block { border:2px solid var(--doge); border-radius:16px; overflow:hidden; background:linear-gradient(180deg,#141f2e 0%,#0f1824 100%); box-shadow:0 8px 32px rgba(0,0,0,.35); }
-    .pq-block-head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.6rem; padding:.75rem 1rem; background:linear-gradient(90deg,rgba(242,203,44,.15),transparent); border-bottom:1px solid var(--line); }
-    .pq-block-head h2 { margin:0; font-size:1.1rem; }
-    .pq-block-meta { font-size:.82rem; color:var(--muted); }
-    .pq-block-rows { padding:.35rem 0; }
-    .pq-tx-row { display:block; width:100%; text-align:left; border:none; border-bottom:1px solid var(--line); padding:.72rem .95rem; background:transparent; color:var(--txt); font:inherit; cursor:pointer; transition:background .15s, transform .12s; }
-    .pq-tx-row:last-child { border-bottom:none; }
-    .pq-tx-row:hover, .pq-tx-row:focus-visible { background:rgba(242,203,44,.08); outline:none; transform:translateY(-1px); }
-    .pq-tx-row .mono { font-size:.78rem; opacity:.95; }
-    .pq-tx-row .row-meta { margin-top:.35rem; font-size:.8rem; color:var(--muted); }
-    .modal-backdrop { display:none; position:fixed; inset:0; z-index:200; background:rgba(5,8,12,.78); align-items:flex-start; justify-content:center; padding:1rem; overflow-y:auto; }
-    .modal-backdrop.show { display:flex; }
-    .modal-card { width:100%; max-width:720px; margin:2vh auto; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:1rem 1.1rem; max-height:90vh; overflow:auto; box-shadow:0 16px 48px rgba(0,0,0,.5); scrollbar-width:thin; scrollbar-color:#2d4564 #101a27; }
-    .modal-card::-webkit-scrollbar { width:10px; height:10px; }
-    .modal-card::-webkit-scrollbar-track { background:#101a27; border-radius:999px; }
-    .modal-card::-webkit-scrollbar-thumb { background:linear-gradient(180deg,#2d4564,#1f3147); border-radius:999px; border:2px solid #101a27; }
-    .modal-card h2 { margin:0 0 .5rem; font-size:1.15rem; }
-    .modal-topbar { display:flex; justify-content:flex-end; align-items:center; gap:.45rem; margin-bottom:.45rem; flex-wrap:wrap; }
-    .modal-close { border:1px solid var(--line); background:#162232; color:var(--txt); border-radius:10px; padding:.35rem .75rem; font:inherit; cursor:pointer; transition:background .15s,border-color .15s,box-shadow .15s,transform .08s; }
-    .modal-close:hover, .modal-close:focus-visible { background:#1a2b40; border-color:rgba(242,203,44,.55); box-shadow:0 0 0 2px rgba(242,203,44,.16); outline:none; }
-    .modal-close:active { transform:translateY(1px) scale(.995); }
-    .detail-section { margin:.85rem 0; padding-top:.75rem; border-top:1px solid var(--line); }
-    .detail-section h3 { margin:0 0 .45rem; font-size:.95rem; color:var(--muted); font-weight:600; }
-    .detail-kv { font-size:.86rem; margin:.25rem 0; }
-    .detail-kv strong { color:var(--muted); font-weight:600; margin-right:.35rem; }
-    .out-row { border:1px solid var(--line); border-radius:10px; padding:.5rem .55rem; margin-bottom:.4rem; background:#0f1824; font-size:.82rem; }
-    .head-row.clickable { cursor:pointer; transition:background .15s,border-color .15s; }
-    .head-row.clickable:hover, .head-row.clickable:focus-visible { background:rgba(242,203,44,.1); border-color:rgba(242,203,44,.45); outline:none; }
-    .edu-callout { font-size:.8rem; color:var(--muted); background:rgba(159,214,255,.06); border:1px solid var(--line); border-radius:10px; padding:.55rem .65rem; margin:.45rem 0; line-height:1.45; }
-    .io-grid { display:grid; gap:.45rem; }
-    @media (min-width:560px){ .io-grid.two { grid-template-columns:1fr 1fr; } }
-    .tx-io-card { border:1px solid var(--line); border-radius:12px; padding:.55rem .65rem; background:#0f1824; font-size:.82rem; }
-    .tx-io-card strong { color:var(--doge); font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; }
-    .metric-row { border:1px solid var(--line); border-radius:10px; padding:.5rem .6rem; margin-bottom:.4rem; background:#0f1824; }
-    .metric-bar-wrap { display:grid; grid-template-columns:1fr 1fr; gap:.35rem; margin-top:.35rem; }
-    .metric-bar { height:10px; border-radius:999px; background:#1f2f44; overflow:hidden; }
-    .metric-bar > span { display:block; height:100%; }
-    .metric-bar.quantum > span { background:#63c7ff; }
-    .metric-bar.nonq > span { background:#ff8f8f; }
-    .range-toolbar { display:flex; flex-wrap:wrap; gap:.4rem; margin:.35rem 0 .6rem; }
-    .range-chip { border:1px solid var(--line); background:#0f1824; color:var(--muted); border-radius:999px; padding:.3rem .62rem; font:inherit; font-size:.78rem; cursor:pointer; }
-    .range-chip.active { color:var(--txt); border-color:rgba(242,203,44,.6); background:rgba(242,203,44,.14); }
-    .wave-card { border:1px solid var(--line); border-radius:12px; background:#0f1824; padding:.55rem .6rem; margin-bottom:.45rem; }
-    .wave-head { display:flex; justify-content:space-between; font-size:.78rem; margin-bottom:.35rem; color:var(--muted); }
-    .chart-canvas-wrap { position:relative; width:100%; height:140px; }
-    .chart-canvas-wrap canvas { max-height:140px; }
-    .docs-btn { display:inline-flex; align-items:center; gap:.35rem; width:auto; padding:.45rem .7rem; }
-    .docs-btn .material-symbols-outlined { font-size:18px; line-height:1; }
-    .install-btn { display:none; }
-    .hero-actions { margin-left:auto; display:flex; align-items:center; gap:.55rem; flex-wrap:wrap; justify-content:flex-end; }
-    .doge-foundation-logo { height:auto; width:100px !important; filter:invert(1); opacity:.94; }
-    .site-footer { margin:1rem 0 .2rem; display:flex; justify-content:space-between; align-items:center; gap:.75rem; flex-wrap:wrap; color:var(--muted); font-size:.86rem; }
-    .footer-left { flex:1 1 auto; min-width:0; text-align:left; }
-    .footer-version { flex:0 0 auto; margin-left:auto; text-align:right; font-size:.78rem; letter-spacing:.02em; opacity:.92; }
-    @media (max-width:520px){
-      .site-footer { flex-direction:column; align-items:stretch; }
-      .footer-version { margin-left:0; align-self:flex-end; text-align:right; }
+    :root {
+      --bg: #0b0f14;
+      --bg2: #121922;
+      --card: #161f2c;
+      --text: #e9f0fa;
+      --muted: #8a9bb3;
+      --accent: #d4b84a;
+      --doge: #f2cb2c;
+      --border: #273447;
+      --danger: #c44c4c;
+      --ok: #3ecf8e;
+      --sidebar-w: 260px;
+      --input-bg: #0e141c;
     }
-    .title-icon { font-size:18px; vertical-align:middle; margin-right:.35rem; color:var(--doge); }
-    .btn-ico { display:inline-flex; align-items:center; gap:.3rem; }
-    .btn-ico .material-symbols-outlined { font-size:17px; line-height:1; }
-    .tx-type-ico { font-size:16px; vertical-align:middle; margin-right:.25rem; }
-    .docs-modal { display:none; position:fixed; inset:0; z-index:260; background:rgba(5,8,12,.8); padding:1rem; overflow-y:auto; }
-    .docs-modal.show { display:block; }
-    .docs-panel { max-width:980px; margin:2vh auto; background:linear-gradient(180deg,#122033 0%, #101a29 100%); border:1px solid var(--line); border-radius:18px; box-shadow:0 18px 54px rgba(0,0,0,.5); }
-    .docs-head { display:flex; justify-content:space-between; align-items:center; gap:.6rem; padding:.85rem 1rem; border-bottom:1px solid var(--line); background:linear-gradient(90deg,rgba(242,203,44,.18),transparent); }
-    .docs-brand { width:28px; height:28px; border-radius:8px; border:1px solid var(--line); background:#0b121a; object-fit:cover; vertical-align:middle; margin-right:.45rem; }
-    .docs-grid { display:grid; grid-template-columns:1.1fr .9fr; gap:.8rem; padding:1rem; }
-    .docs-card { border:1px solid var(--line); border-radius:12px; background:#0f1824; padding:.75rem .8rem; }
-    .docs-card h3 { margin:.15rem 0 .45rem; color:var(--doge); font-size:.95rem; }
-    .docs-card p, .docs-card li { color:var(--muted); font-size:.83rem; line-height:1.45; }
-    .docs-card ul { margin:.25rem 0 .25rem 1rem; padding:0; }
-    .docs-links a { color:#9fd6ff; text-decoration:none; }
-    .docs-links a:hover { text-decoration:underline; }
-    .docs-step { border-left:3px solid rgba(242,203,44,.45); padding-left:.55rem; margin:.45rem 0; }
-    .tx-tabs { margin-top:.6rem; }
-    .tx-tab-buttons { display:flex; flex-wrap:wrap; gap:.4rem; margin:.5rem 0 .65rem; }
-    .tx-tab-btn { border:1px solid var(--line); background:#132030; color:var(--muted); border-radius:999px; padding:.3rem .62rem; font:inherit; font-size:.8rem; cursor:pointer; }
-    .tx-tab-btn.active { color:var(--txt); background:rgba(242,203,44,.12); border-color:rgba(242,203,44,.45); }
-    .tx-tab-pane { display:none; }
-    .tx-tab-pane.active { display:block; }
-    @media (max-width:900px){ .docs-grid { grid-template-columns:1fr; } }
-    @media (max-width:900px){ .grid { grid-template-columns:1fr; } }
-    @media (max-width:780px){
-      .hero { align-items:flex-start; gap:.52rem; margin:.05rem 0 .72rem; }
-      .hero-main { flex:1 1 100%; }
-      .hero h1 { font-size:clamp(.96rem, 4.7vw, 1.18rem); line-height:1.16; }
-      .sub { font-size:clamp(.72rem, 3.25vw, .82rem); margin-top:.12rem; }
-      .hero-actions { width:100%; margin-left:0; justify-content:flex-start; gap:.4rem; }
-      .doge-foundation-logo { width:74px !important; }
+    .material-symbols-outlined { font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24; vertical-align: middle; }
+    .icon-inline { font-size: 1.25rem !important; margin-right: 0.25rem; vertical-align: -0.25rem; }
+    .btn-ico { font-size: 1.15rem !important; vertical-align: -0.2rem; margin-right: 0.15rem; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Comic Neue", "Comic Sans MS", "Segoe UI", cursive, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; min-height: 100vh; }
+    a { color: var(--doge); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .app { display: flex; min-height: 100vh; }
+    .sidebar {
+      width: var(--sidebar-w); min-height: 100vh; position: sticky; top: 0; align-self: flex-start;
+      background: linear-gradient(180deg, #121a26 0%, #0d1218 100%); border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; flex-shrink: 0;
     }
-    @media (max-width:520px){
-      .hero { margin:0 0 .6rem; gap:.42rem; }
-      .hero img { width:30px; height:30px; flex-basis:30px; margin-top:.08rem; }
-      .hero h1 { font-size:clamp(.9rem, 5.15vw, 1.02rem); letter-spacing:-.015em; }
-      .sub { font-size:clamp(.68rem, 3.45vw, .74rem); margin-top:.08rem; }
-      .docs-btn { padding:.34rem .52rem; font-size:.78rem; }
-      .search-wrap input { padding:.56rem 2.55rem .56rem .62rem; font-size:.92rem; }
-      .search-inside-btn { width:2.02rem; height:2.02rem; right:.28rem; border-radius:8px; }
+    .sidebar-brand { display: flex; align-items: center; gap: 0.65rem; padding: 1rem 0.85rem; border-bottom: 1px solid var(--border); }
+    .sidebar-logo { width: 36px; height: 36px; border-radius: 10px; }
+    .sidebar-titles { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+    .sidebar-name { font-weight: 700; font-size: 1.02rem; line-height: 1.2; }
+    .sidebar-sub { font-size: 0.78rem; color: var(--muted); }
+    .sidebar-nav { display: flex; flex-direction: column; padding: 0.5rem 0.35rem; gap: 0.15rem; flex: 1; }
+    .nav-item {
+      display: flex; align-items: center; gap: 0.5rem; width: 100%; text-align: left;
+      border: none; background: transparent; color: var(--text); font: inherit; cursor: pointer;
+      border-radius: 10px; padding: 0.55rem 0.65rem; transition: background 0.15s;
     }
-    @media (max-width:420px){
-      .hero-actions { gap:.35rem; }
-      .hero h1 { max-width:100%; }
-      .doge-foundation-logo { width:66px !important; }
+    .nav-item:hover, .nav-item:focus-visible { background: rgba(212, 184, 74, 0.12); outline: none; }
+    .nav-item.active { background: rgba(212, 184, 74, 0.2); color: var(--doge); }
+    .nav-ico { font-size: 1.35rem !important; opacity: 0.95; }
+    .sidebar-foot { padding: 0.75rem; border-top: 1px solid var(--border); }
+    .sidebar-foundation { display: block; opacity: 0.9; }
+    .sidebar-foundation-logo { width: 100%; max-width: 180px; height: auto; display: block; }
+    .main-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 100vh; }
+    .topbar {
+      display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border); background: var(--bg2); position: sticky; top: 0; z-index: 30;
     }
-    @media (max-width:780px){
-      .hero-main { min-width:0; }
-      .hero h1 {
-        white-space:nowrap;
-        overflow:hidden;
-        text-overflow:ellipsis;
-      }
+    .topbar-titles { flex: 1; min-width: 0; }
+    .page-title-row { margin: 0; font-size: 1.15rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; }
+    .page-sub { margin: 0.15rem 0 0; font-size: 0.82rem; color: var(--muted); }
+    .content { flex: 1; padding: 1rem; max-width: 1180px; margin: 0 auto; width: 100%; }
+    .footer {
+      margin-top: auto; padding: 0.85rem 1rem; border-top: 1px solid var(--border); color: var(--muted);
+      font-size: 0.85rem; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem;
+      background: var(--bg2);
     }
-    .search-hero-label { font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:0 0 .35rem; }
-    .search-hints { font-size:.8rem; color:var(--muted); margin:.45rem 0 0; line-height:1.5; }
-    
-    .result-card { border:1px solid var(--line); border-radius:14px; padding:.85rem 1rem; margin-top:.65rem; background:linear-gradient(180deg,#131c2a 0%,#0f1824 100%); transition:background .15s,border-color .15s,box-shadow .15s,transform .08s; }
-    .result-card.clickable { cursor:pointer; }
-    .result-card.clickable:hover, .result-card.clickable:focus-visible { background:linear-gradient(180deg,#172437 0%,#111c2b 100%); border-color:rgba(242,203,44,.45); box-shadow:0 8px 24px rgba(0,0,0,.22); outline:none; }
-    .result-card.clickable:active { transform:translateY(1px) scale(.997); }
-    .result-card h3 { margin:0 0 .5rem; font-size:.95rem; font-weight:700; display:flex; align-items:center; gap:.4rem; }
-    .result-actions { display:flex; flex-wrap:wrap; gap:.45rem; margin-top:.65rem; }
-    .btn-inline { width:auto; padding:.45rem .75rem; font-size:.86rem; }
-    .addr-list-modern { display:grid; gap:.5rem; margin-top:.5rem; }
-    .addr-row-card { border:1px solid var(--line); border-radius:12px; padding:.55rem .65rem; background:#0f1824; transition:background .15s,border-color .15s,box-shadow .15s,transform .08s; }
-    .addr-row-card.clickable { cursor:pointer; }
-    .addr-row-card.clickable:hover, .addr-row-card.clickable:focus-visible { background:#132133; border-color:rgba(242,203,44,.4); box-shadow:0 6px 18px rgba(0,0,0,.2); outline:none; }
-    .addr-row-card.clickable:active { transform:translateY(1px) scale(.997); }
-    .addr-row-head { display:flex; align-items:center; justify-content:space-between; gap:.4rem; margin-bottom:.3rem; }
-    .addr-row-meta { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:.35rem .45rem; }
-    .addr-row-meta div { font-size:.78rem; border:1px solid var(--line); border-radius:8px; background:#111b29; padding:.3rem .4rem; }
-    .addr-row-meta strong { display:block; color:var(--muted); font-size:.64rem; text-transform:uppercase; letter-spacing:.04em; margin-bottom:.12rem; }
-    .link-tx { background:none; border:none; color:#9fd6ff; font:inherit; cursor:pointer; text-decoration:underline; padding:0; font-size:inherit; }
-    .modal-card.modal-wide { max-width:960px; }
-    .pq-hero { border-radius:14px; padding:.85rem 1rem; margin:0 0 1rem; display:flex; align-items:flex-start; gap:.75rem; border:1px solid var(--line); }
-    .pq-hero .material-symbols-outlined { font-size:28px; margin-top:.1rem; }
-    .pq-hero.quantum { background:linear-gradient(135deg,rgba(65,209,142,.22),rgba(15,24,36,.9)); border-color:rgba(65,209,142,.55); }
-    .pq-hero.invalid { background:linear-gradient(135deg,rgba(255,143,143,.14),rgba(15,24,36,.9)); border-color:rgba(255,143,143,.4); }
-    .pq-hero.standard { background:linear-gradient(135deg,rgba(149,167,194,.12),rgba(15,24,36,.9)); }
-    .pq-hero h3 { margin:0 0 .2rem; font-size:1.05rem; }
-    .pq-hero p { margin:0; font-size:.84rem; color:var(--muted); line-height:1.45; }
-    .tx-kv-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:.5rem; margin:.65rem 0; font-size:.84rem; }
-    .tx-kv-grid > div { padding:.45rem .5rem; border-radius:10px; border:1px solid var(--line); background:#0f1824; }
-    .tx-kv-grid strong { display:block; font-size:.68rem; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin-bottom:.15rem; }
-    .block-tx-grid { display:grid; gap:.55rem; margin-top:.65rem; }
-    .block-tx-card { border:1px solid var(--line); border-radius:14px; padding:.7rem .75rem; background:#0f1824; box-shadow:0 6px 20px rgba(0,0,0,.2); transition:background .15s,border-color .15s,box-shadow .15s,transform .08s; }
-    .block-tx-card.row-pq { box-shadow:inset 3px 0 0 rgba(99,199,255,.75), 0 6px 20px rgba(0,0,0,.2); }
-    .block-tx-card.blk-tx-open:hover, .block-tx-card.blk-tx-open:focus-visible { background:#132133; border-color:rgba(242,203,44,.45); box-shadow:0 10px 24px rgba(0,0,0,.28); outline:none; }
-    .block-tx-card.blk-tx-open:active { transform:translateY(1px) scale(.997); }
-    .block-tx-head { display:flex; justify-content:space-between; align-items:flex-start; gap:.45rem; margin-bottom:.35rem; }
-    .block-tx-head .mono { font-size:.76rem; line-height:1.35; word-break:break-all; }
-    .block-tx-meta { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:.35rem .5rem; margin:.45rem 0; }
-    .block-tx-meta div { border:1px solid var(--line); border-radius:10px; padding:.35rem .45rem; background:#111b29; font-size:.78rem; }
-    .block-tx-meta strong { display:block; color:var(--muted); font-size:.66rem; text-transform:uppercase; letter-spacing:.04em; margin-bottom:.12rem; }
-    .block-tx-actions { display:flex; justify-content:flex-end; margin-top:.35rem; }
-    .section-more { margin:.65rem .9rem .9rem; display:flex; justify-content:center; }
-    .section-more .btn { width:100%; min-width:0; }
-    .json-details-search { margin-top:.55rem; }
-    .json-details-search summary { cursor:pointer; color:var(--muted); font-size:.82rem; }
+    .footer-version { font-family: ui-monospace, monospace; font-size: 0.78rem; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 1rem; margin-bottom: 1rem; }
+    .card h2 { margin: 0 0 0.65rem; font-size: 1.05rem; display: flex; align-items: center; gap: 0.35rem; }
+    .grid-kpi { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.65rem; }
+    .kpi {
+      background: var(--input-bg); border: 1px solid var(--border); border-radius: 12px; padding: 0.65rem 0.75rem;
+    }
+    .kpi-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+    .kpi-value { font-size: 1.18rem; font-weight: 700; margin-top: 0.2rem; color: var(--text); word-break: break-word; }
+    .kpi-value.accent { color: var(--doge); }
+    .kpi-value.ok { color: var(--ok); }
+    .muted { color: var(--muted); font-size: 0.86rem; }
+    .mono { font-family: ui-monospace, Consolas, monospace; font-size: 0.82rem; word-break: break-all; }
+    .field { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.75rem; }
+    .field-label { font-size: 0.82rem; color: var(--muted); }
+    .input-modern {
+      width: 100%; padding: 0.6rem 0.75rem; border-radius: 10px; border: 1px solid var(--border);
+      background: var(--input-bg); color: var(--text); font: inherit;
+    }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem;
+      padding: 0.55rem 0.9rem; border-radius: 10px; border: 1px solid var(--border); background: #1a2638;
+      color: var(--text); font: inherit; cursor: pointer;
+    }
+    .btn.primary { background: linear-gradient(135deg, var(--doge), #e6a317); color: #1a1408; border-color: transparent; font-weight: 700; }
+    .btn:hover { filter: brightness(1.06); }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.5rem; }
+    .badge { display: inline-block; padding: 0.12rem 0.45rem; border-radius: 999px; font-size: 0.72rem; border: 1px solid var(--border); }
+    .badge-pq { border-color: rgba(242, 203, 44, 0.55); color: var(--doge); }
+    .badge-ok { border-color: var(--ok); color: var(--ok); }
+    .badge-warn { border-color: #ffb347; color: #ffb347; }
+    .badge-bad { border-color: var(--danger); color: #ff9b9b; }
+    table.data { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+    table.data th, table.data td { border-bottom: 1px solid var(--border); padding: 0.45rem 0.35rem; text-align: left; vertical-align: top; }
+    table.data th { color: var(--muted); font-weight: 600; font-size: 0.78rem; }
+    .tx-row { cursor: pointer; }
+    .tx-row:hover { background: rgba(212, 184, 74, 0.06); }
+    .err-banner { background: rgba(196, 76, 76, 0.15); border: 1px solid rgba(196, 76, 76, 0.45); color: #ffc8c8; border-radius: 12px; padding: 0.75rem; margin-bottom: 1rem; }
+    .link-row { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.5rem; }
+    pre.json { background: #0a1018; border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem; overflow: auto; max-height: 52vh; font-size: 0.78rem; }
+    .mobile-menu-btn { display: none; }
+    @media (max-width: 900px) {
+      .sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 50; transform: translateX(-102%); transition: transform 0.2s; box-shadow: 4px 0 24px rgba(0,0,0,0.4); }
+      .sidebar.open { transform: translateX(0); }
+      .mobile-menu-btn { display: inline-flex; }
+    }
+    .backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 40; }
+    .backdrop.show { display: block; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="banner" id="runtime-error-banner"></div>
-    <div class="hero">
-      <a href="/" id="home-logo-link" aria-label="Go to home"><img src="/logo.png" alt="" /></a>
-      <div class="hero-main">
-        <h1>Dogecoin Quantum Explorer</h1>
-        <p class="sub">Explore blockchain data</p>
+  <div class="backdrop" id="sidebar-backdrop" aria-hidden="true"></div>
+  <div class="app">
+    <aside class="sidebar" id="sidebar" aria-label="Explorer navigation">
+      <div class="sidebar-brand">
+        <img src="/logo.png" alt="" class="sidebar-logo" width="36" height="36" />
+        <div class="sidebar-titles">
+          <span class="sidebar-name">Quantum Explorer</span>
+          <span class="sidebar-sub">Post-quantum aware</span>
+        </div>
       </div>
-      <div class="hero-actions">
-        <button type="button" class="btn docs-btn" id="btn-user-docs" title="Open educational documentation">
-          <span class="material-symbols-outlined" aria-hidden="true">school</span>
-          <span>Docs</span>
+      <nav class="sidebar-nav">
+        <button type="button" class="nav-item active" data-route="home">
+          <span class="material-symbols-outlined nav-ico" aria-hidden="true">explore</span>
+          <span>Home</span>
         </button>
-        <button type="button" class="btn docs-btn install-btn" id="btn-install-app" title="Install Quantum Explorer app">
-          <span class="material-symbols-outlined" aria-hidden="true">download</span>
-          <span>Install App</span>
+        <button type="button" class="nav-item" data-route="mempool">
+          <span class="material-symbols-outlined nav-ico" aria-hidden="true">pending</span>
+          <span>Mempool</span>
         </button>
-        <a href="https://foundation.dogecoin.com" target="_blank" rel="noopener" aria-label="Dogecoin Foundation">
-          <img src="https://lib.dogecoin.org/img/dogecoin-foundation.svg" class="doge-foundation-logo" alt="Dogecoin Foundation logo" />
+        <button type="button" class="nav-item" data-route="api">
+          <span class="material-symbols-outlined nav-ico" aria-hidden="true">api</span>
+          <span>Public API</span>
+        </button>
+      </nav>
+      <div class="sidebar-foot">
+        <a class="sidebar-foundation" href="https://foundation.dogecoin.com/" target="_blank" rel="noopener noreferrer" title="Dogecoin Foundation">
+          <img src="https://lib.dogecoin.org/img/dogecoin-foundation.svg" alt="Dogecoin Foundation" class="sidebar-foundation-logo" />
         </a>
       </div>
+    </aside>
+
+    <div class="main-wrap">
+      <header class="topbar">
+        <button type="button" class="btn mobile-menu-btn" id="btn-sidebar" aria-label="Open menu">
+          <span class="material-symbols-outlined">menu</span>
+        </button>
+        <div class="topbar-titles">
+          <h1 class="page-title-row" id="page-title">
+            <span class="material-symbols-outlined icon-inline" id="page-ico" aria-hidden="true">explore</span>
+            <span id="page-title-text">Dashboard</span>
+          </h1>
+          <p class="page-sub" id="page-sub">Dogecoin Core + local index · Phase-1 PQ commitments (BIP draft)</p>
+        </div>
+      </header>
+
+      <main class="content" id="main"></main>
+
+      <footer class="footer">
+        <span>Coded with love to all Dogecoin Community</span>
+        <span class="footer-version" id="footer-version" title="Quantum Explorer">—</span>
+      </footer>
     </div>
-
-    <div class="grid">
-      <section class="card">
-        <p class="search-hero-label">Explorer search</p>
-        <h2 style="margin:.1rem 0 .5rem"><span class="material-symbols-outlined title-icon" aria-hidden="true">travel_explore</span>Search the chain</h2>
-        <div class="search-wrap">
-          <input id="q" placeholder="Address · transaction id · block hash · block height" autocomplete="off" />
-          <button type="button" class="search-clear-btn" id="btn-clear-search" title="Clear search" aria-label="Clear search"><span class="material-symbols-outlined" aria-hidden="true">close</span></button>
-          <button class="search-inside-btn" id="btn-search" title="Search" aria-label="Search"><span class="material-symbols-outlined" aria-hidden="true">search</span></button>
-        </div>
-        <p class="search-hints">Search by address, transaction hash, block hash, or block height.</p>
-        <div id="search-out"></div>
-      </section>
-
-      <aside class="card">
-        <h2><span class="material-symbols-outlined title-icon" aria-hidden="true">monitoring</span>Metrics</h2>
-        <div class="badges" id="metric-badges" style="margin-bottom:.7rem"></div>
-        <div class="kpi">
-          <div class="kpi-card"><span class="kpi-label">Blockchain tip</span><b class="kpi-value kpi-tone-info" id="k-core-tip">—</b></div>
-          <div class="kpi-card"><span class="kpi-label">Indexed height</span><b class="kpi-value" id="k-ix-height">—</b></div>
-          <div class="kpi-card"><span class="kpi-label">Indexed txs</span><b class="kpi-value" id="k-ix-txs">—</b></div>
-          <div class="kpi-card"><span class="kpi-label">Indexed blocks</span><b class="kpi-value" id="k-ix-blocks">—</b></div>
-          <div class="kpi-card"><span class="kpi-label">Doge addresses found</span><b class="kpi-value" id="k-doge-addresses">—</b></div>
-          <div class="kpi-card"><span class="kpi-label">PQ markers (quantum)</span><b class="kpi-value kpi-tone-ok" id="k-pqvalid">0</b></div>
-        </div>
-      </aside>
-    </div>
-
-    <section class="card" style="margin-top:.8rem;border:none;background:transparent;padding:0;box-shadow:none">
-      <div class="pq-block" id="pq-block">
-        <div class="pq-block-head">
-          <div>
-            <h2><span class="material-symbols-outlined title-icon" aria-hidden="true">token</span>Quantum transactions</h2>
-            <div class="pq-block-meta" id="pq-block-context">Latest flagged quantum transactions.</div>
-          </div>
-          <div class="badges" id="pq-block-badges"></div>
-        </div>
-        <div class="pq-block-rows" id="pq-block-rows"></div>
-        <div class="section-more"><button type="button" class="btn" id="btn-pq-more">Show more</button></div>
-      </div>
-    </section>
-
-    <section class="card" style="margin-top:.8rem">
-      <h2><span class="material-symbols-outlined title-icon" aria-hidden="true">query_stats</span>Transaction activity over time</h2>
-      <p class="muted">Line charts compare indexed quantum vs non-quantum transactions by hour.</p>
-      <div class="range-toolbar" id="range-toolbar"></div>
-      <p class="muted" id="metrics-source" title="Hourly buckets from indexed blockchain activity." style="font-size:.78rem">Source: blockchain activity</p>
-      <div id="metrics-bars" class="headers"></div>
-    </section>
-    <section class="card" style="margin-top:.8rem">
-      <h2><span class="material-symbols-outlined title-icon" aria-hidden="true">insights</span>Explorer activity over time</h2>
-      <p class="muted">Historical activity from indexed data (anchored on latest stored records). Address line counts distinct addresses with outputs per hour (fast aggregate).</p>
-      <div class="headers" id="activity-wallets"></div>
-      <div class="headers" id="activity-transactions"></div>
-      <div class="headers" id="activity-blocks"></div>
-    </section>
-
-    <div class="modal-backdrop" id="tx-modal" role="dialog" aria-modal="true" aria-labelledby="tx-modal-title">
-      <div class="modal-card modal-wide">
-        <div class="modal-topbar">
-          <button type="button" class="modal-close" id="tx-modal-back" aria-label="Back" style="display:none"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>Back</span></button>
-          <button type="button" class="modal-close" id="tx-modal-close" aria-label="Close"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">close</span>Close</span></button>
-        </div>
-        <h2 id="tx-modal-title">Transaction</h2>
-        <div id="tx-modal-body" class="muted">Loading…</div>
-      </div>
-    </div>
-
-    <div class="modal-backdrop" id="block-modal" role="dialog" aria-modal="true" aria-labelledby="block-modal-title">
-      <div class="modal-card modal-wide">
-        <div class="modal-topbar">
-          <button type="button" class="modal-close" id="block-modal-back" aria-label="Back" style="display:none"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>Back</span></button>
-          <button type="button" class="modal-close" id="block-modal-close" aria-label="Close"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">close</span>Close</span></button>
-        </div>
-        <h2 id="block-modal-title">Block header</h2>
-        <div id="block-modal-body" class="muted">Loading…</div>
-      </div>
-    </div>
-    <div class="docs-modal" id="docs-modal" role="dialog" aria-modal="true" aria-labelledby="docs-title">
-      <div class="docs-panel">
-        <div class="docs-head">
-          <div>
-            <h2 id="docs-title" style="margin:0"><span class="material-symbols-outlined title-icon" aria-hidden="true">menu_book</span>Post-Quantum Documentation</h2>
-            <p class="muted" style="margin:.2rem 0 0">Educational guide: how PQ transactions are created, detected, and independently verified.</p>
-          </div>
-          <button type="button" class="btn" id="docs-close-btn" style="width:auto"><span class="btn-ico"><span class="material-symbols-outlined" aria-hidden="true">close</span>Close</span></button>
-        </div>
-        <div class="docs-grid">
-          <div>
-            <div class="docs-card">
-              <h3>How a PQ transaction is made (concept)</h3>
-              <div class="docs-step">
-                <p><strong>Step 1:</strong> Build a normal Dogecoin transaction with standard inputs/outputs using wallet logic.</p>
-              </div>
-              <div class="docs-step">
-                <p><strong>Step 2:</strong> Attach a post-quantum commitment payload (commonly in <code>OP_RETURN</code>) that references PQ signature/artifact metadata.</p>
-              </div>
-              <div class="docs-step">
-                <p><strong>Step 3:</strong> Broadcast to network. Confirmation and inclusion are visible once the transaction is mined.</p>
-              </div>
-              <p>This explorer classifies Phase-1 commitments using canonical tagged OP_RETURN format: <code>6a24 + FLC1/DIL2/RCG4 + 32-byte commitment</code>.</p>
-            </div>
-            <div class="docs-card">
-              <h3>Using Dogecoin Foundation libdogecoin</h3>
-              <p>Recommended project links:</p>
-              <ul class="docs-links">
-                <li><a href="https://github.com/dogecoinfoundation/libdogecoin" target="_blank" rel="noopener">libdogecoin repository</a></li>
-                <li><a href="https://github.com/dogecoinfoundation/libdogecoin/tree/master/examples" target="_blank" rel="noopener">libdogecoin examples</a></li>
-                <li><a href="https://github.com/edtubbs/libdogecoin/blob/0.1.5-dev-pqc-carrier/doc/tools.md#falcon-512-post-quantum-cryptography-pqc-commands" target="_blank" rel="noopener">PQC <code>such</code> commands (Falcon-512 / carrier tools)</a> — official-style docs for keygen, <code>falcon_commit</code>, TX construction helpers, and the two-step carrier flow.</li>
-              </ul>
-              <p>Typical workflow is: key management + tx composition in libdogecoin, PQ commitment embedding in tx data, then broadcast/monitoring through node or P2P listeners.</p>
-            </div>
-            <div class="docs-card">
-              <h3>TX_C and TX_R (two-step carrier flow)</h3>
-              <p>Matches the libdogecoin carrier model documented under Falcon-512 PQC commands:</p>
-              <ul>
-                <li><strong>TX_C (commitment):</strong> includes <code>OP_RETURN</code> with <code>6a24</code> + tag (<code>FLC1</code> / <code>DIL2</code> / <code>RCG4</code>) + 32-byte commitment, where <code>commitment = SHA256(pqc_public_key ‖ pqc_signature)</code> over the signing message (e.g. tx sighash).</li>
-                <li><strong>Optional carrier P2SH:</strong> canonical redeemScript <code>OP_DROP ×5 OP_TRUE</code> holds DOGE until reveal; scriptPubKey is the standard P2SH pattern from <code>pqc_carrier_scriptpubkey</code>.</li>
-                <li><strong>TX_R (reveal):</strong> spends the carrier input; Falcon pubkey (~897 B) and signature (~652–666 B) ride in <code>scriptSig</code> using the tagged carrier layout (<code>FLC1FULL</code> / chunking per <code>pqc_carrier_mkpart</code>).</li>
-              </ul>
-              <p class="muted" style="font-size:.82rem;margin:.35rem 0 0">This explorer’s <strong>strict</strong> check only inspects outputs for the canonical <code>OP_RETURN</code> commitment. When the core indexer has the tx’s block, <strong>carrier verification</strong> matches <code>SHA256(pk‖sig)</code> from <code>scriptSig</code> to indexed TX_C commitments: all <code>quantum</code> txs with Phase-1 <code>OP_RETURN</code> from block <code>(TX_R height − lookback)</code> through <code>TX_R height</code>, plus any same-block txs (see <code>carrier_phase1</code> in tx JSON). Tune <code>QE_PQ_CARRIER_COMMITMENT_LOOKBACK_BLOCKS</code> (default 750000) if a TX_C is older than the window. For <code>FLC1</code>, optional <strong>Falcon crypto verify</strong> (<code>such tx_sighash32</code> + <code>such falcon_verify</code>, <code>QE_SUCH_PATH</code>) reproduces Core’s signature check when Dogecoin Core RPC can supply the prevout <code>scriptPubKey</code>; see <code>falcon_crypto_verify</code> in tx JSON.</p>
-            </div>
-            <div class="docs-card">
-              <h3>Technical verification anyone can do</h3>
-              <ul>
-                <li>Fetch raw tx hex (from your node or trusted explorer APIs).</li>
-                <li>Decode outputs and inspect canonical commitment output: <code>OP_RETURN 0x24 &lt;TAG4&gt; &lt;32-byte-commitment&gt;</code>.</li>
-                <li>Verify TAG4 is one of <code>FLC1</code>, <code>DIL2</code>, <code>RCG4</code>.</li>
-                <li>When TX_R carrier data exists, reconstruct <code>pubkey||signature</code> parts and check <code>SHA256(pubkey||signature)</code> against TX_C commitment.</li>
-                <li>For Falcon (<code>FLC1</code>), optionally run the same sighash + <code>falcon_verify</code> path as Dogecoin Core (libdogecoin <code>such</code> with <code>liboqs</code>).</li>
-                <li>Check block inclusion/confirmations via your node or this explorer’s indexed chain.</li>
-              </ul>
-              <p>In this UI, open a tx detail to see decode + strict PQ evidence. External verifiers can reproduce the same parsing from raw bytes.</p>
-            </div>
-          </div>
-          <div>
-            <div class="docs-card">
-              <h3>What "proof" means here</h3>
-              <p>There are two layers:</p>
-              <ul>
-                <li><strong>Commitment proof:</strong> tx data contains canonical Phase-1 tagged OP_RETURN commitment structure.</li>
-                <li><strong>Chain proof:</strong> transaction is seen/confirmed in chain context.</li>
-              </ul>
-              <p>The strict verifier currently proves commitment-level evidence from raw tx bytes. Full cryptographic PQ signature validation can be layered on top as protocol rules evolve.</p>
-            </div>
-            <div class="docs-card">
-              <h3>Explorer APIs useful for auditors</h3>
-              <ul>
-                <li><code>/api/public/tx?txid=...</code> — decode + strict evidence</li>
-                <li><code>/api/public/block?height=...</code> — block context</li>
-                <li><code>/api/public/status</code> — explorer status snapshot</li>
-                <li><code>/api/public/metrics</code> — aggregate activity</li>
-              </ul>
-              <p>Auditors can export JSON from these endpoints and independently replay parsing/verification logic.</p>
-            </div>
-            <div class="docs-card">
-              <h3>Important limits and transparency notes</h3>
-              <ul>
-                <li>Network and sync availability affect how quickly new blocks and txs appear.</li>
-                <li>No raw hex = no strict commitment validation.</li>
-                <li>Only canonical Phase-1 commitment encoding is treated as valid.</li>
-              </ul>
-              <p>For educational integrity, the explorer shows reason/evidence fields instead of hiding uncertain states.</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <section class="card" style="margin-top:.8rem">
-      <h2><span class="material-symbols-outlined title-icon" aria-hidden="true">database</span>Recent blocks</h2>
-      <div class="badges" id="spv-badges" style="margin:.35rem 0 .6rem"></div>
-      <div id="spv-tip-card" class="head-row" style="margin-bottom:.65rem"></div>
-      <p class="muted" id="spv-pq-status">Status: checking…</p>
-      <h3 class="muted" style="font-size:.95rem;margin:.75rem 0 .4rem">Latest blocks</h3>
-      <p class="muted" style="font-size:.78rem;margin:-.2rem 0 .5rem">Tap a row for full block detail and decoded transactions.</p>
-      <div id="spv-headers" class="headers"></div>
-      <div class="section-more"><button type="button" class="btn" id="btn-blocks-more">Show more blocks</button></div>
-    </section>
-
-    <footer class="site-footer">
-      <span class="footer-left">Coded with love for all Dogecoin community</span>
-      <span class="footer-version mono" id="qe-footer-version" title="Quantum Explorer version">—</span>
-    </footer>
   </div>
 
-  <script src="/chart.umd.min.js"></script>
   <script>
-    function esc(s){return String(s??"").replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));}
-    function badge(cls,txt){return `<span class="badge ${cls}">${esc(txt)}</span>`;}
-    function renderFalconCryptoVerify(fcv){
-      if (!fcv || typeof fcv !== "object") return "";
-      const st = String(fcv.status || "skipped").toLowerCase();
-      let badgeHtml = "";
-      if (st === "passed") badgeHtml = badge("pq-ok", "Falcon (liboqs): passed");
-      else if (st === "failed") badgeHtml = badge("pq-bad", "Falcon (liboqs): failed");
-      else if (st === "error") badgeHtml = badge("pq-bad", "Falcon (liboqs): error");
-      else badgeHtml = badge("", "Falcon (liboqs): skipped");
-      const rows = [];
-      if (fcv.reason) rows.push(`<div class="detail-kv muted" style="font-size:.78rem"><strong>Note</strong> ${esc(String(fcv.reason))}</div>`);
-      if (fcv.detail) rows.push(`<div class="detail-kv mono" style="font-size:.72rem;word-break:break-all"><strong>Detail</strong> ${esc(String(fcv.detail))}</div>`);
-      if (fcv.verify_line) rows.push(`<div class="detail-kv mono" style="font-size:.76rem">${esc(String(fcv.verify_line))}</div>`);
-      if (fcv.message_hex) rows.push(`<div class="detail-kv mono" style="font-size:.74rem;word-break:break-all"><strong>Sighash (message)</strong> ${esc(String(fcv.message_hex))}</div>`);
-      if (fcv.such_path) rows.push(`<div class="detail-kv muted" style="font-size:.72rem"><strong>such</strong> ${esc(String(fcv.such_path))}</div>`);
-      if (fcv.prevout_scriptpubkey_hex) rows.push(`<div class="detail-kv mono" style="font-size:.7rem;word-break:break-all;max-height:5rem;overflow:auto"><strong>Prevout scriptPubKey</strong> ${esc(String(fcv.prevout_scriptpubkey_hex))}</div>`);
-      if (fcv.input_index != null && fcv.input_index !== "") rows.push(`<div class="detail-kv"><strong>Carrier input index</strong> ${esc(String(fcv.input_index))}</div>`);
-      return `<div class="tx-io-card" style="margin-top:.35rem;border-left:3px solid var(--line);padding-left:.55rem">
-            <strong>Falcon crypto (Core-aligned)</strong>
-            <p class="muted" style="font-size:.76rem;margin:.25rem 0 .35rem">When Core RPC and a libdogecoin+<code>liboqs</code> <code>such</code> binary are available, the explorer runs <code>such tx_sighash32</code> then <code>such falcon_verify</code> (override path with <code>QE_SUCH_PATH</code>). That matches the Falcon verify step Core uses after the commitment check.</p>
-            <div class="badges" style="margin:.2rem 0">${badgeHtml}</div>
-            ${rows.join("")}
-          </div>`;
-    }
-    function txTypeIcon(tx){
-      if (!tx) return "help";
-      if (tx.pq_valid) return "verified";
-      if (tx.confirmed) return "check_circle";
-      return "receipt_long";
-    }
-    function txTypeLabel(tx){
-      if (!tx) return "unknown";
-      if (tx.pq_valid) return "quantum";
-      if (tx.confirmed) return "normal confirmed";
-      return "normal pending";
-    }
-    async function j(url,opt){const r=await fetch(url,opt);return {ok:r.ok,s:r.status,d:await r.json().catch(()=>({}))};}
+(function () {
+  const $ = (s, r) => (r || document).querySelector(s);
+  const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
 
-    function satsToDoge(sats){
-      if (sats == null || sats === "") return "—";
-      const n = Number(sats);
-      if (Number.isNaN(n)) return "—";
-      return (n / 1e8).toFixed(8) + " DOGE";
-    }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
 
-    function quantumVisual(state, pq){
-      const s = String(state || "");
-      const carrier = (pq && pq.carrier_phase1) || {};
-      const falcon = (carrier && carrier.falcon_crypto_verify) || {};
-      const falconPassed = String(falcon.status || "").toLowerCase() === "passed";
-      if (carrier.verified && falconPassed) {
-        return { cls: "quantum", title: "Post-quantum verified (carrier + Falcon)", sub: "Carrier commitment linked to TX_C and Falcon signature verification passed.", icon: "verified" };
-      }
-      if (carrier.verified && s === "invalid-quantum") {
-        return { cls: "quantum", title: "Carrier-linked transaction (TX_R)", sub: "carrier-linked (TX_R) but strict-opreturn-invalid + falcon-verify-failed", icon: "hub" };
-      }
-      if (s === "quantum") return { cls: "quantum", title: "Post-quantum transaction", sub: "OP_RETURN markers match the explorer’s PQ commitment rules.", icon: "verified" };
-      if (s === "invalid-quantum") return { cls: "invalid", title: "Post-quantum payload flagged", sub: "Commitment data present but markers did not validate as expected.", icon: "warning" };
-      return { cls: "standard", title: "Standard transaction", sub: "No post-quantum markers detected in decoded raw bytes.", icon: "receipt_long" };
-    }
+  function satsToDoge(sats) {
+    const n = Number(sats);
+    if (!Number.isFinite(n)) return '—';
+    return (n / 1e8).toLocaleString(undefined, { maximumFractionDigits: 8 });
+  }
 
-    function quantumShortLabel(state){
-      const s = String(state || "");
-      if (s === "quantum") return "PQ";
-      if (s === "invalid-quantum") return "PQ invalid";
-      return "Standard";
-    }
+  function fmtTimeUnix(ts) {
+    const n = Number(ts);
+    if (!Number.isFinite(n)) return '—';
+    return new Date(n * 1000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC');
+  }
 
-    let latestPQRows = [];
-    let latestBlockRows = [];
-    let pqVisibleCount = 3;
-    const blocksVisibleCount = 3;
-    let searchVisibleCount = 3;
-    let lastSearchData = null;
-    let searchTimer = null;
-    let activeSearchReq = 0;
-    let selectedRange = "1d";
-    const RANGE_OPTIONS = [
-      { id: "all", label: "All time", hours: 0 },
-      { id: "5y", label: "5 years", hours: 24 * 365 * 5 },
-      { id: "3y", label: "3 years", hours: 24 * 365 * 3 },
-      { id: "1y", label: "1 year", hours: 24 * 365 },
-      { id: "1m", label: "1 month", hours: 24 * 30 },
-      { id: "1w", label: "1 week", hours: 24 * 7 },
-      { id: "1d", label: "1 day", hours: 24 }
-    ];
-    const detailNavStack = [];
-    let currentDetail = null;
-    let searchBackState = null;
-    const qeCharts = {};
-    let lastPQRenderSig = "";
-    let pqStableOrder = [];
+  function hashRoute() {
+    const h = (location.hash || '#/').replace(/^#/, '') || '/';
+    const parts = h.split('/').filter(Boolean);
+    return { parts, raw: h };
+  }
 
-    function openDetailFromState(st, pushCurrent){
-      if (!st || !st.kind) return;
-      if (st.kind === "tx" && st.txid) openTxDetail(st.txid, pushCurrent);
-      if (st.kind === "block") openBlockByHeightOrHash(st.height, st.hash, pushCurrent);
-    }
+  async function api(path) {
+    const r = await fetch(path, { headers: { Accept: 'application/json' } });
+    const j = await r.json().catch(function () { return { error: 'bad json', status: r.status }; });
+    if (!r.ok) throw new Error(j.error || j.message || ('HTTP ' + r.status));
+    return j;
+  }
 
-    function updateDetailBackButtons(){
-      const show = detailNavStack.length > 0;
-      const txBack = document.getElementById("tx-modal-back");
-      const bBack = document.getElementById("block-modal-back");
-      if (txBack) txBack.style.display = show ? "" : "none";
-      if (bBack) bBack.style.display = show ? "" : "none";
-    }
+  const main = $('#main');
+  const sidebar = $('#sidebar');
+  const backdrop = $('#sidebar-backdrop');
+  var explorerCfg = { block_decode_limit_default: 200, mempool_recent_limit: 25 };
+  function loadExplorerConfig() {
+    return api('/api/public/explorer-config').then(function (c) {
+      explorerCfg = c || explorerCfg;
+    }).catch(function () { /* keep defaults */ });
+  }
 
-    function pushCurrentDetailIfNeeded(pushCurrent){
-      if (pushCurrent && currentDetail && currentDetail.kind) detailNavStack.push({ ...currentDetail });
-      updateDetailBackButtons();
-    }
+  function closeSidebar() {
+    sidebar.classList.remove('open');
+    backdrop.classList.remove('show');
+  }
 
-    function renderSearchResults(d){
-      const showBack = searchBackState && d.kind !== "address";
-      const backBtn = showBack ? `<button type="button" class="btn btn-inline" id="search-back-btn" style="margin-bottom:.45rem">Back to previous detail</button>` : "";
-      let body = "";
-      if (d.kind === "block_height" || d.kind === "block_hash"){
-        const b = d.block;
-        if (!b || b.height == null){
-          body = `<div class="result-card"><h3><span class="material-symbols-outlined title-icon" aria-hidden="true">view_in_ar</span>Block</h3><p class="muted">No block matches this ${d.kind === "block_height" ? "height" : "hash"} yet. Sync may still be catching up.</p></div>`;
-        } else {
-          const t = b.time_unix ? new Date(b.time_unix*1000).toISOString() : "—";
-          body = `<div class="result-card">
-            <h3><span class="material-symbols-outlined title-icon" aria-hidden="true">view_in_ar</span>Block <span class="muted" style="font-weight:600">#${esc(b.height)}</span></h3>
-            <div class="detail-kv mono" style="font-size:.8rem"><strong>Hash</strong> ${esc(b.hash||"—")}</div>
-            <div class="detail-kv"><strong>Time (UTC)</strong> ${esc(t)}</div>
-          </div>`;
-        }
-      } else if (d.kind === "txid" && d.tx){
-        const tx = d.tx;
-        const vis = quantumVisual(tx.quantum_state);
-        body = `<div class="result-card clickable" data-open-txid="${esc(tx.txid || d.query || "")}">
-          <h3><span class="material-symbols-outlined title-icon" aria-hidden="true">paid</span>Transaction</h3>
-          <div class="pq-hero ${vis.cls}" style="margin:.5rem 0">
-            <span class="material-symbols-outlined" aria-hidden="true">${esc(vis.icon)}</span>
-            <div><h3 style="margin:0;font-size:1rem">${esc(vis.title)}</h3><p>${esc(vis.sub)}</p></div>
-          </div>
-          <div class="mono" style="font-size:.82rem;margin:.35rem 0">${esc(tx.txid)}</div>
-          <div class="detail-kv"><strong>Block</strong> ${esc(String(tx.block_height ?? "—"))} · <strong>Outputs (indexed)</strong> ${esc(satsToDoge(tx.value_out_sats))}</div>
-          ${tx.pq_reason ? `<div class="detail-kv muted" style="font-size:.8rem">${esc(tx.pq_reason)}</div>` : ""}
-        </div>`;
-      } else if (d.kind === "address" && Array.isArray(d.results)){
-        const total = d.results.length;
-        const rowsLimited = d.results.slice(0, searchVisibleCount);
-        const rows = rowsLimited.map(r => `<div class="addr-row-card clickable search-addr-row" data-txid="${esc(r.txid)}" tabindex="0">
-          <div class="addr-row-head">
-            <div class="mono">${esc(r.txid)}</div>
-          </div>
-          <div class="addr-row-meta">
-            <div><strong>Vout</strong>${esc(String(r.vout_n))}</div>
-            <div><strong>Value</strong>${esc(satsToDoge(r.value_sats))}</div>
-            <div><strong>Block</strong>${esc(String(r.block_height))}</div>
-          </div>
-        </div>`).join("");
-        body = `<div class="result-card">
-          <h3><span class="material-symbols-outlined title-icon" aria-hidden="true">account_balance_wallet</span>Address activity</h3>
-          <p class="muted" style="margin:.2rem 0 .45rem">Outputs for <span class="mono">${esc(d.query)}</span> · ${total} row(s)</p>
-          <div class="addr-list-modern">${rows || "<p class='muted'>No rows</p>"}</div>
-          ${total > rowsLimited.length ? `<div class="section-more" style="margin:.6rem 0 0"><button type="button" class="btn" id="search-more-btn">Show more</button></div>` : ""}
-          <p class="muted" style="font-size:.78rem;margin:.5rem 0 0">Tap a transaction to open full details.</p>
-        </div>`;
-      } else if (d.kind === "unknown_hex64"){
-        body = `<div class="result-card"><h3><span class="material-symbols-outlined title-icon" aria-hidden="true">help</span>No match</h3><p class="muted">${esc(d.note || "Unknown 64-character hex.")}</p></div>`;
-      } else if (Array.isArray(d.results) && d.results.length && d.results[0] && d.results[0].txid){
-        const total = d.results.length;
-        const rowsLimited = d.results.slice(0, searchVisibleCount);
-        const rows = rowsLimited.map(t => `<div class="addr-row-card clickable search-addr-row" data-txid="${esc(t.txid)}" tabindex="0"><div class="addr-row-head"><div class="mono">${esc(t.txid)}</div>${badge(t.pq_valid ? "pq-ok":"pq-bad", t.pq_valid ? "PQ":"—")}</div></div>`).join("");
-        body = `<div class="result-card"><h3><span class="material-symbols-outlined title-icon" aria-hidden="true">search</span>Matching transactions</h3>
-          <p class="muted" style="margin:.25rem 0 .45rem">${total} match(es)</p>
-          <div class="addr-list-modern">${rows}</div>
-          ${total > rowsLimited.length ? `<div class="section-more" style="margin:.6rem 0 0"><button type="button" class="btn" id="search-more-btn">Show more</button></div>` : ""}
-        </div>`;
+  $('#btn-sidebar').addEventListener('click', function () {
+    sidebar.classList.toggle('open');
+    backdrop.classList.toggle('show');
+  });
+  backdrop.addEventListener('click', closeSidebar);
+
+  function setNav(route) {
+    $$('.nav-item').forEach(function (b) {
+      b.classList.toggle('active', b.getAttribute('data-route') === route);
+    });
+  }
+
+  function setTitle(title, ico, sub) {
+    $('#page-title-text').textContent = title;
+    $('#page-ico').textContent = ico || 'explore';
+    if (sub) $('#page-sub').textContent = sub;
+  }
+
+  function pqBadge(state) {
+    const s = String(state || '').toLowerCase();
+    if (s === 'quantum') return '<span class="badge badge-pq">PQ</span>';
+    if (s === 'invalid-quantum') return '<span class="badge badge-bad">PQ invalid</span>';
+    return '<span class="badge badge-warn">Standard</span>';
+  }
+
+  async function viewHome() {
+    setNav('home');
+    setTitle('Dashboard', 'space_dashboard', 'Indexed metrics + Core live stats (one fast request)');
+    main.innerHTML = '<p class="muted">Loading dashboard…</p>';
+    try {
+      const d = await api('/api/public/dashboard');
+      $('#footer-version').textContent = 'v' + esc(d.app_version || '—');
+      const rows = (d.indexer && d.indexer.rows) || {};
+      const pq = d.pq_totals || {};
+      const roles = d.pq_phase1_roles || {};
+      const mem = (d.core_live && d.core_live.mempoolinfo) || {};
+      const mempoolTx = mem.size != null ? mem.size : (mem.loaded != null ? mem.loaded : '—');
+      const hps = d.core_live && d.core_live.network_hash_ps;
+      const bc = (d.core_live && d.core_live.blockchaininfo) || {};
+      const tipH = bc.blocks != null ? bc.blocks : (d.indexer && d.indexer.tip_height);
+      const best = bc.bestblockhash || '';
+      const circ = d.circulation || {};
+      const circStr = circ.available ? circ.total_doge : (circ.note ? '—' : '—');
+      const circHint = circ.available ? '' : ('<div class="muted" style="margin-top:0.25rem;font-size:0.72rem">' + esc(circ.note || '') + '</div>');
+      const latest = d.latest_transactions || [];
+      const mpre = d.mempool_recent || [];
+      var mempoolHtml = '<div class="card"><h2><span class="material-symbols-outlined icon-inline">pending</span> Mempool sample (Core)</h2>';
+      if (!mpre.length) {
+        mempoolHtml += '<p class="muted">No mempool rows (Core offline, empty pool, or verbose mempool not available).</p></div>';
       } else {
-        body = `<div class="result-card"><h3><span class="material-symbols-outlined title-icon" aria-hidden="true">manage_search</span>Search result</h3>
-          <p class="muted" style="margin:.25rem 0 .35rem">Kind: <strong>${esc(d.kind||"?")}</strong></p></div>`;
+        mempoolHtml += '<p class="muted">Newest-first by mempool <span class="mono">time</span> when reported by the node.</p><table class="data"><thead><tr><th>Pool time</th><th>Txid</th><th>vsize</th><th>fee (native)</th></tr></thead><tbody id="mp-body"></tbody></table></div>';
       }
-      const raw = `<details class="json-details-search"><summary>Technical JSON</summary><pre class="mono muted" style="margin:.5rem 0 0;font-size:.72rem;overflow:auto;max-height:12rem">${esc(JSON.stringify(d,null,2))}</pre></details>`;
-      return backBtn + body + raw;
-    }
 
-    function bindSearchResultActions(d){
-      const bBack = document.getElementById("search-back-btn");
-      if (bBack) {
-        bBack.onclick = () => {
-          const st = searchBackState;
-          searchBackState = null;
-          openDetailFromState(st, false);
-        };
-      }
-      const blockCard = document.querySelector("#search-out .result-card");
-      if (blockCard && d.block && d.block.height != null && (d.kind === "block_height" || d.kind === "block_hash")){
-        blockCard.classList.add("clickable");
-        blockCard.onclick = () => openBlockByHeightOrHash(d.block.height, null, true);
-      }
-      const txCard = document.querySelector("#search-out .result-card[data-open-txid]");
-      if (txCard) {
-        txCard.onclick = () => openTxDetail(txCard.getAttribute("data-open-txid"), true);
-      }
-      const moreBtn = document.getElementById("search-more-btn");
-      if (moreBtn) {
-        moreBtn.onclick = () => {
-          searchVisibleCount += 10;
-          if (lastSearchData) {
-            const out = document.getElementById("search-out");
-            out.innerHTML = renderSearchResults(lastSearchData);
-            bindSearchResultActions(lastSearchData);
-          }
-        };
-      }
-      document.querySelectorAll(".search-addr-row").forEach(row => {
-        row.onclick = () => openTxDetail(row.getAttribute("data-txid"), true);
-        row.onkeydown = (e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            openTxDetail(row.getAttribute("data-txid"), true);
-          }
-        };
-      });
-    }
+      main.innerHTML =
+        '<div class="card"><h2><span class="material-symbols-outlined icon-inline">bolt</span> Network overview</h2>' +
+        '<div class="grid-kpi">' +
+        '<div class="kpi"><div class="kpi-label">Mempool transactions</div><div class="kpi-value accent">' + esc(mempoolTx) + '</div></div>' +
+        '<div class="kpi"><div class="kpi-label">Latest block (Core)</div><div class="kpi-value">' + esc(tipH != null ? tipH : '—') + '</div>' +
+        (best ? '<div class="muted mono" style="margin-top:0.25rem;font-size:0.75rem">' + esc(best) + '</div>' : '') + '</div>' +
+        '<div class="kpi"><div class="kpi-label">Network hashrate (120 blk est.)</div><div class="kpi-value ok">' +
+        (hps != null ? esc(Number(hps).toExponential(3)) + ' H/s' : '—') + '</div></div>' +
+        '<div class="kpi"><div class="kpi-label">Indexed addresses</div><div class="kpi-value">' + esc(rows.addresses != null ? rows.addresses : '—') + '</div></div>' +
+        '<div class="kpi"><div class="kpi-label">Ð in circulation (UTXO set)</div><div class="kpi-value">' + esc(circStr) + '</div>' +
+        (circ.cached === true ? '<div class="muted" style="margin-top:0.2rem;font-size:0.72rem">cached</div>' : '') +
+        (circ.stale ? '<div class="muted" style="margin-top:0.2rem;font-size:0.72rem">refresh pending</div>' : '') +
+        circHint + '</div>' +
+        '<div class="kpi"><div class="kpi-label">Indexed blocks</div><div class="kpi-value">' + esc(rows.blocks != null ? rows.blocks : '—') + '</div></div>' +
+        '<div class="kpi"><div class="kpi-label">Indexed transactions</div><div class="kpi-value">' + esc(rows.txs != null ? rows.txs : '—') + '</div></div>' +
+        '</div></div>' +
 
-    function shouldAutoSearch(raw){
-      const q = String(raw || "").trim();
-      if (!q) return false;
-      if (/^\d+$/.test(q)) return q.length >= 1;
-      return q.length >= 3;
-    }
+        '<div class="card"><h2><span class="material-symbols-outlined icon-inline">shield_lock</span> Post-quantum (Phase 1)</h2>' +
+        '<p class="muted" style="margin-top:0">Canonical OP_RETURN commitments (TX_C) and optional P2SH carrier reveals (TX_R). ' +
+        'Verify interactively on <a href="' + esc(d.qdv_verify || 'https://suchquantum.com/qdv/') + '" target="_blank" rel="noopener">QDVerify</a> · ' +
+        'BIP draft: <a href="' + esc(d.spec_bip || '#') + '" target="_blank" rel="noopener">libdogecoin spec</a>.</p>' +
+        '<div class="grid-kpi" style="margin-top:0.75rem">' +
+        '<div class="kpi"><div class="kpi-label">PQ rows (indexed)</div><div class="kpi-value accent">' + esc(pq.quantum != null ? pq.quantum : '—') + '</div></div>' +
+        '<div class="kpi"><div class="kpi-label">Committed (TX_C)</div><div class="kpi-value ok">' + esc(roles.committed_tx_c != null ? roles.committed_tx_c : '—') + '</div></div>' +
+        '<div class="kpi"><div class="kpi-label">Revealed (TX_R)</div><div class="kpi-value ok">' + esc(roles.revealed_tx_r != null ? roles.revealed_tx_r : '—') + '</div></div>' +
+        '<div class="kpi"><div class="kpi-label">Invalid PQ markers</div><div class="kpi-value">' + esc(pq.invalid_quantum != null ? pq.invalid_quantum : '—') + '</div></div>' +
+        '</div></div>' +
 
-    async function runSearch(query, limit){
-      const q = String(query || "").trim();
-      if (!q) return;
-      const out = document.getElementById("search-out");
-      const reqId = ++activeSearchReq;
-      out.innerHTML = "<p class=\"muted\">Searching…</p>";
-      const r = await j("/api/public/search?q=" + encodeURIComponent(q) + "&limit=" + encodeURIComponent(String(limit || 50)));
-      if (reqId !== activeSearchReq) return;
-      if (!r.ok) {
-        out.innerHTML = `<p class="bad">Search failed ${r.s}</p><pre class="mono muted">${esc(JSON.stringify(r.d,null,2))}</pre>`;
-        return;
-      }
-      lastSearchData = r.d;
-      searchVisibleCount = 3;
-      out.innerHTML = renderSearchResults(lastSearchData);
-      bindSearchResultActions(lastSearchData);
-    }
+        '<div class="card"><h2><span class="material-symbols-outlined icon-inline">search</span> Search</h2>' +
+        '<p class="muted">Block height, block hash, Dogecoin address, or transaction id.</p>' +
+        '<form id="form-search" class="toolbar" style="margin-top:0.5rem">' +
+        '<input class="input-modern" id="search-q" placeholder="e.g. 6093890 or D… or txid…" style="flex:1;min-width:200px" />' +
+        '<button type="submit" class="btn primary"><span class="material-symbols-outlined btn-ico">search</span> Go</button></form></div>' +
 
-    function renderPQBlock(rows){
-      const filtered = (Array.isArray(rows) ? rows : []).filter(t => t && (t.pq_valid || t.carrier_verified));
-      const rowsEl = document.getElementById("pq-block-rows");
-      const ctx = document.getElementById("pq-block-context");
-      const bb = document.getElementById("pq-block-badges");
-      ctx.textContent = "Showing latest flagged quantum transactions.";
-      const showing = Math.min(filtered.length, pqVisibleCount);
-      bb.innerHTML = [
-        badge(filtered.length > 0 ? "pq-ok" : "pending", `${filtered.length} match`),
-        badge("", `showing ${showing}`),
-        badge("muted", "quantum only")
-      ].join("");
-      if (!filtered.length) {
-        pqStableOrder = [];
-        rowsEl.innerHTML = '<p class="muted" style="padding:.75rem 1rem;margin:0">No flagged quantum transactions yet.</p>';
-        const moreBtn = document.getElementById("btn-pq-more");
-        if (moreBtn) moreBtn.style.display = "none";
-        return;
-      }
-      const byTxid = new Map(filtered.map(t => [String(t.txid || ""), t]));
-      pqStableOrder = pqStableOrder.filter(id => byTxid.has(id));
-      for (let i = filtered.length - 1; i >= 0; i--) {
-        const id = String(filtered[i].txid || "");
-        if (!id) continue;
-        if (!pqStableOrder.includes(id)) pqStableOrder.unshift(id);
-      }
-      const visibleRows = pqStableOrder
-        .slice(0, pqVisibleCount)
-        .map(id => byTxid.get(id))
-        .filter(Boolean);
-      const renderSig = JSON.stringify(visibleRows.map(t => ({
-        txid: t.txid,
-        pq_valid: !!t.pq_valid,
-        carrier_verified: !!t.carrier_verified,
-        falcon_status: String(t.falcon_status || ""),
-        pq_reason: String(t.pq_reason || ""),
-        matched_txc_txid: String(t.matched_txc_txid || ""),
-        matched_txr_txid: String(t.matched_txr_txid || ""),
-        pq_carrier_role: String(t.pq_carrier_role || ""),
-        block_height: t.block_height ?? null,
-        last_seen: String(t.last_seen || t.first_seen || "")
-      })));
-      if (rowsEl && lastPQRenderSig === renderSig) {
-        return;
-      }
-      lastPQRenderSig = renderSig;
-      const moreBtn = document.getElementById("btn-pq-more");
-      if (moreBtn) moreBtn.style.display = visibleRows.length < filtered.length ? "" : "none";
-      const rowHTML = (t) => {
-        const flow = txFlowSummary(t);
-        return `
-        <div class="mono"><strong>Transaction ID</strong> ${esc(t.txid)}</div>
-        <div class="row-meta" style="margin-top:.25rem"><strong>Block</strong> ${esc(String(t.block_height ?? "—"))} · <strong>Timestamp</strong> ${esc(flow.time || t.last_seen || t.first_seen || "—")}</div>
-        <div class="row-meta" style="margin-top:.2rem"><strong>From</strong> ${flow.fromAddr ? `<button type="button" class="link-tx" data-open-address="${esc(flow.fromAddr)}">${esc(flow.fromAddr)}</button>` : "—"}</div>
-        <div class="row-meta" style="margin-top:.2rem"><strong>To</strong> ${flow.toAddr ? `<button type="button" class="link-tx" data-open-address="${esc(flow.toAddr)}">${esc(flow.toAddr)}</button>` : "—"}</div>
-        <div class="row-meta" style="margin-top:.2rem"><strong>Amount</strong> ${esc(flow.amountDoge || "—")} DOGE · <strong>Fee</strong> ${esc(flow.feeDoge || "—")} DOGE</div>
-        <div class="badges" style="margin:.45rem 0 .2rem">
-          ${badge(t.pq_valid || t.carrier_verified ? "pq-ok":"pq-bad", t.pq_valid ? "PQ valid" : (t.carrier_verified ? "Carrier-linked (TX_R)" : "PQ invalid"))}
-          ${t.pq_carrier_role === "tx_r" ? badge("pq-ok", "TX_R") : t.pq_carrier_role === "tx_c" ? badge("", "TX_C") : ""}
-          ${badge(t.falcon_status === "passed" ? "pq-ok" : (t.falcon_status === "failed" || t.falcon_status === "error" ? "pq-bad" : ""), `Falcon ${t.falcon_status || "n/a"}`)}
-        </div>
-        <div class="row-meta" style="margin-top:.2rem;display:flex;justify-content:flex-end">
-          <button type="button" class="btn btn-inline link-detail" data-open-txid="${esc(t.txid)}">See details</button>
-        </div>`;
-      };
-      const existingByTxid = new Map();
-      rowsEl.querySelectorAll(".pq-tx-row[data-txid]").forEach((el) => {
-        existingByTxid.set(el.getAttribute("data-txid"), el);
-      });
-      const nextNodes = [];
-      visibleRows.forEach((t) => {
-        const txid = String(t.txid || "");
-        if (!txid) return;
-        let node = existingByTxid.get(txid);
-        if (!node) {
-          node = document.createElement("div");
-          node.className = "pq-tx-row clickable";
-          node.dataset.txid = txid;
-          node.tabIndex = 0;
-        }
-        const html = rowHTML(t);
-        if (node.innerHTML !== html) {
-          node.innerHTML = html;
-        }
-        node.onclick = () => openTxDetail(txid, true);
-        node.onkeydown = (e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            openTxDetail(txid, true);
-          }
-        };
-        node.querySelectorAll(".link-tx").forEach(btn => {
-          btn.onclick = (e) => {
-            e.stopPropagation();
-            const txOpen = btn.getAttribute("data-open-txid");
-            const addrOpen = btn.getAttribute("data-open-address");
-            if (txOpen) openTxDetail(txOpen, true);
-            if (addrOpen) {
-              searchBackState = currentDetail ? { ...currentDetail } : null;
-              const qEl = document.getElementById("q");
-              if (qEl) qEl.value = addrOpen;
-              document.getElementById("btn-search").click();
-            }
-          };
+        '<div class="card"><h2><span class="material-symbols-outlined icon-inline">swap_horiz</span> Latest 10 transactions (indexed)</h2>' +
+        '<table class="data"><thead><tr><th>Time</th><th>Txid</th><th>Block</th><th>Out (Ð)</th><th>PQ</th></tr></thead><tbody id="latest-tx-body"></tbody></table></div>' +
+        mempoolHtml;
+
+      const mpb = $('#mp-body');
+      if (mpb) {
+        mpb.innerHTML = mpre.map(function (r) {
+          const ts = r.mempool_time ? fmtTimeUnix(r.mempool_time) : '—';
+          return '<tr class="tx-row" data-txid="' + esc(r.txid) + '"><td>' + esc(ts) + '</td><td class="mono">' + esc(r.txid) + '</td><td>' + esc(r.vsize != null ? r.vsize : '—') + '</td><td>' + esc(r.fee != null ? r.fee : '—') + '</td></tr>';
+        }).join('');
+        $$('.tx-row', mpb).forEach(function (tr) {
+          tr.addEventListener('click', function () {
+            location.hash = '#/tx/' + tr.getAttribute('data-txid');
+          });
         });
-        node.querySelectorAll(".link-detail").forEach(btn => {
-          btn.onclick = (e) => {
-            e.stopPropagation();
-            openTxDetail(btn.getAttribute("data-open-txid"), true);
-          };
+      }
+      const tb = $('#latest-tx-body');
+      if (latest.length === 0) {
+        tb.innerHTML = '<tr><td colspan="5" class="muted">No indexed transactions yet.</td></tr>';
+      } else {
+        tb.innerHTML = latest.map(function (r) {
+          const id = String(r.txid || '');
+          const hint = r.pq_carrier_role_hint ? ' <span class="muted mono">(' + esc(r.pq_carrier_role_hint) + ')</span>' : '';
+          return '<tr class="tx-row" data-txid="' + esc(id) + '"><td>' + esc(fmtTimeUnix(r.time_unix)) + '</td><td class="mono">' + esc(id) + '</td><td>' + esc(r.block_height) + '</td><td>' + esc(satsToDoge(r.value_out_sats)) + '</td><td>' + pqBadge(r.quantum_state) + hint + '</td></tr>';
+        }).join('');
+        $$('.tx-row', tb).forEach(function (tr) {
+          tr.addEventListener('click', function () {
+            location.hash = '#/tx/' + tr.getAttribute('data-txid');
+          });
         });
-        nextNodes.push(node);
+      }
+
+      $('#form-search').addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        const q = ($('#search-q').value || '').trim();
+        if (!q) return;
+        doSearch(q);
       });
-      for (let i = 0; i < nextNodes.length; i++) {
-        const wanted = nextNodes[i];
-        const current = rowsEl.children[i];
-        if (current !== wanted) {
-          rowsEl.insertBefore(wanted, current || null);
-        }
-      }
-      while (rowsEl.children.length > nextNodes.length) {
-        rowsEl.removeChild(rowsEl.lastElementChild);
-      }
+    } catch (e) {
+      main.innerHTML = '<div class="err-banner">' + esc(e.message || e) + '</div>';
     }
+  }
 
-    function qeChartCommonOptions(){
-      return {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { ticks: { maxTicksLimit: 8, color: "#8a9bb3" }, grid: { color: "rgba(255,255,255,0.06)" } },
-          y: { ticks: { color: "#8a9bb3", beginAtZero: true }, grid: { color: "rgba(255,255,255,0.06)" } },
-        },
-      };
-    }
-
-    function qeFmtHourLabel(hourStr){
-      if (!hourStr) return "";
-      try {
-        const d = new Date(hourStr);
-        if (!Number.isNaN(d.getTime())) {
-          return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-        }
-      } catch { /* fall through */ }
-      return String(hourStr).slice(5, 16).replace("T", " ");
-    }
-
-    function seriesToChartData(items, key){
-      const labels = items.map(it => qeFmtHourLabel(String(it.hour || "")));
-      const data = items.map(it => Number(it[key] || 0));
-      return { labels, data };
-    }
-
-    function qeUpsertLineChart(canvasId, label, labels, data, borderColor){
-      if (typeof Chart === "undefined") {
-        setTimeout(() => qeUpsertLineChart(canvasId, label, labels, data, borderColor), 50);
+  async function doSearch(q) {
+    setTitle('Search', 'search', q);
+    setNav('');
+    main.innerHTML = '<p class="muted">Searching…</p>';
+    closeSidebar();
+    try {
+      const out = await api('/api/public/search?q=' + encodeURIComponent(q) + '&limit=40');
+      const kind = out.kind || '';
+      if (kind === 'block_height' || kind === 'block_hash') {
+        location.hash = '#/block/' + encodeURIComponent(String(out.block && out.block.height != null ? out.block.height : q));
         return;
       }
-      const canvas = document.getElementById(canvasId);
-      if (!canvas) return;
-      const existing = qeCharts[canvasId] || Chart.getChart(canvas);
-      if (existing) {
-        existing.data.labels = labels;
-        existing.data.datasets[0].label = label;
-        existing.data.datasets[0].data = data;
-        existing.data.datasets[0].borderColor = borderColor;
-        existing.update("none");
-        qeCharts[canvasId] = existing;
+      if (kind === 'txid') {
+        location.hash = '#/tx/' + encodeURIComponent(q.toLowerCase());
         return;
       }
-      qeCharts[canvasId] = new Chart(canvas, {
-        type: "line",
-        data: { labels, datasets: [{ label, data, borderColor, tension: 0.25, fill: false }] },
-        options: qeChartCommonOptions(),
-      });
-    }
-
-    function renderMetricsBars(buckets){
-      const el = document.getElementById("metrics-bars");
-      if (!Array.isArray(buckets) || buckets.length === 0) {
-        el.innerHTML = '<p class="muted">No metric buckets yet.</p>';
+      if (kind === 'address') {
+        location.hash = '#/address/' + encodeURIComponent(q);
         return;
       }
-      const last = buckets[buckets.length - 1] || {};
-      const qd = seriesToChartData(buckets, "quantum");
-      if (!document.getElementById("qe-chart-m-q")) {
-        el.innerHTML = `
-          <div class="wave-card">
-            <div class="wave-head"><strong>Quantum transactions</strong><span id="qe-m-latest-q">Latest: 0</span></div>
-            <div class="chart-canvas-wrap"><canvas id="qe-chart-m-q" height="140"></canvas></div>
-          </div>`;
+      let html = '<div class="card"><h2>Results</h2><p class="muted">kind: ' + esc(kind) + '</p>';
+      if (out.results && out.results.length) {
+        html += '<ul class="mono">';
+        html += out.results.slice(0, 40).map(function (r) {
+          return '<li>' + esc(JSON.stringify(r).slice(0, 240)) + '</li>';
+        }).join('');
+        html += '</ul>';
+      } else {
+        html += '<p>No matches.</p>';
       }
-      const qLatest = document.getElementById("qe-m-latest-q");
-      if (qLatest) qLatest.textContent = `Latest: ${Number(last.quantum || 0)}`;
-      requestAnimationFrame(() => {
-        qeUpsertLineChart("qe-chart-m-q", "Quantum", qd.labels, qd.data, "#63c7ff");
+      html += '</div>';
+      main.innerHTML = html;
+    } catch (e) {
+      main.innerHTML = '<div class="err-banner">' + esc(e.message || e) + '</div>';
+    }
+  }
+
+  async function viewBlock(token) {
+    setNav('');
+    setTitle('Block', 'cube', token);
+    main.innerHTML = '<p class="muted">Loading block…</p>';
+    closeSidebar();
+    const decLim = Math.min(500, Math.max(1, parseInt(String(explorerCfg.block_decode_limit_default || 200), 10) || 200));
+    const q = /^[0-9]+$/.test(token) ? ('height=' + encodeURIComponent(token)) : ('hash=' + encodeURIComponent(token));
+    try {
+      const b = await api('/api/public/block?' + q + '&decode_limit=' + decLim);
+      const blk = b.block || {};
+      const txs = b.associated_transactions || [];
+      const h = blk.height != null ? blk.height : token;
+      const when = blk.timestamp || (blk.time_unix != null ? fmtTimeUnix(blk.time_unix) : '—');
+      main.innerHTML =
+        '<div class="card"><h2>Block ' + esc(h) + '</h2>' +
+        '<p class="mono muted">hash: ' + esc(blk.hash || '') + '</p>' +
+        '<p class="muted">time: ' + esc(when) + ' · txs: ' + esc(b.tx_count != null ? b.tx_count : txs.length) + '</p>' +
+        '<p class="muted">Decoded scripts for the first ' + esc(decLim) + ' transactions (see <span class="mono">decode_limit</span>).</p></div>' +
+        '<div class="card"><h2>Transactions</h2><table class="data"><thead><tr><th>Txid</th><th>PQ state</th><th>Value out (Ð)</th><th>Ins / outs</th></tr></thead><tbody id="blk-tb"></tbody></table></div>';
+      const tb = $('#blk-tb');
+      tb.innerHTML = txs.map(function (row) {
+        const id = String(row.txid || '').toLowerCase();
+        const st = row.quantum_state || (row.pq_tx && row.pq_tx.quantum_state) || '';
+        const dec = row.decode || {};
+        const ins = (dec.inputs && dec.inputs.length) || '—';
+        const outs = (dec.outputs && dec.outputs.length) || '—';
+        const vdoge = dec.output_total_doge != null ? dec.output_total_doge : satsToDoge(row.value_out_sats);
+        return '<tr class="tx-row" data-txid="' + esc(id) + '"><td class="mono">' + esc(id) + '</td><td>' + pqBadge(st) + '</td><td>' + esc(vdoge) + '</td><td>' + esc(ins) + ' / ' + esc(outs) + '</td></tr>';
+      }).join('');
+      $$('.tx-row', tb).forEach(function (tr) {
+        tr.addEventListener('click', function () {
+          location.hash = '#/tx/' + tr.getAttribute('data-txid');
+        });
       });
+    } catch (e) {
+      main.innerHTML = '<div class="err-banner">' + esc(e.message || e) + '</div>';
     }
+  }
 
-    function renderSimpleSeries(elId, title, items, key, colorClass){
-      const el = document.getElementById(elId);
-      if (!el) return;
-      const canvasId = `qe-chart-${elId}`;
-      if (!Array.isArray(items) || !items.length) {
-        el.innerHTML = `<p class="muted">${esc(title)}: no data yet.</p>`;
-        return;
-      }
-      const last = items[items.length - 1] || {};
-      const color = colorClass === "nonq" ? "#ff8f8f" : "#63c7ff";
-      const { labels, data } = seriesToChartData(items, key);
-      const latestId = `${canvasId}-latest`;
-      if (!document.getElementById(canvasId)) {
-        el.innerHTML = `
-          <div class="wave-card">
-            <div class="wave-head"><strong>${esc(title)}</strong><span id="${latestId}">Latest: 0</span></div>
-            <div class="chart-canvas-wrap"><canvas id="${canvasId}" height="140"></canvas></div>
-          </div>`;
-      }
-      const latestEl = document.getElementById(latestId);
-      if (latestEl) latestEl.textContent = `Latest: ${Number(last[key] || 0)}`;
-      requestAnimationFrame(() => qeUpsertLineChart(canvasId, title, labels, data, color));
-    }
+  function renderOutputRow(o) {
+    const opret = o.kind_detail === 'op_return'
+      ? '<div class="muted" style="margin-top:0.25rem">OP_RETURN hex: <span class="mono">' + esc(o.op_return_hex || '') + '</span><br>preview: ' + esc(o.op_return_preview || '') + '</div>'
+      : '';
+    const pqhint = o.pq_hint_tag ? '<span class="badge badge-pq">' + esc(o.pq_hint_tag) + '</span> ' : '';
+    return '<tr><td>' + esc(o.n) + '</td><td>' + esc(satsToDoge(o.value_sats)) + '</td><td>' + pqhint + esc(o.script_kind || '') +
+      '</td><td class="mono">' + esc(o.address || '') + '<br><span class="muted">' + esc(o.script_hex || '').slice(0, 120) + (String(o.script_hex || '').length > 120 ? '…' : '') + '</span>' + opret + '</td></tr>';
+  }
 
-    function renderRangeToolbar(){
-      const el = document.getElementById("range-toolbar");
-      if (!el) return;
-      el.innerHTML = RANGE_OPTIONS.map(o =>
-        `<button type="button" class="range-chip ${o.id === selectedRange ? "active" : ""}" data-range="${esc(o.id)}">${esc(o.label)}</button>`
-      ).join("");
-      el.querySelectorAll("[data-range]").forEach(btn => {
-        btn.onclick = async () => {
-          selectedRange = btn.getAttribute("data-range") || "1d";
-          renderRangeToolbar();
-          await load();
-        };
-      });
-    }
+  function renderInputRow(i) {
+    const prev = i.prev_output || {};
+    const addr = prev.address ? '<span class="mono">' + esc(prev.address) + '</span> · ' + esc(satsToDoge(prev.value_sats)) + ' Ð' : '<span class="muted">prevout not indexed</span>';
+    return '<tr><td>' + esc(i.n) + '</td><td class="mono">' + esc(i.prev_txid) + ':' + esc(i.prev_vout) + '</td><td>' + addr +
+      '</td><td class="mono">' + esc((i.script_sig_hex || '').slice(0, 160)) + (String(i.script_sig_hex || '').length > 160 ? '…' : '') + '<div class="muted">' + esc(i.script_sig_asm || '') + '</div></td></tr>';
+  }
 
-    function closeTxModal(){
-      document.getElementById("tx-modal").classList.remove("show");
-    }
-    function openTxModal(){
-      document.getElementById("tx-modal").classList.add("show");
-    }
-
-    function opcodeName(op){
-      const m = {
-        0x00: "OP_0", 0x4c: "OP_PUSHDATA1", 0x4d: "OP_PUSHDATA2", 0x4e: "OP_PUSHDATA4",
-        0x51: "OP_1", 0x52: "OP_2", 0x53: "OP_3", 0x54: "OP_4", 0x55: "OP_5",
-        0x56: "OP_6", 0x57: "OP_7", 0x58: "OP_8", 0x59: "OP_9", 0x5a: "OP_10",
-        0x5b: "OP_11", 0x5c: "OP_12", 0x5d: "OP_13", 0x5e: "OP_14", 0x5f: "OP_15", 0x60: "OP_16",
-        0x63: "OP_IF", 0x64: "OP_NOTIF", 0x67: "OP_ELSE", 0x68: "OP_ENDIF",
-        0x69: "OP_VERIFY", 0x6a: "OP_RETURN", 0x6b: "OP_TOALTSTACK", 0x6c: "OP_FROMALTSTACK",
-        0x73: "OP_IFDUP", 0x74: "OP_DEPTH", 0x75: "OP_DROP", 0x76: "OP_DUP",
-        0x77: "OP_NIP", 0x78: "OP_OVER", 0x79: "OP_PICK", 0x7a: "OP_ROLL", 0x7b: "OP_ROT",
-        0x87: "OP_EQUAL", 0x88: "OP_EQUALVERIFY", 0xa6: "OP_RIPEMD160", 0xa7: "OP_SHA1",
-        0xa8: "OP_SHA256", 0xa9: "OP_HASH160", 0xaa: "OP_HASH256",
-        0xac: "OP_CHECKSIG", 0xad: "OP_CHECKSIGVERIFY", 0xae: "OP_CHECKMULTISIG", 0xaf: "OP_CHECKMULTISIGVERIFY"
-      };
-      return m[op] || ("OP_0x" + op.toString(16).padStart(2, "0"));
-    }
-
-    function decodeScriptOpcodes(hexStr){
-      const hex = String(hexStr || "").trim().toLowerCase();
-      if (!hex || hex.length % 2 !== 0 || /[^0-9a-f]/.test(hex)) return "";
-      const out = [];
-      for (let i = 0; i < hex.length; ){
-        const op = parseInt(hex.slice(i, i + 2), 16);
-        i += 2;
-        if (op >= 0x01 && op <= 0x4b) {
-          const n = op;
-          const need = n * 2;
-          const d = hex.slice(i, i + need);
-          if (d.length < need) break;
-          out.push(`<${n}b:${d.slice(0, 24)}${d.length > 24 ? "…" : ""}>`);
-          i += need;
-          continue;
-        }
-        if (op === 0x4c || op === 0x4d || op === 0x4e) {
-          out.push(opcodeName(op));
-          if (op === 0x4c && i + 2 <= hex.length) { i += 2; continue; }
-          if (op === 0x4d && i + 4 <= hex.length) { i += 4; continue; }
-          if (op === 0x4e && i + 8 <= hex.length) { i += 8; continue; }
-          break;
-        }
-        out.push(opcodeName(op));
-      }
-      return out.join(" ");
-    }
-
-    function renderDecodeSection(dec){
-      if (!dec || dec.error) {
-        return `<p class="bad">${esc(dec && dec.error ? dec.error : "No decode")}</p>`;
-      }
-      const ins = (dec.inputs || []).map(i => {
-        const fromAddr = i.prev_output && i.prev_output.address
-          ? `<button type="button" class="link-tx" data-open-address="${esc(i.prev_output.address)}">${esc(i.prev_output.address)}</button>`
-          : "<span class='muted'>unknown script/address</span>";
-        const fromVal = i.prev_output && i.prev_output.value_doge != null ? `${esc(String(i.prev_output.value_doge))} DOGE` : "—";
-        return `
-        <div class="tx-io-card">
-          <strong>Input ${esc(String(i.n))}</strong>
-          <div class="detail-kv"><strong>From</strong> ${fromAddr}</div>
-          <div class="detail-kv"><strong>Amount</strong> ${fromVal}</div>
-          <div class="detail-kv mono"><strong>Prev outpoint</strong> <button type="button" class="link-tx" data-open-txid="${esc(i.prev_txid||"")}">${esc((i.prev_txid||"").slice(0,24))}…</button> : ${esc(String(i.prev_vout ?? ""))}</div>
-          <div class="detail-kv"><strong>Sequence</strong> ${esc(String(i.sequence||""))}</div>
-          ${i.coinbase ? `<div class="edu-callout">${esc(i.learn || "Coinbase input.")}</div>` : ""}
-          <div class="detail-kv mono muted" style="font-size:.72rem;margin-top:.25rem"><strong>scriptSig hex</strong> ${esc((i.script_sig_hex||"").slice(0,140))}${(i.script_sig_hex||"").length>140?"…":""}</div>
-          <div class="detail-kv mono muted" style="font-size:.72rem"><strong>scriptSig opcodes</strong> ${esc(decodeScriptOpcodes(i.script_sig_hex || "")) || "—"}</div>
-        </div>`;
-      }).join("");
-      const outs = (dec.outputs || []).map(o => {
-        const toAddr = o.address
-          ? `<button type="button" class="link-tx" data-open-address="${esc(o.address)}">${esc(o.address)}</button>`
-          : "<span class='muted'>script-only output</span>";
-        const spkOps = decodeScriptOpcodes(o.script_hex || "");
-        return `
-        <div class="tx-io-card">
-          <strong>Output ${esc(String(o.n))}</strong> · <span style="color:var(--doge)">${esc(o.value_doge||"0")} DOGE</span>
-          <div class="detail-kv"><strong>To</strong> ${toAddr}</div>
-          <div class="detail-kv"><strong>Type</strong> ${esc(o.script_kind||"")}</div>
-          <div class="detail-kv"><strong>Value (koinu)</strong> ${esc(String(o.value_sats ?? ""))}</div>
-          <div class="detail-kv mono muted" style="font-size:.72rem"><strong>scriptPubKey opcodes</strong> ${esc(spkOps) || "—"}</div>
-          ${o.op_return_hex ? `<div class="detail-kv"><strong>OP_RETURN hex</strong> <span class="mono" style="font-size:.72rem">${esc(o.op_return_hex)}</span></div>` : ""}
-          ${o.op_return_preview ? `<div class="detail-kv muted" style="font-size:.75rem"><strong>OP_RETURN decoded</strong> ${esc(o.op_return_preview)}</div>` : ""}
-        </div>`;
-      }).join("");
-      const wit = (dec.witness || []).map(w => {
-        const items = (w.stack || []).map(s => `<div class="mono muted" style="font-size:.7rem;margin:.15rem 0">· ${esc(s.hex||"").slice(0,96)}${(s.hex||"").length>96?"…":""}</div>`).join("");
-        return `<div class="tx-io-card"><strong>Witness · input ${esc(String(w.input_index))}</strong>${items}</div>`;
-      }).join("");
-      return `
-        <div class="tx-tabs" data-tx-tabs>
-          <div class="tx-tab-buttons">
-            <button type="button" class="tx-tab-btn active" data-tab="summary">Summary</button>
-            <button type="button" class="tx-tab-btn" data-tab="inputs">Inputs</button>
-            <button type="button" class="tx-tab-btn" data-tab="outputs">Outputs</button>
-            ${wit ? `<button type="button" class="tx-tab-btn" data-tab="witness">Witness</button>` : ""}
-          </div>
-          <div class="tx-tab-pane active" data-pane="summary">
-            <div class="detail-kv"><strong>txid</strong> <span class="mono">${esc(dec.txid||"")}</span></div>
-            ${dec.wtxid ? `<div class="detail-kv"><strong>wtxid</strong> <span class="mono">${esc(dec.wtxid)}</span></div>` : ""}
-            <div class="detail-kv"><strong>Version</strong> ${esc(String(dec.version ?? ""))} · <strong>Locktime</strong> ${esc(String(dec.locktime ?? ""))}</div>
-            <div class="detail-kv muted">${esc(dec.locktime_note||"")}</div>
-            <div class="detail-kv"><strong>Size</strong> ${esc(String(dec.size_bytes ?? ""))} B · <strong>vsize</strong> ${esc(String(dec.vsize ?? ""))} · <strong>Weight</strong> ${esc(String(dec.weight ?? ""))}</div>
-            <div class="detail-kv"><strong>Output sum</strong> ${esc(String(dec.output_total_doge ?? ""))} DOGE (${esc(String(dec.output_total_sats ?? ""))} koinu)</div>
-            <div class="detail-kv muted" style="font-size:.76rem">Flow view: inputs = where value came from, outputs = where value was sent.</div>
-          </div>
-          <div class="tx-tab-pane" data-pane="inputs">
-            <div class="io-grid">${ins || "<p class='muted'>None</p>"}</div>
-          </div>
-          <div class="tx-tab-pane" data-pane="outputs">
-            <div class="io-grid two">${outs || "<p class='muted'>None</p>"}</div>
-          </div>
-          ${wit ? `<div class="tx-tab-pane" data-pane="witness">${wit}</div>` : ""}
-          <div class="detail-kv" style="margin-top:.55rem;display:flex;gap:.4rem;justify-content:flex-end">
-            <button type="button" class="btn btn-inline" data-tab-nav="prev">Back</button>
-            <button type="button" class="btn btn-inline" data-tab-nav="next">Next</button>
-          </div>
-        </div>`;
-    }
-
-    function initTxTabs(root){
-      if (!root) return;
-      const tabWrap = root.querySelector("[data-tx-tabs]");
-      if (!tabWrap) return;
-      const btns = Array.from(tabWrap.querySelectorAll(".tx-tab-btn"));
-      const panes = Array.from(tabWrap.querySelectorAll(".tx-tab-pane"));
-      const navBtns = Array.from(tabWrap.querySelectorAll("[data-tab-nav]"));
-      const ordered = btns.map(b => String(b.getAttribute("data-tab") || ""));
-      function activate(target){
-        btns.forEach(b => b.classList.toggle("active", b.getAttribute("data-tab") === target));
-        panes.forEach(p => p.classList.toggle("active", p.getAttribute("data-pane") === target));
-      }
-      btns.forEach(btn => {
-        btn.onclick = () => {
-          const target = btn.getAttribute("data-tab") || "summary";
-          activate(target);
-        };
-      });
-      navBtns.forEach(btn => {
-        btn.onclick = () => {
-          const dir = btn.getAttribute("data-tab-nav");
-          const cur = (btns.find(b => b.classList.contains("active")) || btns[0]);
-          const curTab = cur ? String(cur.getAttribute("data-tab") || "summary") : "summary";
-          const idx = Math.max(0, ordered.indexOf(curTab));
-          const nextIdx = dir === "prev" ? Math.max(0, idx - 1) : Math.min(ordered.length - 1, idx + 1);
-          activate(ordered[nextIdx] || "summary");
-        };
-      });
-    }
-
-    function bindDetailLinks(root){
-      if (!root) return;
-      root.querySelectorAll("[data-open-txid]").forEach(el => {
-        el.onclick = () => {
-          const id = (el.getAttribute("data-open-txid") || "").trim();
-          if (id) openTxDetail(id, true);
-        };
-      });
-      root.querySelectorAll("[data-open-address]").forEach(el => {
-        el.onclick = () => {
-          const addr = (el.getAttribute("data-open-address") || "").trim();
-          if (!addr) return;
-          searchBackState = currentDetail ? { ...currentDetail } : null;
-          const qEl = document.getElementById("q");
-          if (qEl) qEl.value = addr;
-          closeTxModal();
-          const searchInput = document.getElementById("q");
-          if (searchInput && typeof searchInput.scrollIntoView === "function") {
-            searchInput.scrollIntoView({ behavior: "smooth", block: "start" });
-          } else {
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          }
-          document.getElementById("btn-search").click();
-        };
-      });
-    }
-
-    async function openTxDetail(txid, pushCurrent=true){
-      if (!txid) return;
-      pushCurrentDetailIfNeeded(pushCurrent);
-      currentDetail = { kind: "tx", txid: String(txid) };
-      openTxModal();
-      const body = document.getElementById("tx-modal-body");
-      const title = document.getElementById("tx-modal-title");
-      title.textContent = "Transaction";
-      body.innerHTML = "<p>Loading…</p>";
-      const r = await j("/api/public/tx?txid=" + encodeURIComponent(txid));
-      if (!r.ok) {
-        body.innerHTML = `<p class="bad">${esc(r.d.error || r.s || "error")}</p>`;
-        return;
-      }
-      const tx = r.d.tx || {};
-      const pq = r.d.pq_verification || {};
+  async function viewTx(id) {
+    setNav('');
+    setTitle('Transaction', 'article', id);
+    main.innerHTML = '<p class="muted">Loading transaction…</p>';
+    closeSidebar();
+    try {
+      const d = await api('/api/public/tx?txid=' + encodeURIComponent(id));
+      const tx = d.tx || {};
+      const pq = d.pq_verification || {};
       const dec = pq.decode || {};
-      const strict = pq.strict || {};
-      const carrier = pq.carrier_phase1 || {};
-      const strictReason = strict.reason || "—";
-      const markerText = strict.valid ? "OP_RETURN decoded correctly and commitment markers recognized." : "OP_RETURN markers were not validated.";
-      const core = r.d.core || {};
-      const fromCore = r.d.source === "core_index";
-      const qState = core.quantum_state || (tx.pq_valid ? "quantum" : "non-quantum");
-      const vis = fromCore ? quantumVisual(qState, pq) : (tx.pq_valid
-        ? { cls: "quantum", title: "Post-quantum (local classifier)", sub: "PQ valid flag from local index.", icon: "verified" }
-        : { cls: "standard", title: "Transaction", sub: "From local PQ store.", icon: "receipt_long" });
-      const reverseCarrier = pq.carrier_reverse_phase1 || {};
-      const flow = txFlowSummary({ value_out_sats: core.value_out_sats, decode: dec, last_seen: core.timestamp, first_seen: core.timestamp });
-      title.textContent = "Transaction";
-      body.innerHTML = `
-        <div class="detail-section" style="border-top:none;padding-top:0">
-          <div class="pq-hero ${esc(vis.cls)}">
-            <span class="material-symbols-outlined" aria-hidden="true">${esc(vis.icon)}</span>
-            <div>
-              <h3 style="margin:0 0 .25rem;font-size:1.1rem">${esc(vis.title)}</h3>
-              <p>${esc(vis.sub)}</p>
-            </div>
-          </div>
-          <div class="mono" style="font-size:.84rem;word-break:break-all">${esc(tx.txid)}</div>
-          <div class="tx-kv-grid">
-            ${core.block_height != null ? `<div><strong>Block height</strong>${esc(String(core.block_height))}</div>` : ""}
-            ${core.block_hash ? `<div style="grid-column:span 2"><strong>Block hash</strong><span class="mono" style="font-size:.76rem">${esc(String(core.block_hash))}</span></div>` : ""}
-            ${core.timestamp ? `<div><strong>Timestamp</strong>${esc(String(core.timestamp))}</div>` : ""}
-            <div><strong>Amount</strong>${esc(flow.amountDoge)} DOGE</div>
-            <div><strong>Fee</strong>${esc(flow.feeDoge)} DOGE</div>
-            ${flow.fromAddr ? `<div style="grid-column:span 2"><strong>From</strong> <button type="button" class="link-tx" data-open-address="${esc(flow.fromAddr)}">${esc(flow.fromAddr)}</button></div>` : ""}
-            ${flow.toAddr ? `<div style="grid-column:span 2"><strong>To</strong> <button type="button" class="link-tx" data-open-address="${esc(flow.toAddr)}">${esc(flow.toAddr)}</button></div>` : ""}
-            ${fromCore && core.quantum_state ? `<div><strong>Quantum state</strong>${esc(String(core.quantum_state))}</div>` : ""}
-            <div><strong>Confirmations</strong>${tx.confirmed ? "Included in block" : "Not confirmed (local)"}</div>
-            ${!fromCore ? `<div><strong>PQ score</strong>${esc(String(tx.pq_score ?? "—"))}</div>` : ""}
-          </div>
-          ${!fromCore ? `<div class="detail-kv" style="margin-top:.35rem"><strong>First / last seen</strong> ${esc(tx.first_seen||"—")} · ${esc(tx.last_seen||"—")}</div>` : ""}
-          ${tx.raw_hex ? `<div class="detail-kv mono" style="margin-top:.45rem;max-height:6rem;overflow:auto"><strong>Raw hex transaction</strong> ${esc(String(tx.raw_hex))}</div>` : ""}
-        </div>
-        <div class="detail-section">
-          <h3><span class="material-symbols-outlined title-icon" aria-hidden="true">hub</span>Inputs &amp; outputs</h3>
-          ${pq.note ? `<p class="muted" style="font-size:.82rem">${esc(pq.note)}</p>` : ""}
-          ${renderDecodeSection(dec)}
-        </div>
-        <div class="detail-section">
-          <h3><span class="material-symbols-outlined title-icon" aria-hidden="true">shield_lock</span>Post-quantum marker check</h3>
-          <p class="muted" style="font-size:.8rem;margin:.2rem 0 .45rem">Strict scan of decoded bytes for OP_RETURN commitment markers (educational verifier).</p>
-          <div class="badges" style="margin:.35rem 0">${badge(strict.valid ? "pq-ok" : "pq-bad", strict.valid ? "Markers OK" : "Markers missing or invalid")}</div>
-          <div class="badges" style="margin:.35rem 0">
-            ${badge((strict.valid || carrier.verified) ? "pq-ok" : "pq-bad", (strict.valid || carrier.verified) ? "Post-quantum valid" : "Post-quantum invalid")}
-            ${carrier.matched_txc_txid ? badge("pq-ok", "TX_C linked") : badge("pq-bad", "TX_C not linked")}
-            ${reverseCarrier.matched_txr_txid ? badge("pq-ok", "TX_R linked") : badge("", "TX_R none")}
-          </div>
-          <div class="tx-io-card" style="margin-top:.35rem">
-            <strong>Reason</strong>
-            <div class="detail-kv" style="margin-top:.35rem">${esc(strictReason)}</div>
-            <div class="detail-kv muted" style="font-size:.78rem">${esc(markerText)}</div>
-          </div>
-          ${carrier.present ? `<div class="tx-io-card" style="margin-top:.45rem">
-            <strong>Carrier verification (TX_C/TX_R)</strong>
-            <div class="detail-kv" style="margin-top:.35rem">${carrier.verified ? "Verified: SHA256(pk‖sig) matched an indexed TX_C Phase-1 OP_RETURN commitment (lookback window + same block)" : "Carrier payload detected, but no matching indexed TX_C commitment (increase QE_PQ_CARRIER_COMMITMENT_LOOKBACK_BLOCKS or ensure TX_C is indexed as quantum)"}</div>
-            ${carrier.algorithm ? `<div class="detail-kv"><strong>Algorithm tag</strong> ${esc(String(carrier.algorithm))}</div>` : ""}
-            ${carrier.carrier_tag ? `<div class="detail-kv"><strong>Carrier tag</strong> ${esc(String(carrier.carrier_tag))}</div>` : ""}
-            ${carrier.commitment32 ? `<div class="detail-kv mono"><strong>Commitment32</strong> ${esc(String(carrier.commitment32))}</div>` : ""}
-            ${carrier.matched_txc_txid ? `<div class="detail-kv mono"><strong>Matched TX_C</strong> <button type="button" class="link-tx" data-open-txid="${esc(String(carrier.matched_txc_txid))}">${esc(String(carrier.matched_txc_txid))}</button>${carrier.matched_txc_block_height != null ? ` <span class="muted">(block ${esc(String(carrier.matched_txc_block_height))})</span>` : ""}</div>` : ""}
-            ${carrier.pk_len ? `<div class="detail-kv"><strong>pk_len</strong> ${esc(String(carrier.pk_len))} bytes</div>` : ""}
-            ${carrier.sig_len ? `<div class="detail-kv"><strong>sig_len</strong> ${esc(String(carrier.sig_len))} bytes</div>` : ""}
-            ${carrier.commitment_lookback_blocks != null ? `<div class="detail-kv muted" style="font-size:.76rem"><strong>TX_C search</strong> last ${esc(String(carrier.commitment_lookback_blocks))} blocks · ${esc(String(carrier.indexed_commitment_count ?? "—"))} commitment(s) in map</div>` : ""}
-            ${carrier.reason ? `<div class="detail-kv muted" style="font-size:.78rem">${esc(String(carrier.reason))}</div>` : ""}
-            ${renderFalconCryptoVerify(carrier.falcon_crypto_verify)}
-          </div>` : ""}
-          ${reverseCarrier.matched_txr_txid ? `<div class="tx-io-card" style="margin-top:.45rem">
-            <strong>Reverse carrier link (TX_C → TX_R)</strong>
-            <div class="detail-kv" style="margin-top:.35rem">This Phase-1 commitment is also referenced by a carrier reveal transaction.</div>
-            <div class="detail-kv mono"><strong>Matched TX_R</strong> <button type="button" class="link-tx" data-open-txid="${esc(String(reverseCarrier.matched_txr_txid))}">${esc(String(reverseCarrier.matched_txr_txid))}</button>${reverseCarrier.matched_txr_block_height != null ? ` <span class="muted">(block ${esc(String(reverseCarrier.matched_txr_block_height))})</span>` : ""}</div>
-          </div>` : ""}
-        </div>`;
-      initTxTabs(body);
-      bindDetailLinks(body);
+      const core = d.core || {};
+      const strict = pq.strict || (dec.pq_strict || {});
+      const car = pq.carrier_phase1 || {};
+      const fal = car.falcon_crypto_verify || {};
+
+      let badges = '';
+      if (tx.quantum_state === 'quantum' || strict.valid || car.verified) badges += '<span class="badge badge-pq">Post-quantum</span> ';
+      if (strict.valid) badges += '<span class="badge badge-ok">Phase-1 OP_RETURN</span> ';
+      if (car.verified) badges += '<span class="badge badge-ok">Carrier verified</span> ';
+      if (fal.status && String(fal.status).toLowerCase() !== 'skipped') badges += '<span class="badge">' + esc(fal.status) + '</span> ';
+
+      const outs = (dec.outputs || []).map(renderOutputRow).join('');
+      const ins = (dec.inputs || []).map(renderInputRow).join('');
+
+      main.innerHTML =
+        '<div class="card"><h2>Summary</h2>' + badges +
+        '<p class="mono" style="margin:0.5rem 0">' + esc(tx.txid || id) + '</p>' +
+        '<p class="muted">Block ' + esc(core.block_height) + ' · ' + esc(core.timestamp || '') + '</p>' +
+        '<div class="grid-kpi" style="margin-top:0.75rem">' +
+        '<div class="kpi"><div class="kpi-label">Size</div><div class="kpi-value">' + esc(dec.size_bytes != null ? dec.size_bytes + ' B' : '—') + '</div></div>' +
+        '<div class="kpi"><div class="kpi-label">vsize</div><div class="kpi-value">' + esc(dec.vsize != null ? dec.vsize : '—') + '</div></div>' +
+        '<div class="kpi"><div class="kpi-label">Output total</div><div class="kpi-value accent">' + esc(dec.output_total_doge != null ? dec.output_total_doge + ' Ð' : '—') + '</div></div>' +
+        '<div class="kpi"><div class="kpi-label">Fee</div><div class="kpi-value">' + esc(dec.fee_sats != null ? satsToDoge(dec.fee_sats) + ' Ð' : (dec.fee_note || 'needs prevouts')) + '</div></div>' +
+        '</div></div>' +
+
+        '<div class="card"><h2>Strict PQ check</h2><p class="muted">' + esc(strict.reason || '') + '</p>' +
+        (strict.evidence && strict.evidence.length ? '<ul class="mono muted">' + strict.evidence.map(function (e) { return '<li>' + esc(e) + '</li>'; }).join('') + '</ul>' : '') +
+        '</div>' +
+
+        (Object.keys(car).length ? '<div class="card"><h2>Carrier Phase 1</h2><pre class="json">' + esc(JSON.stringify(car, null, 2)) + '</pre></div>' : '') +
+
+        '<div class="card"><h2>Inputs</h2><table class="data"><thead><tr><th>n</th><th>Prevout</th><th>Value / address</th><th>scriptSig</th></tr></thead><tbody>' + ins + '</tbody></table></div>' +
+        '<div class="card"><h2>Outputs</h2><table class="data"><thead><tr><th>n</th><th>Value (Ð)</th><th>Kind</th><th>Address / script</th></tr></thead><tbody>' + outs + '</tbody></table></div>' +
+
+        '<div class="card"><h2>Raw verification JSON</h2><pre class="json">' + esc(JSON.stringify(pq, null, 2).slice(0, 48000)) + '</pre></div>';
+    } catch (e) {
+      main.innerHTML = '<div class="err-banner">' + esc(e.message || e) + '</div>';
     }
+  }
 
-    function closeBlockModal(){ document.getElementById("block-modal").classList.remove("show"); }
-    function openBlockModal(){ document.getElementById("block-modal").classList.add("show"); }
-
-    async function openBlockByHeightOrHash(height, hash, pushCurrent=true){
-      pushCurrentDetailIfNeeded(pushCurrent);
-      currentDetail = { kind: "block", height, hash };
-      const q = height != null && height >= 0
-        ? "height=" + encodeURIComponent(String(height))
-        : "hash=" + encodeURIComponent(hash || "");
-      openBlockModal();
-      const body = document.getElementById("block-modal-body");
-      const title = document.getElementById("block-modal-title");
-      title.textContent = "Block";
-      body.innerHTML = "<p>Loading…</p>";
-      const r = await j("/api/public/block?" + q);
-      if (!r.ok) {
-        body.innerHTML = `<p class="bad">${esc(r.d.error || r.s || "error")}</p>`;
-        return;
-      }
-      const b = r.d.block || {};
-      const txs = r.d.associated_transactions || [];
-      const src = r.d.source || "";
-      const isCore = src === "core_index";
-      const txCount = r.d.tx_count != null ? Number(r.d.tx_count) : txs.length;
-      title.textContent = "Block " + (b.height != null ? "#" + b.height : "");
-      let txSection = "";
-      if (isCore && txs.length){
-        const cards = txs.map((x, i) => {
-          const st = x.quantum_state || "";
-          const vis = quantumVisual(st);
-          const rowCls = st === "quantum" ? "row-pq" : "";
-          const dec = x.decode || {};
-          const hasDec = dec && !dec.error && (dec.inputs || dec.outputs);
-          const flow = txFlowSummary({ value_out_sats: x.value_out_sats, decode: dec, last_seen: b.timestamp, first_seen: b.timestamp });
-          const shortReason = (x.pq_reason && String(x.pq_reason).length > 48) ? String(x.pq_reason).slice(0,46) + "…" : (x.pq_reason || "—");
-          return `<div class="block-tx-card ${rowCls} blk-tx-open" data-txid="${esc(x.txid)}" style="cursor:pointer">
-            <div class="block-tx-head">
-              <div class="mono">${esc(x.txid)}</div>
-              <span class="badge ${vis.cls === "quantum" ? "pq-ok" : vis.cls === "invalid" ? "pq-bad" : ""}" title="${esc(vis.title)}">${esc(quantumShortLabel(st))}</span>
-            </div>
-            <div class="block-tx-meta">
-              <div><strong>Position</strong>#${i}</div>
-              <div><strong>Amount</strong>${esc(flow.amountDoge)} DOGE</div>
-              <div><strong>Fee</strong>${esc(flow.feeDoge)} DOGE</div>
-              <div><strong>From</strong>${flow.fromAddr ? esc(flow.fromAddr.slice(0, 22)) + "…" : "—"}</div>
-              <div><strong>To</strong>${flow.toAddr ? esc(flow.toAddr.slice(0, 22)) + "…" : "—"}</div>
-              <div><strong>Decode</strong>${hasDec ? "Available" : "Not available"}</div>
-              <div><strong>PQ</strong>${esc(shortReason)}</div>
-            </div>
-            <div class="block-tx-actions"><button type="button" class="btn btn-inline" data-txid="${esc(x.txid)}">See details</button></div>
-          </div>`;
-        }).join("");
-        txSection = `
-          <h3 style="margin:0 0 .35rem;font-size:1rem"><span class="material-symbols-outlined title-icon" aria-hidden="true">reorder</span>Transactions in this block <span class="muted" style="font-weight:600">(${txCount} total)</span></h3>
-          <div class="block-tx-grid">${cards}</div>`;
-      } else {
-        const txHtml = txs.map(x => {
-          const dec = x.decode || {};
-          const hasDec = dec && !dec.error && (dec.inputs || dec.outputs);
-          return `<div class="tx-io-card" style="margin-bottom:.5rem">
-            <div class="mono" style="font-size:.78rem">${esc(x.txid)}</div>
-            ${x.decode_note ? `<p class="muted" style="font-size:.78rem;margin:.35rem 0">${esc(x.decode_note)}</p>` : ""}
-            ${hasDec ? `<div class="muted" style="font-size:.75rem;margin:.25rem 0">≈ ${esc(String(dec.output_total_doge||"?"))} DOGE · ${esc(String((dec.outputs||[]).length))} outs</div>` : ""}
-            <button type="button" class="btn btn-inline" style="margin-top:.35rem" data-txid="${esc(x.txid)}">Open transaction</button>
-          </div>`;
-        }).join("");
-        txSection = `<h3 style="margin:.75rem 0 .35rem">Transactions</h3>${txHtml || "<p class='muted'>None</p>"}`;
-      }
-      body.innerHTML = `
-        <div class="detail-section" style="border-top:none;padding-top:0">
-          <div class="badges" style="margin:0 0 .5rem">${isCore ? badge("confirmed","Confirmed block data") : badge("pending","Header data")}</div>
-          <div class="detail-kv"><strong>Height</strong> ${esc(String(b.height ?? "—"))}</div>
-          <div class="mono" style="font-size:.82rem;margin:.35rem 0"><strong>Hash</strong> ${esc(b.hash||"—")}</div>
-          <div class="detail-kv muted">${esc(b.timestamp||"—")}</div>
-        </div>
-        <div class="detail-section">${txSection}</div>`;
-      body.querySelectorAll("[data-txid]").forEach(btn => {
-        btn.onclick = () => { closeBlockModal(); openTxDetail(btn.getAttribute("data-txid"), true); };
+  async function viewAddress(addr, offset) {
+    setNav('');
+    var off = offset || 0;
+    var lim = 40;
+    setTitle('Address', 'account_balance_wallet', addr + (off ? ' · page ' + (Math.floor(off / lim) + 1) : ''));
+    main.innerHTML = '<p class="muted">Loading address history…</p>';
+    closeSidebar();
+    try {
+      const d = await api('/api/public/address?address=' + encodeURIComponent(addr) + '&offset=' + off + '&limit=' + lim);
+      const st = d.stats || {};
+      const rows = d.transactions || [];
+      const hasMore = !!d.has_more;
+      const prevOff = off >= lim ? off - lim : 0;
+      const nextOff = hasMore ? off + lim : off;
+      main.innerHTML =
+        '<div class="card"><h2>Address</h2><p class="mono" style="margin:0.25rem 0">' + esc(addr) + '</p>' +
+        '<p class="muted">' + esc(st.note || '') + '</p>' +
+        '<div class="grid-kpi" style="margin-top:0.75rem">' +
+        '<div class="kpi"><div class="kpi-label">Distinct txs</div><div class="kpi-value">' + esc(st.distinct_transactions != null ? st.distinct_transactions : '—') + '</div></div>' +
+        '<div class="kpi"><div class="kpi-label">Credited outputs</div><div class="kpi-value">' + esc(st.credited_outputs != null ? st.credited_outputs : '—') + '</div></div>' +
+        '<div class="kpi"><div class="kpi-label">Total received (Ð)</div><div class="kpi-value accent">' + esc(satsToDoge(st.total_received_to_address_sats)) + '</div></div>' +
+        '<div class="kpi"><div class="kpi-label">Blocks</div><div class="kpi-value">' + esc(st.first_block_height) + ' … ' + esc(st.last_block_height) + '</div></div>' +
+        '</div></div>' +
+        '<div class="card"><h2>Transactions paying to this address</h2>' +
+        '<div class="toolbar" style="margin-bottom:0.75rem">' +
+        '<button type="button" class="btn" id="addr-prev"' + (off <= 0 ? ' disabled' : '') + '><span class="material-symbols-outlined btn-ico">chevron_left</span> Newer</button>' +
+        '<button type="button" class="btn" id="addr-next"' + (!hasMore ? ' disabled' : '') + '><span class="material-symbols-outlined btn-ico">chevron_right</span> Older</button>' +
+        '</div>' +
+        '<table class="data"><thead><tr><th>Time</th><th>Block</th><th>Txid</th><th>To address (Ð)</th><th>PQ</th></tr></thead><tbody id="addr-tb"></tbody></table></div>';
+      const atb = $('#addr-tb');
+      atb.innerHTML = rows.map(function (r) {
+        return '<tr class="tx-row" data-txid="' + esc(r.txid) + '"><td>' + esc(fmtTimeUnix(r.time_unix)) + '</td><td>' + esc(r.block_height) + '</td><td class="mono">' + esc(r.txid) + '</td><td>' + esc(satsToDoge(r.value_to_address_sats)) + '</td><td>' + pqBadge(r.quantum_state) + '</td></tr>';
+      }).join('');
+      $$('.tx-row', atb).forEach(function (tr) {
+        tr.addEventListener('click', function () {
+          location.hash = '#/tx/' + tr.getAttribute('data-txid');
+        });
       });
+      var prevBtn = $('#addr-prev');
+      var nextBtn = $('#addr-next');
+      if (prevBtn) prevBtn.onclick = function () { if (off > 0) location.hash = '#/address/' + encodeURIComponent(addr) + '/' + prevOff; };
+      if (nextBtn) nextBtn.onclick = function () { if (hasMore) location.hash = '#/address/' + encodeURIComponent(addr) + '/' + nextOff; };
+    } catch (e) {
+      main.innerHTML = '<div class="err-banner">' + esc(e.message || e) + '</div>';
     }
+  }
 
-    document.getElementById("tx-modal-close").onclick = closeTxModal;
-    document.getElementById("tx-modal-back").onclick = () => {
-      const prev = detailNavStack.pop();
-      updateDetailBackButtons();
-      if (prev) openDetailFromState(prev, false);
-    };
-    document.getElementById("tx-modal").addEventListener("click", (e) => { if (e.target.id === "tx-modal") closeTxModal(); });
-    document.getElementById("block-modal-close").onclick = closeBlockModal;
-    document.getElementById("block-modal-back").onclick = () => {
-      const prev = detailNavStack.pop();
-      updateDetailBackButtons();
-      if (prev) openDetailFromState(prev, false);
-    };
-    document.getElementById("block-modal").addEventListener("click", (e) => { if (e.target.id === "block-modal") closeBlockModal(); });
-
-    function renderExplorerBlocks(ex){
-      const out=document.getElementById("spv-headers");
-      const status=document.getElementById("spv-pq-status");
-      const tipCard=document.getElementById("spv-tip-card");
-      const spvBadges=document.getElementById("spv-badges");
-      const allRows = Array.isArray(latestBlockRows) && latestBlockRows.length ? latestBlockRows : ((ex && ex.recent_blocks) || []);
-      const rows = allRows.slice(0, blocksVisibleCount);
-      const sum = (ex && ex.summary) || {};
-      const rrows = (sum && sum.rows) || {};
-      const pq = (ex && ex.pq) || {};
-      status.innerHTML = [
-        badge("confirmed", `Blocks ${rrows.blocks ?? "—"}`),
-        badge("muted", `txs ${rrows.txs ?? "—"}`),
-        badge("muted", `addresses ${rrows.addresses ?? "—"}`),
-        badge((pq.quantum||0) > 0 ? "pq-ok" : "muted", `PQ quantum ${pq.quantum ?? 0}`)
-      ].join(" ");
-      spvBadges.innerHTML = [
-        badge("confirmed", "Blockchain data"),
-        badge((pq.quantum||0) > 0 ? "pq-ok" : "muted", `PQ ${pq.quantum ?? 0}`)
-      ].join("");
-      tipCard.innerHTML = `<div><strong>Sync progress</strong> height ${esc(String(sum.last_height ?? "—"))}</div>
-        <div class="muted" style="margin-top:.35rem"><strong>Network height</strong> ${esc(String(window.__coreTip ?? "—"))}</div>`;
-      if (!rows.length) {
-        out.innerHTML = '<p class="muted">No blocks available yet — please wait for sync.</p>';
-        return;
-      }
-      out.innerHTML = rows.map(b => {
-        const t = b.time_unix ? new Date(b.time_unix*1000).toISOString() : "";
-        return `<button type="button" class="head-row clickable" style="width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer" data-height="${esc(String(b.height??""))}" data-hash="${esc(b.hash||"")}">
-          <div><strong>Height</strong> ${esc(b.height ?? "-")} · <span class="muted">${esc(String(b.tx_count ?? "?"))} txs</span></div>
-          <div class="mono"><strong>Hash</strong> ${esc(b.hash || "—")}</div>
-          <div class="muted" style="margin-top:.3rem"><strong>Time</strong> ${esc(t)}</div>
-        </button>`;
-      }).join("");
-      out.querySelectorAll(".head-row.clickable").forEach(btn => {
-        btn.onclick = () => {
-          const ht = parseInt(btn.getAttribute("data-height") || "0", 10);
-          const hx = (btn.getAttribute("data-hash") || "").trim();
-          if (!isNaN(ht) && ht >= 0) openBlockByHeightOrHash(ht, null, true);
-          else if (hx.length === 64) openBlockByHeightOrHash(null, hx, true);
-        };
+  async function viewMempool() {
+    setNav('mempool');
+    setTitle('Mempool', 'pending', 'Unconfirmed transactions from Dogecoin Core');
+    main.innerHTML = '<p class="muted">Loading mempool…</p>';
+    closeSidebar();
+    try {
+      var lim = Math.min(100, Math.max(1, parseInt(String(explorerCfg.mempool_recent_limit || 40), 10) || 40));
+      const d = await api('/api/public/mempool-recent?limit=' + lim + '&decode_pq=1');
+      const rows = d.rows || [];
+      main.innerHTML =
+        '<div class="card"><h2>Mempool</h2><p class="muted">PQ column uses Phase-1 strict OP_RETURN scan on raw hex (<span class="mono">decode_pq=1</span>).</p>' +
+        '<table class="data"><thead><tr><th>Pool time</th><th>Txid</th><th>vsize</th><th>Fee</th><th>PQ strict</th></tr></thead><tbody id="mpage-tb"></tbody></table></div>';
+      const tb = $('#mpage-tb');
+      tb.innerHTML = rows.map(function (r) {
+        const ts = r.mempool_time ? fmtTimeUnix(r.mempool_time) : '—';
+        var pq = '—';
+        if (r.pq_strict_valid === true) pq = '<span class="badge badge-pq">yes</span>';
+        else if (r.pq_strict_valid === false) pq = '<span class="badge">no</span>';
+        return '<tr class="tx-row" data-txid="' + esc(r.txid) + '"><td>' + esc(ts) + '</td><td class="mono">' + esc(r.txid) + '</td><td>' + esc(r.vsize != null ? r.vsize : '—') + '</td><td>' + esc(r.fee != null ? r.fee : '—') + '</td><td>' + pq + '</td></tr>';
+      }).join('');
+      $$('.tx-row', tb).forEach(function (tr) {
+        tr.addEventListener('click', function () {
+          location.hash = '#/tx/' + tr.getAttribute('data-txid');
+        });
       });
-      const moreBtn = document.getElementById("btn-blocks-more");
-      if (moreBtn) moreBtn.style.display = "none";
+    } catch (e) {
+      main.innerHTML = '<div class="err-banner">' + esc(e.message || e) + '</div>';
     }
+  }
 
-    function renderChainIndexFallback(ci){
-      const out=document.getElementById("spv-headers");
-      const status=document.getElementById("spv-pq-status");
-      const tipCard=document.getElementById("spv-tip-card");
-      const spvBadges=document.getElementById("spv-badges");
-      const sum = (ci && ci.summary) || {};
-      const headers = (ci && ci.recent_headers) || [];
-      status.textContent = `Headers: ${sum.header_count ?? 0} · tip height ${sum.tip_height ?? "—"}.`;
-      spvBadges.innerHTML = [badge("muted", "Header feed")].join("");
-      tipCard.innerHTML = '<p class="muted">Showing available chain headers.</p>';
-      if(!headers.length){
-        out.innerHTML = '<p class="muted">No headers in the local chain index yet.</p>';
-        return;
-      }
-      out.innerHTML = headers.map(h => {
-        return `<button type="button" class="head-row clickable" style="width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer" data-height="${esc(String(h.height??""))}" data-hash="${esc(h.hash||"")}">
-          <div><strong>Height</strong> ${esc(h.height ?? "-")}</div>
-          <div class="mono"><strong>Hash</strong> ${esc(h.hash || "—")}</div>
-          <div class="muted" style="margin-top:.3rem"><strong>Timestamp</strong> ${esc(h.timestamp || "—")}</div>
-        </button>`;
-      }).join("");
-      out.querySelectorAll(".head-row.clickable").forEach(btn => {
-        btn.onclick = () => {
-          const ht = parseInt(btn.getAttribute("data-height") || "0", 10);
-          const hx = (btn.getAttribute("data-hash") || "").trim();
-          if (!isNaN(ht) && ht >= 0) openBlockByHeightOrHash(ht, null, true);
-          else if (hx.length === 64) openBlockByHeightOrHash(null, hx, true);
-        };
-      });
-    }
+  function viewApi() {
+    setNav('api');
+    setTitle('Public API', 'api', 'Rate limits and optional token gates are configured in the admin backoffice.');
+    closeSidebar();
+    main.innerHTML =
+      '<div class="card"><h2>Endpoints</h2>' +
+      '<ul class="mono muted" style="line-height:1.7">' +
+      '<li><strong>GET</strong> /api/public/dashboard — homepage metrics (fast)</li>' +
+      '<li><strong>GET</strong> /api/public/explorer-config — defaults (block decode limit, mempool sample)</li>' +
+      '<li><strong>GET</strong> /api/public/status — full status + PQ feed</li>' +
+      '<li><strong>GET</strong> /api/public/search?q=…&amp;limit=…</li>' +
+      '<li><strong>GET</strong> /api/public/address?address=…&amp;offset=&amp;limit=</li>' +
+      '<li><strong>GET</strong> /api/public/mempool-recent?limit=…&amp;decode_pq=1</li>' +
+      '<li><strong>GET</strong> /api/public/block?height=… OR &amp;hash=…&amp;decode_limit=…</li>' +
+      '<li><strong>GET</strong> /api/public/tx?txid=…</li>' +
+      '<li><strong>GET</strong> /api/public/core/recent-txs?limit=…&amp;mode=quantum&amp;lite=1</li>' +
+      '</ul>' +
+      '<p class="muted">Configure <span class="mono">QE_PUBLIC_RATE_LIMIT</span>, <span class="mono">QE_PUBLIC_API_TOKEN</span>, <span class="mono">QE_PUBLIC_API_ALLOWLIST</span>, and protected paths via <span class="mono">/admin/&lt;token&gt;</span>.</p></div>';
+  }
 
-    function mapQuantumRow(x){
-      const when = x.time_unix ? new Date(Number(x.time_unix) * 1000).toISOString() : "";
-      const pq = (x && x.pq_verification) || {};
-      const strict = (pq && pq.strict) || {};
-      const car = (pq && pq.carrier_phase1) || {};
-      const fcv = (car && car.falcon_crypto_verify) || {};
-      const falconStatus = String(x.falcon_status || fcv.status || "").toLowerCase();
-      const strictValid = !!strict.valid;
-      const qStateQuantum = String(x.quantum_state || "").toLowerCase() === "quantum";
-      const fallbackPQValid = !!x.pq_valid;
-      return {
-        txid: x.txid,
-        block_height: x.block_height,
-        confirmed: true,
-        pq_valid: fallbackPQValid || qStateQuantum || strictValid,
-        carrier_verified: !!car.verified,
-        pq_score: 100,
-        pq_reason: x.pq_reason || "PQ marker recognized",
-        verifier: "strict-v1",
-        first_seen: when,
-        last_seen: when,
-        falcon_status: falconStatus || "",
-        matched_txc_txid: String(x.matched_txc_txid || ""),
-        matched_txr_txid: String(x.matched_txr_txid || ""),
-        pq_carrier_role: String(x.pq_carrier_role || ""),
-        decode: (x && x.pq_verification && x.pq_verification.decode) || {}
-      };
-    }
+  function route() {
+    const { parts } = hashRoute();
+    if (parts[0] === 'tx' && parts[1]) viewTx(decodeURIComponent(parts[1].toLowerCase()));
+    else if (parts[0] === 'block' && parts[1]) viewBlock(decodeURIComponent(parts[1]));
+    else if (parts[0] === 'address' && parts[1]) {
+      var aoff = 0;
+      if (parts[2] != null && /^\d+$/.test(parts[2])) aoff = parseInt(parts[2], 10);
+      viewAddress(decodeURIComponent(parts[1]), aoff);
+    } else if (parts[0] === 'mempool') viewMempool();
+    else if (parts[0] === 'api') viewApi();
+    else viewHome();
+  }
 
-    function txFlowSummary(row){
-      const dec = (row && row.decode) || {};
-      const ins = Array.isArray(dec.inputs) ? dec.inputs : [];
-      const outs = Array.isArray(dec.outputs) ? dec.outputs : [];
-      let inSum = 0;
-      let outSum = 0;
-      let fromAddr = "";
-      let toAddr = "";
-      for (const i of ins) {
-        const p = i && i.prev_output ? i.prev_output : {};
-        if (!fromAddr && p.address) fromAddr = String(p.address);
-        const v = Number(p.value_sats);
-        if (Number.isFinite(v)) inSum += v;
-      }
-      for (const o of outs) {
-        if (!toAddr && o && o.address) toAddr = String(o.address);
-        const v = Number(o && o.value_sats);
-        if (Number.isFinite(v)) outSum += v;
-      }
-      let feeSats = null;
-      if (Number.isFinite(inSum) && inSum > 0 && Number.isFinite(outSum) && outSum >= 0 && inSum >= outSum) {
-        feeSats = inSum - outSum;
-      } else if (dec && dec.fee_sats != null) {
-        const v = Number(dec.fee_sats);
-        if (Number.isFinite(v) && v >= 0) feeSats = v;
-      }
-      const amount = Number.isFinite(outSum) && outSum > 0 ? outSum : Number(row && row.value_out_sats);
-      const time = row && (row.last_seen || row.first_seen) ? String(row.last_seen || row.first_seen) : "";
-      return {
-        fromAddr,
-        toAddr,
-        amountDoge: Number.isFinite(amount) ? satsToDoge(amount) : "—",
-        feeDoge: Number.isFinite(feeSats) ? satsToDoge(feeSats) : "—",
-        time
-      };
-    }
-
-    function falconStatusRank(s){
-      const v = String(s || "").toLowerCase().trim();
-      if (v === "passed") return 4;
-      if (v === "failed" || v === "error") return 3;
-      if (v === "skipped") return 2;
-      if (v) return 1;
-      return 0;
-    }
-
-    function mergeQuantumRowsPreserve(existing, incoming){
-      const prevRows = Array.isArray(existing) ? existing : [];
-      const nextRows = Array.isArray(incoming) ? incoming : [];
-      if (!nextRows.length) return prevRows;
-      const prevByTxid = new Map(prevRows.map(r => [String(r.txid || ""), r]));
-      const mergedByTxid = new Map();
-      nextRows.forEach(r => {
-        const id = String(r.txid || "");
-        if (!id) return;
-        const prev = prevByTxid.get(id);
-        if (!prev) {
-          mergedByTxid.set(id, r);
-          return;
-        }
-        const merged = { ...prev, ...r };
-        if (!!prev.pq_valid && !r.pq_valid) merged.pq_valid = true;
-        if (!!prev.carrier_verified && !r.carrier_verified) merged.carrier_verified = true;
-        if (falconStatusRank(prev.falcon_status) > falconStatusRank(r.falcon_status)) merged.falcon_status = prev.falcon_status;
-        if (!String(r.pq_carrier_role || "").trim() && String(prev.pq_carrier_role || "").trim()) merged.pq_carrier_role = prev.pq_carrier_role;
-        if (!String(r.matched_txc_txid || "").trim() && String(prev.matched_txc_txid || "").trim()) merged.matched_txc_txid = prev.matched_txc_txid;
-        if (!String(r.matched_txr_txid || "").trim() && String(prev.matched_txr_txid || "").trim()) merged.matched_txr_txid = prev.matched_txr_txid;
-        mergedByTxid.set(id, merged);
-      });
-      prevRows.forEach(r => {
-        const id = String(r.txid || "");
-        if (!id || mergedByTxid.has(id)) return;
-        mergedByTxid.set(id, r);
-      });
-      const out = Array.from(mergedByTxid.values());
-      out.sort((a, b) => {
-        const ah = Number(a.block_height || 0);
-        const bh = Number(b.block_height || 0);
-        if (bh !== ah) return bh - ah;
-        const at = Date.parse(String(a.last_seen || a.first_seen || "")) || 0;
-        const bt = Date.parse(String(b.last_seen || b.first_seen || "")) || 0;
-        return bt - at;
-      });
-      return out.slice(0, 240);
-    }
-
-    function applyQuickSummary(summaryResp){
-      if (!summaryResp || !summaryResp.ok || !summaryResp.d) return;
-      const d = summaryResp.d || {};
-      const idx = d.indexer || {};
-      const core = d.core_rpc || {};
-      const rows = (idx.rows) || {};
-      const kCoreTip = document.getElementById("k-core-tip");
-      const kIxHeight = document.getElementById("k-ix-height");
-      const kIxTxs = document.getElementById("k-ix-txs");
-      const kIxBlocks = document.getElementById("k-ix-blocks");
-      const kDoge = document.getElementById("k-doge-addresses");
-      if (kCoreTip && core.blockcount != null) kCoreTip.textContent = String(core.blockcount);
-      if (kIxHeight && idx.last_height != null) kIxHeight.textContent = String(idx.last_height);
-      if (kIxTxs && rows.txs != null) kIxTxs.textContent = String(rows.txs);
-      if (kIxBlocks && rows.blocks != null) kIxBlocks.textContent = String(rows.blocks);
-      if (kDoge && rows.addresses != null) kDoge.textContent = String(rows.addresses);
-    }
-
-    async function load(){
-      const selected = RANGE_OPTIONS.find(o => o.id === selectedRange) || RANGE_OPTIONS[RANGE_OPTIONS.length - 1];
-      const hours = selected.hours;
-      const pSummary = j("/api/public/core/summary");
-      pSummary.then(applyQuickSummary).catch(() => {});
-      let r;
-      try {
-        r = await j("/api/public/status");
-      } catch (e) {
-        const banner = document.getElementById("runtime-error-banner");
-        banner.classList.add("show");
-        banner.innerHTML = `<strong>Could not reach /api/public/status:</strong> ${esc(String(e && e.message != null ? e.message : e))}`;
-        return;
-      }
-      if (!r.ok) {
-        const banner = document.getElementById("runtime-error-banner");
-        banner.classList.add("show");
-        banner.innerHTML = `<strong>Status HTTP ${r.s}</strong> ${esc(JSON.stringify(r.d))}`;
-        return;
-      }
-      const fv = document.getElementById("qe-footer-version");
-      if (fv && r.d.app_version) {
-        const bh = r.d.build_hash != null ? String(r.d.build_hash) : "";
-        const short = bh.length >= 12 ? bh.slice(0, 12) + "…" : bh;
-        fv.textContent = "v" + String(r.d.app_version) + (short ? " · " + short : "");
-        fv.title = "Quantum Explorer v" + String(r.d.app_version) + (bh ? " — " + bh : "");
-      }
-      const m=r.d.metrics||{};
-      const core = r.d.core || {};
-      window.__coreTip = (core.blockcount != null && core.blockcount !== "") ? core.blockcount : null;
-      document.getElementById("k-pqvalid").textContent = m.pq_valid ?? 0;
-      const ex = r.d.explorer || {};
-      if (ex.enabled) {
-        const s = ex.summary || {};
-        const rw = (s.rows) || {};
-        document.getElementById("k-core-tip").textContent = (core.blockcount != null) ? String(core.blockcount) : "—";
-        document.getElementById("k-ix-height").textContent = (s.last_height != null) ? String(s.last_height) : "—";
-        document.getElementById("k-ix-txs").textContent = (rw.txs != null) ? String(rw.txs) : "—";
-        document.getElementById("k-ix-blocks").textContent = (rw.blocks != null) ? String(rw.blocks) : "—";
-        document.getElementById("k-doge-addresses").textContent = (rw.addresses != null) ? String(rw.addresses) : "—";
-        const pqdb = ex.pq || {};
-        document.getElementById("k-pqvalid").textContent = pqdb.quantum != null ? String(pqdb.quantum) : "0";
-        const mb = document.getElementById("metric-badges");
-        mb.innerHTML = [
-          badge(core.connected ? "confirmed" : "pending", core.connected ? "Network connected" : "Network offline"),
-          badge((s.running ? "pq-ok" : "pending"), s.running ? "Sync running" : "Sync paused"),
-          badge("muted", `batch ${s.batch ?? "—"}`)
-        ].join("");
-        if (Array.isArray(ex.recent_blocks) && ex.recent_blocks.length) {
-          latestBlockRows = ex.recent_blocks;
-        }
-        renderExplorerBlocks(ex);
-        const fromStatus = Array.isArray(ex.recent_quantum) ? ex.recent_quantum : [];
-        latestPQRows = mergeQuantumRowsPreserve(latestPQRows, fromStatus.length ? fromStatus.map(mapQuantumRow) : []);
-        renderPQBlock(latestPQRows);
-      } else {
-        document.getElementById("k-core-tip").textContent = (core.blockcount != null) ? String(core.blockcount) : "—";
-        document.getElementById("k-ix-height").textContent = "—";
-        document.getElementById("k-ix-txs").textContent = "—";
-        document.getElementById("k-ix-blocks").textContent = "—";
-        document.getElementById("k-doge-addresses").textContent = "—";
-        const mb = document.getElementById("metric-badges");
-        const pqV = m.pq_valid ?? 0;
-        mb.innerHTML = [
-          badge(pqV > 0 ? "pq-ok" : "muted", `legacy PQ ${pqV}`)
-        ].join("");
-        renderChainIndexFallback(r.d.chain_index || {});
-        renderPQBlock(latestPQRows);
-      }
-      if (!document.getElementById("qe-chart-m-q")) {
-        const loadMsg = '<p class="muted">Loading charts…</p>';
-        document.getElementById("metrics-bars").innerHTML = loadMsg;
-        document.getElementById("activity-wallets").innerHTML = loadMsg;
-        document.getElementById("activity-transactions").innerHTML = loadMsg;
-        document.getElementById("activity-blocks").innerHTML = loadMsg;
-      }
-      const hoursQ = encodeURIComponent(String(hours));
-      const pMetrics = j("/api/public/metrics?hours=" + hoursQ);
-      const pActivity = j("/api/public/activity-buckets?hours=" + hoursQ);
-      const needBlocks = !!(ex.enabled) && (!Array.isArray(ex.recent_blocks) || ex.recent_blocks.length < blocksVisibleCount);
-      const needQuantum = !!(ex.enabled);
-      const pBlocks = needBlocks ? j("/api/public/core/recent-blocks?limit=" + encodeURIComponent(String(blocksVisibleCount))) : Promise.resolve({ ok: true, d: {} });
-      const pQuantum = needQuantum ? j("/api/public/core/recent-txs?mode=quantum&limit=120&lite=1") : Promise.resolve({ ok: true, d: {} });
-      const [mr, ar, rb, rr] = await Promise.all([pMetrics, pActivity, pBlocks, pQuantum]);
-      if (ex.enabled) {
-        if (needBlocks && rb.ok && Array.isArray(rb.d.rows) && rb.d.rows.length) {
-          latestBlockRows = rb.d.rows;
-          renderExplorerBlocks(ex);
-        }
-        if (rr.ok && Array.isArray(rr.d.rows)) {
-          latestPQRows = mergeQuantumRowsPreserve(latestPQRows, rr.d.rows.map(mapQuantumRow));
-          renderPQBlock(latestPQRows);
-        }
-      }
-      let metricBuckets = (mr.ok && Array.isArray(mr.d.buckets)) ? mr.d.buckets : [];
-      let metricSource = mr.ok ? (mr.d.source || "unknown") : "unavailable";
-      let activityBuckets = (ar.ok && Array.isArray(ar.d.buckets)) ? ar.d.buckets : [];
-      let usedAllTimeFallback = false;
-      if (hours > 0 && metricBuckets.length === 0 && activityBuckets.length === 0) {
-        const [mrAll, arAll] = await Promise.all([
-          j("/api/public/metrics?hours=0"),
-          j("/api/public/activity-buckets?hours=0")
-        ]);
-        if (mrAll.ok && Array.isArray(mrAll.d.buckets) && mrAll.d.buckets.length > 0) {
-          metricBuckets = mrAll.d.buckets;
-          metricSource = (mrAll.d.source || "unknown") + "_all_time_fallback";
-          usedAllTimeFallback = true;
-        }
-        if (arAll.ok && Array.isArray(arAll.d.buckets) && arAll.d.buckets.length > 0) {
-          activityBuckets = arAll.d.buckets;
-          usedAllTimeFallback = true;
-        }
-      }
-      if (metricBuckets.length === 0 && ex.enabled && activityBuckets.length > 0) {
-        metricBuckets = activityBuckets.map(it => ({
-          hour: it.hour,
-          quantum: 0,
-          non_quantum: Number(it.transactions || 0)
-        }));
-        metricSource = "activity_buckets_fallback";
-      }
-      if (mr.ok || metricBuckets.length > 0) {
-        renderMetricsBars(metricBuckets);
-        const srcEl = document.getElementById("metrics-source");
-        const label = usedAllTimeFallback ? `${selected.label} (auto all-time fallback)` : selected.label;
-        srcEl.textContent = `Source: ${metricSource} · Range: ${label}`;
-      } else {
-        document.getElementById("metrics-bars").innerHTML = '<p class="muted">Could not load metrics.</p>';
-      }
-      if (ar.ok || activityBuckets.length > 0) {
-        const b = activityBuckets;
-        renderSimpleSeries("activity-wallets", "Distinct addresses (outputs per hour)", b, "wallet_creates", "quantum");
-        renderSimpleSeries("activity-transactions", "Number of transactions during time", b, "transactions", "nonq");
-        renderSimpleSeries("activity-blocks", "Number of blocks created during time", b, "blocks", "quantum");
-      } else {
-        const err = '<p class="muted">Could not load activity series.</p>';
-        document.getElementById("activity-wallets").innerHTML = err;
-        document.getElementById("activity-transactions").innerHTML = err;
-        document.getElementById("activity-blocks").innerHTML = err;
-      }
-    }
-
-    function updateSearchClearButton(){
-      const q = document.getElementById("q");
-      const out = document.getElementById("search-out");
-      const clearBtn = document.getElementById("btn-clear-search");
-      if (!q || !out || !clearBtn) return;
-      const show = q.value.trim().length > 0 || out.innerHTML.trim().length > 0;
-      clearBtn.classList.toggle("show", show);
-    }
-
-    document.getElementById("btn-search").onclick = async () => {
-      const q=document.getElementById("q").value.trim();
-      if(!q) return;
-      await runSearch(q, 50);
-      updateSearchClearButton();
-    };
-    document.getElementById("btn-pq-more").onclick = () => {
-      pqVisibleCount += 10;
-      renderPQBlock(latestPQRows);
-    };
-    const blocksMoreBtn = document.getElementById("btn-blocks-more");
-    if (blocksMoreBtn) {
-      blocksMoreBtn.style.display = "none";
-    }
-    document.getElementById("btn-clear-search").onclick = () => {
-      document.getElementById("q").value = "";
-      document.getElementById("search-out").innerHTML = "";
-      lastSearchData = null;
-      searchVisibleCount = 3;
-      updateSearchClearButton();
-    };
-    document.getElementById("q").addEventListener("keydown", (e) => {
-      if (e.key === "Enter") document.getElementById("btn-search").click();
+  $$('.nav-item').forEach(function (b) {
+    b.addEventListener('click', function () {
+      const r = b.getAttribute('data-route');
+      if (r === 'home') location.hash = '#/';
+      else if (r === 'mempool') location.hash = '#/mempool';
+      else if (r === 'api') location.hash = '#/api';
     });
-    document.getElementById("q").addEventListener("input", () => {
-      updateSearchClearButton();
-      if (searchTimer) clearTimeout(searchTimer);
-      const raw = document.getElementById("q").value || "";
-      if (!shouldAutoSearch(raw)) {
-        return;
-      }
-      const lim = 3;
-      searchTimer = setTimeout(() => {
-        runSearch(raw, lim).then(updateSearchClearButton);
-      }, 220);
-    });
-    const docsModal = document.getElementById("docs-modal");
-    document.getElementById("btn-user-docs").onclick = () => {
-      docsModal.classList.add("show");
-    };
-    document.getElementById("docs-close-btn").onclick = () => {
-      docsModal.classList.remove("show");
-    };
-    docsModal.addEventListener("click", (e) => {
-      if (e.target && e.target.id === "docs-modal") docsModal.classList.remove("show");
-    });
-    let deferredInstallPrompt = null;
-    const btnInstallApp = document.getElementById("btn-install-app");
-    window.addEventListener("beforeinstallprompt", (e) => {
-      e.preventDefault();
-      deferredInstallPrompt = e;
-      if (btnInstallApp) btnInstallApp.style.display = "inline-flex";
-    });
-    window.addEventListener("appinstalled", () => {
-      deferredInstallPrompt = null;
-      if (btnInstallApp) btnInstallApp.style.display = "none";
-    });
-    if (btnInstallApp) {
-      btnInstallApp.onclick = async () => {
-        if (!deferredInstallPrompt) return;
-        deferredInstallPrompt.prompt();
-        try {
-          await deferredInstallPrompt.userChoice;
-        } catch {
-          /* ignore */
-        }
-      };
-    }
-    if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => {
-        navigator.serviceWorker.register("/static/sw.js").catch(() => {});
-      });
-    }
-    updateSearchClearButton();
-    renderRangeToolbar();
-    load();
-    setInterval(load, 4000);
+  });
+
+  window.addEventListener('hashchange', route);
+  loadExplorerConfig().finally(function () { route(); });
+})();
   </script>
 </body>
 </html>

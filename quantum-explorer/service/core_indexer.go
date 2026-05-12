@@ -1161,6 +1161,76 @@ func (ix *coreIndexer) search(ctx context.Context, q string, limit int) (map[str
 	return map[string]any{"kind": "address", "query": q, "results": list}, nil
 }
 
+// addressDetail returns aggregate stats plus distinct transactions that credited this address (paginated).
+func (ix *coreIndexer) addressDetail(ctx context.Context, addr string, offset, limit int) (map[string]any, error) {
+	if ix == nil || ix.db == nil {
+		return nil, fmt.Errorf("core indexer unavailable")
+	}
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return nil, fmt.Errorf("empty address")
+	}
+	if limit < 1 || limit > 200 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	var cnt, sumSats, minH, maxH int64
+	err := ix.db.QueryRowContext(ctx,
+		`SELECT COUNT(*)::bigint, COALESCE(SUM(value_sats),0)::bigint, COALESCE(MIN(block_height),0)::bigint, COALESCE(MAX(block_height),0)::bigint FROM qe_core_addresses WHERE address=$1`,
+		addr).Scan(&cnt, &sumSats, &minH, &maxH)
+	if err != nil {
+		return nil, err
+	}
+	var dtx int64
+	if err := ix.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT txid)::bigint FROM qe_core_addresses WHERE address=$1`, addr).Scan(&dtx); err != nil {
+		return nil, err
+	}
+	rows, err := ix.db.QueryContext(ctx, `
+		SELECT a.txid, t.time_unix, t.block_height, t.quantum_state, t.pq_reason, SUM(a.value_sats)::bigint AS to_addr
+		FROM qe_core_addresses a
+		INNER JOIN qe_core_txs t ON t.txid = a.txid
+		WHERE a.address=$1
+		GROUP BY a.txid, t.time_unix, t.block_height, t.quantum_state, t.pq_reason
+		ORDER BY t.time_unix DESC, a.txid DESC
+		LIMIT $2 OFFSET $3`, addr, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	list := make([]map[string]any, 0, limit)
+	for rows.Next() {
+		var txid, qs, pr string
+		var tm, bh, toAddr int64
+		if err := rows.Scan(&txid, &tm, &bh, &qs, &pr, &toAddr); err != nil {
+			return nil, err
+		}
+		list = append(list, map[string]any{
+			"txid": txid, "time_unix": tm, "block_height": bh, "quantum_state": qs, "pq_reason": pr,
+			"value_to_address_sats": toAddr,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"address": addr,
+		"stats": map[string]any{
+			"credited_outputs":               cnt,
+			"distinct_transactions":        dtx,
+			"total_received_to_address_sats": sumSats,
+			"first_block_height":             minH,
+			"last_block_height":              maxH,
+			"note":                           "Totals count outputs that pay to this address in indexed blocks. Spending history requires decoding inputs against the UTXO set.",
+		},
+		"transactions": list,
+		"offset":       offset,
+		"limit":        limit,
+		"has_more":     int64(offset+len(list)) < dtx,
+	}, nil
+}
+
 func (ix *coreIndexer) recentBlocks(ctx context.Context, limit int) ([]map[string]any, error) {
 	if ix == nil || ix.db == nil {
 		return nil, nil
@@ -1240,12 +1310,31 @@ func (ix *coreIndexer) pqAggregates(ctx context.Context) map[string]int64 {
 	return out
 }
 
+// pqPhase1RoleCounts splits indexed quantum rows into Phase-1 commitment (TX_C) vs carrier reveal (TX_R)
+// using the pq_reason strings produced by classifyQuantumStateRaw.
+func (ix *coreIndexer) pqPhase1RoleCounts(ctx context.Context) (txc, txr int64, err error) {
+	if ix == nil || ix.db == nil {
+		return 0, 0, nil
+	}
+	err = ix.db.QueryRowContext(ctx,
+		`SELECT COUNT(*)::bigint FROM qe_core_txs WHERE quantum_state='quantum' AND pq_reason LIKE '%(TX_C)%'`).Scan(&txc)
+	if err != nil {
+		return 0, 0, err
+	}
+	err = ix.db.QueryRowContext(ctx,
+		`SELECT COUNT(*)::bigint FROM qe_core_txs WHERE quantum_state='quantum' AND pq_reason LIKE '%(TX_R)%'`).Scan(&txr)
+	if err != nil {
+		return 0, 0, err
+	}
+	return txc, txr, nil
+}
+
 // blockDetail returns indexed block metadata and txs from qe_core_txs (decode for first decodeLimit txs).
 func (ix *coreIndexer) blockDetail(ctx context.Context, height *int64, hash *string, decodeLimit int) (map[string]any, error) {
 	if ix == nil || ix.db == nil {
 		return nil, fmt.Errorf("core indexer unavailable")
 	}
-	if decodeLimit < 1 || decodeLimit > 200 {
+	if decodeLimit < 1 || decodeLimit > 500 {
 		decodeLimit = 50
 	}
 	var bH, bT int64

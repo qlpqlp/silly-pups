@@ -577,6 +577,12 @@
                 <input id="ac-rate-limit" type="number" placeholder="120" />
                 <input id="ac-rate-window" type="number" placeholder="60" />
               </div>
+              <h3>Default block decode limit (1–500)</h3>
+              <p class="muted" style="margin: 0">Used by the public block API when <span class="mono">decode_limit</span> is omitted.</p>
+              <input id="ac-block-decode" type="number" min="1" max="500" placeholder="200" />
+              <h3>Dashboard mempool sample (1–100)</h3>
+              <p class="muted" style="margin: 0">How many mempool txs to attach to <span class="mono">/api/public/dashboard</span>.</p>
+              <input id="ac-mempool-limit" type="number" min="1" max="100" placeholder="25" />
             </div>
             <div>
               <h3>Per-user API clients JSON</h3>
@@ -787,6 +793,8 @@
       document.getElementById("ac-protected-paths").value = (d.public_protected_paths || []).join(",");
       document.getElementById("ac-rate-limit").value = String(d.public_rate_limit || 120);
       document.getElementById("ac-rate-window").value = String(d.public_rate_window_sec || 60);
+      document.getElementById("ac-block-decode").value = String(d.block_decode_limit_default || 200);
+      document.getElementById("ac-mempool-limit").value = String(d.mempool_recent_limit || 25);
       document.getElementById("ac-clients-json").value = JSON.stringify(d.public_api_clients || [], null, 2);
     }
 
@@ -806,6 +814,8 @@
         public_protected_paths: splitCSV(document.getElementById("ac-protected-paths").value),
         public_rate_limit: Number(document.getElementById("ac-rate-limit").value || 120),
         public_rate_window_sec: Number(document.getElementById("ac-rate-window").value || 60),
+        block_decode_limit_default: Number(document.getElementById("ac-block-decode").value || 200),
+        mempool_recent_limit: Number(document.getElementById("ac-mempool-limit").value || 25),
         public_api_clients: clients,
       });
       await loadAccessControl();

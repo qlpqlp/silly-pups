@@ -2,12 +2,280 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// publicDashboard returns a single JSON payload for the homepage: indexer row counts, PQ aggregates,
+// Core mempool / hashrate / tip, optional circulation (cached gettxoutsetinfo), and the 10 latest txs.
+func (a *app) publicDashboard(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	a.mu.RLock()
+	net := strings.ToLower(strings.TrimSpace(a.cfg.Network))
+	a.mu.RUnlock()
+
+	out := map[string]any{
+		"app_version": qeAppVersion,
+		"build_hash":  qeAppBuildHash,
+		"network":     net,
+		"spec_bip":    "https://github.com/edtubbs/libdogecoin/blob/0.1.5-dev-pqc-carrier/doc/spec/bip-post-quantum-signature-commitments.mediawiki",
+		"qdv_verify":  "https://suchquantum.com/qdv/",
+	}
+
+	if a.cidx != nil {
+		sum := a.cidx.summary(ctx)
+		out["indexer"] = sum
+		out["pq_totals"] = a.cidx.pqAggregates(ctx)
+		if txc, txr, err := a.cidx.pqPhase1RoleCounts(ctx); err == nil {
+			out["pq_phase1_roles"] = map[string]int64{"committed_tx_c": txc, "revealed_tx_r": txr}
+		}
+		if txs, err := a.cidx.recentTransactions(ctx, 10, ""); err == nil {
+			lite := make([]map[string]any, 0, len(txs))
+			for _, row := range txs {
+				txid := strings.ToLower(strings.TrimSpace(rowString(row, "txid")))
+				rawHex := strings.TrimSpace(rowString(row, "raw_hex"))
+				role := ""
+				if hasCarrierRevealScriptSigRaw(rawHex) {
+					role = "tx_r"
+				} else if ok, _, _, _ := verifyPQStrict(rawHex); ok {
+					role = "tx_c"
+				}
+				lite = append(lite, map[string]any{
+					"txid":           txid,
+					"block_height":   row["block_height"],
+					"time_unix":      row["time_unix"],
+					"quantum_state":  row["quantum_state"],
+					"pq_reason":      row["pq_reason"],
+					"value_out_sats": row["value_out_sats"],
+					"pq_carrier_role_hint": role,
+				})
+			}
+			out["latest_transactions"] = lite
+		}
+	} else {
+		out["indexer"] = map[string]any{"enabled": false, "note": "PostgreSQL indexer not configured"}
+	}
+
+	if a.core != nil && a.core.enabled() {
+		live := map[string]any{"rpc": true}
+		var mem map[string]any
+		if err := a.core.call(ctx, "getmempoolinfo", []any{}, &mem); err == nil {
+			live["mempoolinfo"] = mem
+		}
+		var hps float64
+		if err := a.core.call(ctx, "getnetworkhashps", []any{120, -1}, &hps); err == nil {
+			live["network_hash_ps"] = hps
+		}
+		var bc map[string]any
+		if err := a.core.call(ctx, "getblockchaininfo", []any{}, &bc); err == nil {
+			live["blockchaininfo"] = bc
+		}
+		out["core_live"] = live
+		a.maybeRefreshCirculation()
+		out["circulation"] = a.peekCirculationDOGE()
+		a.mu.RLock()
+		mLim := a.cfg.MempoolRecentLimit
+		a.mu.RUnlock()
+		if mLim < 1 {
+			mLim = 25
+		}
+		if mLim > 100 {
+			mLim = 100
+		}
+		if rows, err := a.mempoolRecentRows(ctx, mLim, false); err == nil && rows != nil {
+			out["mempool_recent"] = rows
+		}
+	} else {
+		out["core_live"] = map[string]any{"rpc": false, "note": "Set QE_CORE_RPC_URL for live mempool, hashrate, and circulation."}
+	}
+
+	writeJSON(w, 200, out)
+}
+
+func (a *app) publicExplorerConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	a.mu.RLock()
+	cfg := a.cfg
+	a.mu.RUnlock()
+	bd := cfg.BlockDecodeLimitDefault
+	if bd < 1 {
+		bd = envIntBounded("QE_BLOCK_DECODE_LIMIT_DEFAULT", 200, 1, 500)
+	}
+	if bd > 500 {
+		bd = 500
+	}
+	ml := cfg.MempoolRecentLimit
+	if ml < 1 {
+		ml = envIntBounded("QE_MEMPOOL_RECENT_LIMIT", 25, 1, 100)
+	}
+	if ml > 100 {
+		ml = 100
+	}
+	writeJSON(w, 200, map[string]any{
+		"network":                    cfg.Network,
+		"block_decode_limit_default": bd,
+		"mempool_recent_limit":       ml,
+	})
+}
+
+func (a *app) publicAddress(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if a.cidx == nil {
+		writeJSON(w, 503, map[string]string{"error": "core indexer unavailable"})
+		return
+	}
+	addr := strings.TrimSpace(r.URL.Query().Get("address"))
+	if addr == "" {
+		addr = strings.TrimSpace(r.URL.Query().Get("q"))
+	}
+	if addr == "" {
+		writeJSON(w, 400, map[string]string{"error": "provide address= or q="})
+		return
+	}
+	offset := 0
+	if s := strings.TrimSpace(r.URL.Query().Get("offset")); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+	limit := parsePositiveInt(r.URL.Query().Get("limit"), 50, 1, 200)
+	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	defer cancel()
+	detail, err := a.cidx.addressDetail(ctx, addr, offset, limit)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	detail["source"] = "core_index"
+	writeJSON(w, 200, detail)
+}
+
+func (a *app) publicMempoolRecent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if a.core == nil || !a.core.enabled() {
+		writeJSON(w, 503, map[string]string{"error": "core rpc not configured"})
+		return
+	}
+	limit := parsePositiveInt(r.URL.Query().Get("limit"), 40, 1, 100)
+	decodePQ := strings.TrimSpace(r.URL.Query().Get("decode_pq")) == "1"
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+	rows, err := a.mempoolRecentRows(ctx, limit, decodePQ)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"source": "core_rpc", "decode_pq": decodePQ, "rows": rows, "limit": limit})
+}
+
+func (a *app) mempoolRecentRows(ctx context.Context, limit int, decodePQ bool) ([]map[string]any, error) {
+	if a == nil || a.core == nil || !a.core.enabled() {
+		return nil, fmt.Errorf("core rpc disabled")
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	type memTx struct {
+		id   string
+		t    float64
+		meta map[string]any
+	}
+	var verbose map[string]map[string]any
+	var txs []memTx
+	if err := a.core.call(ctx, "getrawmempool", []any{true}, &verbose); err == nil && len(verbose) > 0 {
+		for id, meta := range verbose {
+			id = strings.ToLower(strings.TrimSpace(id))
+			if len(id) != 64 || !isHex64String(id) {
+				continue
+			}
+			var tv float64
+			if meta != nil {
+				switch x := meta["time"].(type) {
+				case float64:
+					tv = x
+				case int:
+					tv = float64(x)
+				case int64:
+					tv = float64(x)
+				case json.Number:
+					if f, e := x.Float64(); e == nil {
+						tv = f
+					}
+				}
+			}
+			txs = append(txs, memTx{id: id, t: tv, meta: meta})
+		}
+	}
+	if len(txs) == 0 {
+		var flat []string
+		if err := a.core.call(ctx, "getrawmempool", []any{false}, &flat); err == nil {
+			for _, id := range flat {
+				id = strings.ToLower(strings.TrimSpace(id))
+				if len(id) != 64 || !isHex64String(id) {
+					continue
+				}
+				txs = append(txs, memTx{id: id, t: 0, meta: nil})
+			}
+		}
+	}
+	sort.Slice(txs, func(i, j int) bool {
+		if txs[i].t != txs[j].t {
+			return txs[i].t > txs[j].t
+		}
+		return txs[i].id > txs[j].id
+	})
+	if len(txs) > limit {
+		txs = txs[:limit]
+	}
+	out := make([]map[string]any, 0, len(txs))
+	for i, x := range txs {
+		row := map[string]any{"txid": x.id, "mempool_time": x.t}
+		if x.meta != nil {
+			row["mempool_entry"] = x.meta
+			if s, ok := x.meta["size"].(float64); ok {
+				row["size"] = int64(s)
+			}
+			if s, ok := x.meta["vsize"].(float64); ok {
+				row["vsize"] = int64(s)
+			}
+			if f, ok := x.meta["fee"].(float64); ok {
+				row["fee"] = f
+			}
+		}
+		if decodePQ && i < 40 {
+			if raw, err := a.core.getRawTransactionHex(ctx, x.id, ""); err == nil && strings.TrimSpace(raw) != "" {
+				row["size_bytes"] = len(raw) / 2
+				ok, reas, _, _ := verifyPQStrict(raw)
+				row["pq_strict_valid"] = ok
+				row["pq_strict_reason"] = reas
+			}
+		}
+		out = append(out, row)
+	}
+	return out, nil
+}
 
 func (a *app) withPublicAccess(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

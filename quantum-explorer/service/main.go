@@ -26,10 +26,10 @@ import (
 var staticFS embed.FS
 
 // qeAppVersion is shown in the public UI and /api/public/status (keep in sync with manifest.json).
-const qeAppVersion = "0.1.48"
+const qeAppVersion = "0.1.50"
 
 // qeAppBuildHash is a release fingerprint (SHA-256 hex of "quantum-explorer-<version>"); bump when cutting a release.
-const qeAppBuildHash = "c16074f06de8986feffcbadaa4ed8d5a2b1d237b933d98c022b4c609d97ec525"
+const qeAppBuildHash = "f7dc4624e532c47a7b74a25f772afc600caaf3b290c1c77261f7433f04386426"
 
 type Checkpoint struct {
 	Height    int    `json:"height"`
@@ -56,6 +56,9 @@ type Config struct {
 	PublicRateLimit      int         `json:"public_rate_limit,omitempty"`
 	PublicRateWindowSec  int         `json:"public_rate_window_sec,omitempty"`
 	PublicAPIClients     []APIClient `json:"public_api_clients,omitempty"`
+	// Explorer defaults (persisted; overridable per-request via query string where supported).
+	BlockDecodeLimitDefault int `json:"block_decode_limit_default,omitempty"`
+	MempoolRecentLimit      int `json:"mempool_recent_limit,omitempty"`
 }
 
 type PQTx struct {
@@ -91,6 +94,15 @@ type app struct {
 	publicToken          string
 	publicProtectedPaths map[string]struct{}
 	rl                   *ipRateLimiter
+
+	// Cached Dogecoin circulation from gettxoutsetinfo (expensive RPC; refreshed periodically).
+	circMu       sync.Mutex
+	circInflight bool
+	circ         struct {
+		amountDOGE string
+		at         time.Time
+		err        string
+	}
 }
 
 func env(key, def string) string {
@@ -126,6 +138,8 @@ func defaultConfig() Config {
 		PublicProtectedPaths: splitCSVEnvWithDefault("QE_PUBLIC_PROTECTED_PATHS", ""),
 		PublicRateLimit:      envIntBounded("QE_PUBLIC_RATE_LIMIT", 120, 1, 100000),
 		PublicRateWindowSec:  envIntBounded("QE_PUBLIC_RATE_WINDOW_SEC", 60, 1, 86400),
+		BlockDecodeLimitDefault: envIntBounded("QE_BLOCK_DECODE_LIMIT_DEFAULT", 200, 1, 500),
+		MempoolRecentLimit:      envIntBounded("QE_MEMPOOL_RECENT_LIMIT", 25, 1, 100),
 	}
 }
 
@@ -200,6 +214,18 @@ func loadConfig(path string) Config {
 	}
 	if len(cfg.PublicProtectedPaths) == 0 {
 		cfg.PublicProtectedPaths = defaultConfig().PublicProtectedPaths
+	}
+	if cfg.BlockDecodeLimitDefault <= 0 {
+		cfg.BlockDecodeLimitDefault = envIntBounded("QE_BLOCK_DECODE_LIMIT_DEFAULT", 200, 1, 500)
+	}
+	if cfg.BlockDecodeLimitDefault > 500 {
+		cfg.BlockDecodeLimitDefault = 500
+	}
+	if cfg.MempoolRecentLimit <= 0 {
+		cfg.MempoolRecentLimit = envIntBounded("QE_MEMPOOL_RECENT_LIMIT", 25, 1, 100)
+	}
+	if cfg.MempoolRecentLimit > 100 {
+		cfg.MempoolRecentLimit = 100
 	}
 	return cfg
 }
@@ -1108,6 +1134,25 @@ func (a *app) publicStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, status)
 }
 
+func (a *app) effectiveBlockDecodeLimit(r *http.Request) int {
+	a.mu.RLock()
+	def := a.cfg.BlockDecodeLimitDefault
+	a.mu.RUnlock()
+	if def < 1 {
+		def = envIntBounded("QE_BLOCK_DECODE_LIMIT", 200, 1, 500)
+	}
+	if def > 500 {
+		def = 500
+	}
+	decodeLimit := def
+	if s := strings.TrimSpace(r.URL.Query().Get("decode_limit")); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 && n <= 500 {
+			decodeLimit = n
+		}
+	}
+	return decodeLimit
+}
+
 func (a *app) publicBlock(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
@@ -1122,12 +1167,7 @@ func (a *app) publicBlock(w http.ResponseWriter, r *http.Request) {
 	if a.cidx != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 		defer cancel()
-		decodeLimit := envIntBounded("QE_BLOCK_DECODE_LIMIT", 50, 1, 200)
-		if s := strings.TrimSpace(r.URL.Query().Get("decode_limit")); s != "" {
-			if n, err := strconv.Atoi(s); err == nil && n > 0 && n <= 200 {
-				decodeLimit = n
-			}
-		}
+		decodeLimit := a.effectiveBlockDecodeLimit(r)
 		var hp *int64
 		var hpStr *string
 		if heightStr != "" {
@@ -1703,6 +1743,94 @@ func (a *app) recentChainHeaders(n int) []IndexedBlockHeader {
 	return h
 }
 
+// peekCirculationDOGE returns cached circulation only (never blocks on RPC) for fast /api/public/dashboard.
+func (a *app) peekCirculationDOGE() map[string]any {
+	out := map[string]any{"available": false}
+	if a == nil || a.core == nil || !a.core.enabled() {
+		out["note"] = "core rpc disabled"
+		return out
+	}
+	ttl := time.Duration(envIntBounded("QE_CIRCULATION_CACHE_SEC", 1800, 60, 86400*7)) * time.Second
+	a.circMu.Lock()
+	defer a.circMu.Unlock()
+	if a.circ.amountDOGE == "" {
+		if strings.TrimSpace(a.circ.err) != "" {
+			out["note"] = a.circ.err
+		} else {
+			out["note"] = "Circulation is fetched once from gettxoutsetinfo in the background (slow); reload shortly."
+		}
+		return out
+	}
+	out["available"] = true
+	out["total_doge"] = a.circ.amountDOGE
+	fresh := time.Since(a.circ.at) < ttl
+	out["cached"] = fresh
+	out["cache_age_sec"] = int(time.Since(a.circ.at).Seconds())
+	out["cache_ttl_sec"] = int(ttl.Seconds())
+	if !fresh {
+		out["stale"] = true
+	}
+	return out
+}
+
+// maybeRefreshCirculation starts at most one background gettxoutsetinfo when cache is empty or past TTL.
+func (a *app) maybeRefreshCirculation() {
+	if a == nil || a.core == nil || !a.core.enabled() {
+		return
+	}
+	ttl := time.Duration(envIntBounded("QE_CIRCULATION_CACHE_SEC", 1800, 60, 86400*7)) * time.Second
+	a.circMu.Lock()
+	if a.circInflight {
+		a.circMu.Unlock()
+		return
+	}
+	if a.circ.amountDOGE != "" && time.Since(a.circ.at) < ttl {
+		a.circMu.Unlock()
+		return
+	}
+	a.circInflight = true
+	a.circMu.Unlock()
+
+	go func() {
+		defer func() {
+			a.circMu.Lock()
+			a.circInflight = false
+			a.circMu.Unlock()
+		}()
+		rpcCtx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+		defer cancel()
+		cc := a.core.withTimeout(180 * time.Second)
+		var info map[string]any
+		if err := cc.call(rpcCtx, "gettxoutsetinfo", []any{}, &info); err != nil {
+			a.circMu.Lock()
+			a.circ.err = err.Error()
+			a.circMu.Unlock()
+			return
+		}
+		var amt float64
+		switch v := info["total_amount"].(type) {
+		case float64:
+			amt = v
+		case json.Number:
+			if f, err := v.Float64(); err == nil {
+				amt = f
+			}
+		}
+		if amt <= 0 {
+			a.circMu.Lock()
+			a.circ.err = "gettxoutsetinfo: missing total_amount"
+			a.circMu.Unlock()
+			return
+		}
+		s := fmt.Sprintf("%.8f", amt)
+		a.circMu.Lock()
+		a.circ.amountDOGE = s
+		a.circ.at = time.Now()
+		a.circ.err = ""
+		a.circMu.Unlock()
+	}()
+}
+
 func main() {
 	storage := env("QE_STORAGE_DIR", "/storage/quantum-explorer")
 	must(os.MkdirAll(storage, 0o755))
@@ -1736,6 +1864,10 @@ func main() {
 	publicMux.HandleFunc("/healthz", a.healthz)
 	publicMux.HandleFunc("/readyz", a.readyz)
 	publicMux.HandleFunc("/api/public/status", a.withRateLimit(a.publicStatus))
+	publicMux.HandleFunc("/api/public/dashboard", a.withRateLimit(a.publicDashboard))
+	publicMux.HandleFunc("/api/public/explorer-config", a.withRateLimit(a.publicExplorerConfig))
+	publicMux.HandleFunc("/api/public/address", a.withRateLimit(a.publicAddress))
+	publicMux.HandleFunc("/api/public/mempool-recent", a.withRateLimit(a.publicMempoolRecent))
 	publicMux.HandleFunc("/api/public/block", a.withRateLimit(a.publicBlock))
 	publicMux.HandleFunc("/api/public/tx", a.withRateLimit(a.publicTxDetail))
 	publicMux.HandleFunc("/api/public/search", a.withRateLimit(a.publicSearch))

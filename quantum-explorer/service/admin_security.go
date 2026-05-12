@@ -166,13 +166,15 @@ func (a *app) adminAccessGet(w http.ResponseWriter, r *http.Request) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	writeJSON(w, 200, map[string]any{
-		"admin_allowlist":        a.cfg.AdminAllowlist,
-		"public_api_token_set":   strings.TrimSpace(a.cfg.PublicAPIToken) != "",
-		"public_api_allowlist":   a.cfg.PublicAPIAllowlist,
-		"public_protected_paths": a.cfg.PublicProtectedPaths,
-		"public_rate_limit":      a.cfg.PublicRateLimit,
-		"public_rate_window_sec": a.cfg.PublicRateWindowSec,
-		"public_api_clients":     a.cfg.PublicAPIClients,
+		"admin_allowlist":               a.cfg.AdminAllowlist,
+		"public_api_token_set":          strings.TrimSpace(a.cfg.PublicAPIToken) != "",
+		"public_api_allowlist":        a.cfg.PublicAPIAllowlist,
+		"public_protected_paths":        a.cfg.PublicProtectedPaths,
+		"public_rate_limit":             a.cfg.PublicRateLimit,
+		"public_rate_window_sec":        a.cfg.PublicRateWindowSec,
+		"public_api_clients":            a.cfg.PublicAPIClients,
+		"block_decode_limit_default":    a.cfg.BlockDecodeLimitDefault,
+		"mempool_recent_limit":          a.cfg.MempoolRecentLimit,
 	})
 }
 
@@ -182,13 +184,15 @@ func (a *app) adminAccessSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		AdminAllowlist      []string    `json:"admin_allowlist"`
-		PublicAPIToken      string      `json:"public_api_token"`
-		PublicAPIAllowlist  []string    `json:"public_api_allowlist"`
-		PublicProtectedPath []string    `json:"public_protected_paths"`
-		PublicRateLimit     int         `json:"public_rate_limit"`
-		PublicRateWindowSec int         `json:"public_rate_window_sec"`
-		PublicAPIClients    []APIClient `json:"public_api_clients"`
+		AdminAllowlist           []string    `json:"admin_allowlist"`
+		PublicAPIToken           string      `json:"public_api_token"`
+		PublicAPIAllowlist       []string    `json:"public_api_allowlist"`
+		PublicProtectedPath      []string    `json:"public_protected_paths"`
+		PublicRateLimit          int         `json:"public_rate_limit"`
+		PublicRateWindowSec      int         `json:"public_rate_window_sec"`
+		PublicAPIClients         []APIClient `json:"public_api_clients"`
+		BlockDecodeLimitDefault  int         `json:"block_decode_limit_default"`
+		MempoolRecentLimit       int         `json:"mempool_recent_limit"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 2<<20)).Decode(&in); err != nil {
 		writeJSON(w, 400, map[string]string{"error": "invalid json"})
@@ -213,6 +217,24 @@ func (a *app) adminAccessSet(w http.ResponseWriter, r *http.Request) {
 		a.cfg.PublicRateWindowSec = in.PublicRateWindowSec
 	}
 	a.cfg.PublicAPIClients = parseAPIClients(in.PublicAPIClients)
+	if in.BlockDecodeLimitDefault > 0 {
+		a.cfg.BlockDecodeLimitDefault = in.BlockDecodeLimitDefault
+	}
+	if a.cfg.BlockDecodeLimitDefault < 1 {
+		a.cfg.BlockDecodeLimitDefault = 200
+	}
+	if a.cfg.BlockDecodeLimitDefault > 500 {
+		a.cfg.BlockDecodeLimitDefault = 500
+	}
+	if in.MempoolRecentLimit > 0 {
+		a.cfg.MempoolRecentLimit = in.MempoolRecentLimit
+	}
+	if a.cfg.MempoolRecentLimit < 1 {
+		a.cfg.MempoolRecentLimit = 25
+	}
+	if a.cfg.MempoolRecentLimit > 100 {
+		a.cfg.MempoolRecentLimit = 100
+	}
 	cfg := a.cfg
 	a.applyAccessConfigLocked()
 	a.mu.Unlock()

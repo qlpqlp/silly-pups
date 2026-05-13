@@ -335,6 +335,47 @@
         </section>
 
         <section id="view-settings" class="view hidden">
+          <div id="settings-auth-gate" class="settings-auth-gate hidden" role="dialog" aria-modal="true" aria-labelledby="settings-auth-title">
+            <div class="settings-auth-gate-card card">
+              <h2 id="settings-auth-title" class="settings-auth-title"><span class="material-symbols-outlined icon-inline">lock</span> Settings locked</h2>
+              <p class="small muted" id="settings-auth-hint">Strict settings protection is on. Unlock with your wallet PIN or this device&rsquo;s biometric (Face ID, Touch ID, Windows Hello, etc.) to use any option on this page, including logs and debug tools.</p>
+              <label class="field"><span>PIN (4 numbers)</span>
+                <div class="pin4-wrap">
+                  <input type="text" class="input-modern pin4-input" id="settings-gate-pin-input" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="one-time-code" data-pin-masked="0" />
+                  <div class="pin4-display" data-pin-display-for="settings-gate-pin-input" aria-hidden="true">
+                    <span class="pin4-cell"></span><span class="pin4-cell"></span><span class="pin4-cell"></span><span class="pin4-cell"></span>
+                  </div>
+                </div>
+              </label>
+              <div class="toolbar toolbar-actions" style="margin-top:.5rem">
+                <button type="button" class="btn primary" id="btn-settings-gate-unlock"><span class="material-symbols-outlined btn-ico">lock_open</span> Unlock with PIN</button>
+                <button type="button" class="btn hidden" id="btn-settings-gate-biometric"><span class="material-symbols-outlined btn-ico">fingerprint</span> Biometric</button>
+              </div>
+              <p class="small" id="settings-auth-err" style="margin-top:.5rem;color:var(--danger,#c44)"></p>
+            </div>
+          </div>
+          <div id="settings-inner" class="settings-inner">
+          <details class="card settings-details">
+            <summary class="settings-details-summary"><h2 class="settings-details-h2"><span class="material-symbols-outlined icon-inline">verified_user</span> Strict settings &amp; biometric</h2></summary>
+            <div class="settings-details-body">
+            <p class="small muted">When <strong>strict settings</strong> is on and the wallet is sealed, the server refuses logs, SPV debug, MemeTracker log, broadcast log, carrier status, and background service toggles until you unlock (same session as the rest of the app). Biometric stores your PIN encrypted in this browser only (IndexedDB); clearing site data removes it.</p>
+            <label class="field field-row" style="align-items:center;gap:0.5rem">
+              <input type="checkbox" id="chk-strict-settings" />
+              <span>Require wallet unlock for all settings data (strict)</span>
+            </label>
+            <div class="toolbar toolbar-actions">
+              <button type="button" class="btn btn-sm primary" id="btn-save-strict-settings"><span class="material-symbols-outlined btn-ico">save</span> Save strict setting</button>
+            </div>
+            <p class="small muted" id="strict-settings-msg"></p>
+            <hr style="border:0;border-top:1px solid var(--line,#2a3340);margin:0.75rem 0" />
+            <p class="small muted"><strong>Biometric unlock</strong> (WebAuthn platform authenticator). Similar idea to <a href="https://github.com/qlpqlp/biometric-dogecoin-wallet" target="_blank" rel="noopener noreferrer">DogeLock / biometric Dogecoin wallet</a>: your device proves presence, then this app sends your PIN to the server over HTTPS. Works only on <code class="mono">https://</code> or <code class="mono">localhost</code>.</p>
+            <div class="toolbar toolbar-actions">
+              <button type="button" class="btn btn-sm" id="btn-bio-enroll"><span class="material-symbols-outlined btn-ico">fingerprint</span> Enable biometric unlock</button>
+              <button type="button" class="btn btn-sm" id="btn-bio-disable"><span class="material-symbols-outlined btn-ico">delete</span> Remove biometric from this browser</button>
+            </div>
+            <p class="small muted" id="bio-settings-msg"></p>
+            </div>
+          </details>
           <details class="card settings-details">
             <summary class="settings-details-summary"><h2 class="settings-details-h2"><span class="material-symbols-outlined icon-inline">encrypted</span> Wallet encryption</h2></summary>
             <div class="settings-details-body">
@@ -541,7 +582,7 @@
           <details class="card settings-details">
             <summary class="settings-details-summary"><h2 class="settings-details-h2"><span class="material-symbols-outlined icon-inline">settings_backup_restore</span> SPV repair &amp; rescan</h2></summary>
             <div class="settings-details-body">
-            <button type="button" class="btn" id="btn-open-spv-repair"><span class="material-symbols-outlined btn-ico">settings_backup_restore</span> Rollback to checkpoint (libdogecoin bundled)</button>
+            <button type="button" class="btn" id="btn-open-spv-repair"><span class="material-symbols-outlined btn-ico">settings_backup_restore</span> SPV rescan &amp; checkpoint rollback…</button>
             </div>
           </details>
           <details class="card settings-details svc-control-card hidden" id="svc-control-card" aria-labelledby="svc-control-title">
@@ -589,6 +630,7 @@
             </div>
             </div>
           </details>
+          </div>
         </section>
       </main>
 
@@ -627,13 +669,21 @@
         </button>
       </div>
       <p class="small muted" id="spv-repair-storage-line" style="margin:.35rem 0 .5rem">Loading storage path…</p>
-      <p class="small muted"><strong>Rollback</strong> uses a bundled libdogecoin checkpoint (height/hash/time), truncates headers above it, clears <code class="mono">spv_wallet.db</code>, then restarts SPV.</p>
+      <p class="small muted"><strong>Rollback</strong> truncates headers above the chosen height when possible; otherwise it stops SPV, deletes <code class="mono">headers.db</code>, applies your checkpoint choice to prefs, clears <code class="mono">spv_wallet.db</code>, and restarts SPV.</p>
       <label class="field"><span class="field-label">Rollback to checkpoint (libdogecoin bundled)</span>
         <select id="spv-rollback-checkpoint-select" class="input-modern" aria-describedby="spv-rollback-checkpoint-hint"></select>
       </label>
-      <p class="small muted" id="spv-rollback-checkpoint-hint" style="margin:.25rem 0 .5rem">Block 0 is the Dogecoin genesis checkpoint (early Dec 2013, UTC time from libdogecoin). Other rows match the bundled SPV checkpoint table in your libdogecoin build.</p>
+      <p class="small muted" id="spv-rollback-checkpoint-hint" style="margin:.25rem 0 .5rem">Block 0 is the Dogecoin genesis checkpoint (early Dec 2013, UTC time from libdogecoin). Other rows match the bundled SPV checkpoint table in your libdogecoin build. If your chain previously synced from a <em>newer</em> checkpoint than the one you pick, the wallet removes <code class="mono">headers.db</code> and restarts from your selection automatically (no manual delete).</p>
+      <label class="field"><span class="field-label">New sync after rescan (header catch-up)</span>
+        <select id="spv-rescan-sync-mode" class="input-modern" aria-describedby="spv-rescan-sync-hint">
+          <option value="checkpoints">Bundled checkpoints (<code class="mono">spvnode -p</code>)</option>
+          <option value="genesis">Genesis (full headers, no <code class="mono">-p</code>)</option>
+        </select>
+      </label>
+      <p class="small muted" id="spv-rescan-sync-hint" style="margin:.25rem 0 .5rem">Used for <strong>Full SPV rescan</strong> and when rollback must rebuild <code class="mono">headers.db</code> from your chosen checkpoint.</p>
       <div class="toolbar toolbar-actions spv-rescan-actions">
-        <button type="button" class="btn primary" id="btn-spv-rollback"><span class="material-symbols-outlined btn-ico" aria-hidden="true">undo</span> <span class="btn-spv-rollback-label">Rollback</span></button>
+        <button type="button" class="btn" id="btn-spv-full-rescan"><span class="material-symbols-outlined btn-ico" aria-hidden="true">delete_sweep</span> Full SPV rescan</button>
+        <button type="button" class="btn primary" id="btn-spv-rollback"><span class="material-symbols-outlined btn-ico" aria-hidden="true">undo</span> <span class="btn-spv-rollback-label">Rollback to checkpoint</span></button>
       </div>
       <pre id="spv-rescan-out" class="mono small out" aria-live="polite"></pre>
     </div>

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,6 +61,34 @@ func (s *Server) applySPVSyncPrefsFromWalletRestore(o *spvOnRestoreOpts, testnet
 		prefs.RestoreCheckpointHint = 0
 	}
 	return s.writeSPVSyncPrefs(prefs)
+}
+
+// buildSPVPrefsForCheckpointResync maps a bundled checkpoint height (0 = genesis path) to persisted SPV prefs.
+// useCheckpoint overrides UseCheckpoint when non-nil; when keepHeight > 0 and UseCheckpoint is false, RestoreCheckpointHint is cleared.
+func buildSPVPrefsForCheckpointResync(testnet bool, keepHeight int64, useCheckpoint *bool, base spvSyncPrefs) (spvSyncPrefs, error) {
+	p := base
+	if keepHeight < 0 || keepHeight > 200_000_000 {
+		return spvSyncPrefs{}, fmt.Errorf("checkpoint height out of range")
+	}
+	if keepHeight == 0 {
+		p.UseCheckpoint = false
+		p.RestoreCheckpointHint = 0
+		return p, nil
+	}
+	if !bundledCheckpointHeightKnown(testnet, keepHeight) {
+		return spvSyncPrefs{}, fmt.Errorf("height %d is not a bundled libdogecoin checkpoint for this network", keepHeight)
+	}
+	if useCheckpoint != nil {
+		p.UseCheckpoint = *useCheckpoint
+	} else {
+		p.UseCheckpoint = true
+	}
+	if !p.UseCheckpoint {
+		p.RestoreCheckpointHint = 0
+	} else {
+		p.RestoreCheckpointHint = keepHeight
+	}
+	return p, nil
 }
 
 func (s *Server) writeSPVSyncPrefs(p spvSyncPrefs) error {

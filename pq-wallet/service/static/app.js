@@ -1,5 +1,9 @@
 /* global Chart, QRCode, Html5Qrcode, jsQR */
 
+const BIO_DB_NAME = "pq_wallet_bio_v1";
+const BIO_STORE = "kv";
+const BIO_WRAP_KEY = "pin_wrap_v1";
+
 let activeMutations = 0;
 
 function setGlobalActionBusy(on) {
@@ -171,6 +175,15 @@ async function getPinForSensitiveAction(actionLabel) {
     const sec = await api("/api/security/status");
     const sealed = !!(sec && sec.sealed);
     if (!sealed) return { ok: true, pin: "" };
+    if (sec.pin_locked) {
+      const until = sec.pin_lockout_until ? String(sec.pin_lockout_until) : "";
+      alert(
+        until
+          ? `Too many incorrect PIN attempts. Wallet PIN is locked until ${until} (UTC).`
+          : "Too many incorrect PIN attempts. Wallet PIN is temporarily locked."
+      );
+      return { ok: false, pin: "", pinLocked: true };
+    }
     const promptLabel = actionLabel || "this action";
     const pin = await promptPinModal("Wallet PIN required", `Enter wallet PIN to authorize ${promptLabel}.`);
     if (pin == null) return { ok: false, pin: "" };
@@ -179,6 +192,299 @@ async function getPinForSensitiveAction(actionLabel) {
     alert(e && e.message ? e.message : "Could not read wallet security status.");
     return { ok: false, pin: "" };
   }
+}
+
+function parseSettingsAuthErr(text) {
+  try {
+    const j = JSON.parse(String(text || ""));
+    if (j && j.error === "settings_auth_required") return j;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function settingsGateBlockedMsg() {
+  return "Settings locked (strict): unlock your wallet session to view this.";
+}
+
+function biometricSupported() {
+  try {
+    return (
+      typeof window !== "undefined" &&
+      window.isSecureContext === true &&
+      window.PublicKeyCredential &&
+      typeof PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === "function"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function idbReq(req) {
+  return new Promise((res, rej) => {
+    req.onerror = () => rej(req.error);
+    req.onsuccess = () => res(req.result);
+  });
+}
+
+async function idbOpenBio() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(BIO_DB_NAME, 1);
+    r.onerror = () => rej(r.error);
+    r.onupgradeneeded = () => {
+      try {
+        if (!r.result.objectStoreNames.contains(BIO_STORE)) {
+          r.result.createObjectStore(BIO_STORE);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    r.onsuccess = () => res(r.result);
+  });
+}
+
+async function bioLoadWrap() {
+  try {
+    const db = await idbOpenBio();
+    const tx = db.transaction(BIO_STORE, "readonly");
+    const v = await idbReq(tx.objectStore(BIO_STORE).get(BIO_WRAP_KEY));
+    db.close();
+    return v && v.salt && v.iv && v.ct && v.credIdB64 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+async function bioSaveWrap(record) {
+  const db = await idbOpenBio();
+  const tx = db.transaction(BIO_STORE, "readwrite");
+  await idbReq(tx.objectStore(BIO_STORE).put(record, BIO_WRAP_KEY));
+  db.close();
+}
+
+async function bioClearWrap() {
+  try {
+    const db = await idbOpenBio();
+    const tx = db.transaction(BIO_STORE, "readwrite");
+    await idbReq(tx.objectStore(BIO_STORE).delete(BIO_WRAP_KEY));
+    db.close();
+  } catch {
+    /* ignore */
+  }
+}
+
+async function biometricEnrolled() {
+  return !!(await bioLoadWrap());
+}
+
+function uint8ToB64Url(u8) {
+  const a = u8 instanceof Uint8Array ? u8 : new Uint8Array(u8);
+  let bin = "";
+  for (let i = 0; i < a.length; i++) bin += String.fromCharCode(a[i]);
+  const b64 = btoa(bin);
+  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function b64UrlToUint8(s) {
+  const b64 = String(s || "")
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+  const pad = b64.length % 4 ? "=".repeat(4 - (b64.length % 4)) : "";
+  const bin = atob(b64 + pad);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function sha256Buffer(u8) {
+  const buf = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+  const h = await crypto.subtle.digest("SHA-256", buf);
+  return new Uint8Array(h);
+}
+
+async function wrapPinWithCredential(rawId, pin) {
+  const raw = rawId instanceof ArrayBuffer ? new Uint8Array(rawId) : new Uint8Array(rawId);
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const concat = new Uint8Array(raw.length + salt.length);
+  concat.set(raw, 0);
+  concat.set(salt, raw.length);
+  const keyMaterial = await sha256Buffer(concat);
+  const key = await crypto.subtle.importKey("raw", keyMaterial, { name: "AES-GCM" }, false, ["encrypt"]);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const pt = new TextEncoder().encode(String(pin));
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, pt);
+  return {
+    salt: uint8ToB64Url(salt),
+    iv: uint8ToB64Url(iv),
+    ct: uint8ToB64Url(new Uint8Array(ct)),
+    credIdB64: uint8ToB64Url(raw),
+  };
+}
+
+async function unwrapPinWithCredential(rawId, wrap) {
+  const salt = b64UrlToUint8(wrap.salt);
+  const iv = b64UrlToUint8(wrap.iv);
+  const ct = b64UrlToUint8(wrap.ct);
+  const rid = rawId instanceof ArrayBuffer ? new Uint8Array(rawId) : new Uint8Array(rawId);
+  const concat = new Uint8Array(rid.length + salt.length);
+  concat.set(rid, 0);
+  concat.set(salt, rid.length);
+  const keyMaterial = await sha256Buffer(concat);
+  const key = await crypto.subtle.importKey("raw", keyMaterial, { name: "AES-GCM" }, false, ["decrypt"]);
+  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
+  return new TextDecoder().decode(pt);
+}
+
+async function unlockPinViaBiometric() {
+  const wrap = await bioLoadWrap();
+  if (!wrap || !wrap.credIdB64) throw new Error("Biometric unlock is not set up on this device.");
+  const challenge = crypto.getRandomValues(new Uint8Array(32));
+  const id = b64UrlToUint8(wrap.credIdB64);
+  const assertion = await navigator.credentials.get({
+    publicKey: {
+      challenge,
+      rpId: window.location.hostname,
+      allowCredentials: [{ type: "public-key", id }],
+      userVerification: "required",
+      timeout: 60000,
+    },
+  });
+  if (!assertion || !assertion.rawId) throw new Error("Biometric authentication was cancelled.");
+  return unwrapPinWithCredential(assertion.rawId, wrap);
+}
+
+async function updateSettingsAccessGate() {
+  const gate = $("settings-auth-gate");
+  const inner = $("settings-inner");
+  const errEl = $("settings-auth-err");
+  if (errEl) errEl.textContent = "";
+  let sec = {};
+  try {
+    sec = await api("/api/security/status");
+  } catch {
+    sec = {};
+  }
+  const sealed = !!(sec && sec.sealed);
+  const unlocked = !!(sec && sec.unlocked);
+  const strict = !!(sec && sec.strict_settings_auth);
+  state.strictSettingsAuth = strict;
+  const chk = $("chk-strict-settings");
+  if (chk) chk.checked = strict;
+  const needGate = !!(sealed && strict && !unlocked);
+  const wasGate = !!state.settingsGateActive;
+  state.settingsGateActive = needGate;
+  if (needGate) {
+    if (state.pollLogs) {
+      clearInterval(state.pollLogs);
+      state.pollLogs = null;
+    }
+    if (state.pollSpvDeep) {
+      clearInterval(state.pollSpvDeep);
+      state.pollSpvDeep = null;
+    }
+  }
+  if (gate) {
+    gate.classList.toggle("hidden", !needGate);
+    gate.setAttribute("aria-hidden", needGate ? "false" : "true");
+  }
+  if (inner) inner.classList.toggle("settings-inner--locked", needGate);
+  const bioBtn = $("btn-settings-gate-biometric");
+  if (bioBtn) {
+    const enrolled = await biometricEnrolled();
+    const show = !!(needGate && enrolled && biometricSupported());
+    bioBtn.classList.toggle("hidden", !show);
+  }
+  if (!needGate && wasGate && state.view === "settings") {
+    startSettingsLogPollers();
+  }
+  return !needGate;
+}
+
+function startSettingsLogPollers() {
+  if (state.view !== "settings") return;
+  if (state.settingsGateActive) return;
+  refreshLogs();
+  if (state.pollLogs) clearInterval(state.pollLogs);
+  state.pollLogs = setInterval(refreshLogs, 4000);
+  refreshSpvDeepLog();
+  if (state.pollSpvDeep) clearInterval(state.pollSpvDeep);
+  state.pollSpvDeep = setInterval(refreshSpvDeepLog, 8000);
+  refreshPQCarrierStatus().catch(() => {});
+  refreshDashboard().catch(() => {});
+}
+
+async function enterSettingsView() {
+  await updateSettingsAccessGate();
+  if (!state.settingsGateActive) startSettingsLogPollers();
+}
+
+async function enrollBiometricForSettings() {
+  const msg = $("bio-settings-msg");
+  if (msg) msg.textContent = "";
+  if (!biometricSupported()) {
+    if (msg) msg.textContent = "Biometric unlock needs a secure context (HTTPS or localhost).";
+    return;
+  }
+  let plat = false;
+  try {
+    plat = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+  } catch {
+    plat = false;
+  }
+  if (!plat) {
+    if (msg) msg.textContent = "No user-verifying platform authenticator was found on this device.";
+    return;
+  }
+  const sst = await api("/api/security/status");
+  if (!sst || !sst.sealed) {
+    if (msg) msg.textContent = "Enable wallet encryption first; biometric unlock uses your sealed-wallet PIN.";
+    return;
+  }
+  const auth = await getPinForSensitiveAction("enabling biometric unlock");
+  if (!auth.ok) return;
+  const pin = auth.pin;
+  try {
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const userId = crypto.getRandomValues(new Uint8Array(16));
+    const rpId = window.location.hostname;
+    const cred = await navigator.credentials.create({
+      publicKey: {
+        challenge,
+        rp: { id: rpId, name: "PQ Wallet" },
+        user: { id: userId, name: "pq-wallet-user", displayName: "PQ Wallet" },
+        pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+        authenticatorSelection: {
+          authenticatorAttachment: "platform",
+          userVerification: "required",
+          residentKey: "preferred",
+        },
+        timeout: 60000,
+      },
+    });
+    if (!cred || !cred.rawId) {
+      if (msg) msg.textContent = "Biometric registration was cancelled.";
+      return;
+    }
+    const pinStr = String(pin || "").trim();
+    const rec = await wrapPinWithCredential(cred.rawId, pinStr);
+    await bioSaveWrap(rec);
+    if (msg) {
+      msg.textContent =
+        "Biometric unlock enabled on this browser. Your PIN is stored encrypted in IndexedDB only; clearing site data removes it.";
+    }
+    await updateSettingsAccessGate();
+  } catch (e) {
+    if (msg) msg.textContent = e && e.message ? e.message : String(e);
+  }
+}
+
+async function disableBiometricForSettings() {
+  const msg = $("bio-settings-msg");
+  await bioClearWrap();
+  if (msg) msg.textContent = "Biometric data removed from this browser.";
+  await updateSettingsAccessGate();
 }
 
 /** Non-secure origins (HTTP): Async Clipboard is unavailable; use legacy copy. */
@@ -265,6 +571,10 @@ const state = {
   lastDashboard: null,
   spvHeaderFeed: [],
   pqSendMode: "txc_txr",
+  /** Server preference: require unlock for settings-sensitive APIs */
+  strictSettingsAuth: false,
+  /** Sealed + strict + !session unlocked: UI gate and no log polling */
+  settingsGateActive: false,
 };
 
 const CACHE_DB_NAME = "pq-wallet-ui-cache";
@@ -611,12 +921,7 @@ function showView(name) {
   if (name === "receive") updateReceiveView();
   if (name === "learn") loadEducation();
   if (name === "settings") {
-    refreshLogs();
-    state.pollLogs = setInterval(refreshLogs, 4000);
-    refreshSpvDeepLog();
-    state.pollSpvDeep = setInterval(refreshSpvDeepLog, 8000);
-    refreshPQCarrierStatus().catch(() => {});
-    refreshDashboard().catch(() => {});
+    void enterSettingsView();
   }
   if (name === "transactions") {
     initTxListScrollObserver();
@@ -641,6 +946,7 @@ function showView(name) {
 
 async function refreshLogs() {
   if (state.inFlightLogs) return;
+  if (state.settingsGateActive) return;
   state.inFlightLogs = true;
   try {
     const mkSignal = (ms) => {
@@ -654,14 +960,20 @@ async function refreshLogs() {
       }, ms);
       return c.signal;
     };
-    const [mtr, bc] = await Promise.all([
-      fetch("/api/logs/mempooltracker", { signal: mkSignal(15000) }).then((r) => r.text()),
-      fetch("/api/logs/broadcast?lines=200", { signal: mkSignal(15000) }).then((r) => r.text()),
+    const [rM, rB] = await Promise.all([
+      fetch("/api/logs/mempooltracker", { signal: mkSignal(15000) }),
+      fetch("/api/logs/broadcast?lines=200", { signal: mkSignal(15000) }),
     ]);
+    const mtr = await rM.text();
+    const bc = await rB.text();
     const elM = $("log-mtr");
     const elB = $("log-bc");
-    if (elM) elM.textContent = mtr;
-    if (elB) elB.textContent = bc;
+    const blockMsg = settingsGateBlockedMsg();
+    const bm = rM.status === 401 ? parseSettingsAuthErr(mtr) : null;
+    const bb = rB.status === 401 ? parseSettingsAuthErr(bc) : null;
+    if (elM) elM.textContent = bm ? blockMsg : mtr;
+    if (elB) elB.textContent = bb ? blockMsg : bc;
+    if (bm || bb) void updateSettingsAccessGate();
   } catch {
     /* ignore */
   } finally {
@@ -671,9 +983,15 @@ async function refreshLogs() {
 
 async function refreshPQCarrierStatus() {
   if (state.view !== "settings") return;
+  if (state.settingsGateActive) return;
   const out = $("pq-carrier-status-out");
   try {
     const res = await api("/api/pq/carrier/status", { timeout_ms: 25000 });
+    if (res && res.error === "settings_auth_required") {
+      if (out) out.textContent = settingsGateBlockedMsg();
+      void updateSettingsAccessGate();
+      return;
+    }
     if (res && res.error) {
       if (out) out.textContent = JSON.stringify(res, null, 2);
       return;
@@ -721,6 +1039,7 @@ function buildSpvDeepQuery() {
 
 async function refreshSpvLedgerSnapshot() {
   if (state.view !== "settings") return;
+  if (state.settingsGateActive) return;
   const el = $("log-spv-ledger");
   if (state.inFlightSpvLedger) return;
   state.inFlightSpvLedger = true;
@@ -748,7 +1067,14 @@ async function refreshSpvLedgerSnapshot() {
     } catch {
       /* keep raw */
     }
-    if (el) el.textContent = res.ok ? pretty : `${res.status} ${res.statusText}\n${pretty}`;
+    if (el) {
+      if (res.status === 401 && parseSettingsAuthErr(body)) {
+        el.textContent = settingsGateBlockedMsg();
+        void updateSettingsAccessGate();
+      } else {
+        el.textContent = res.ok ? pretty : `${res.status} ${res.statusText}\n${pretty}`;
+      }
+    }
   } catch (e) {
     if (el) el.textContent = `(ledger snapshot failed: ${e && e.message ? e.message : e})`;
   } finally {
@@ -758,6 +1084,7 @@ async function refreshSpvLedgerSnapshot() {
 
 async function refreshSpvDeepLog() {
   if (state.view !== "settings") return;
+  if (state.settingsGateActive) return;
   if (!spvDeepDebugEnabled()) return;
   if (state.inFlightSpvDeep) return;
   state.inFlightSpvDeep = true;
@@ -779,8 +1106,16 @@ async function refreshSpvDeepLog() {
       return c.signal;
     };
     const qs = buildSpvDeepQuery();
-    const txt = await fetch(`/api/logs/spv-deep?${qs}`, { signal: mkSignal(20000) }).then((r) => r.text());
-    if (el) el.textContent = txt;
+    const r = await fetch(`/api/logs/spv-deep?${qs}`, { signal: mkSignal(20000) });
+    const txt = await r.text();
+    if (el) {
+      if (r.status === 401 && parseSettingsAuthErr(txt)) {
+        el.textContent = settingsGateBlockedMsg();
+        void updateSettingsAccessGate();
+      } else {
+        el.textContent = txt;
+      }
+    }
   } catch {
     if (el) el.textContent = "(spv deep digest unavailable — try Refresh deep)";
   } finally {
@@ -1456,6 +1791,9 @@ async function refreshWallet() {
     refreshDashboard().catch(() => {});
     refreshTxList(false, { full: true }).catch(() => {});
   }
+  if (state.view === "settings") {
+    void updateSettingsAccessGate();
+  }
 }
 
 function updateEncryptionButtons(isSealed, isLocked) {
@@ -1648,7 +1986,10 @@ async function postServiceControl(patch) {
     const res = await api("/api/services/control", { method: "POST", body: JSON.stringify(patch) });
     if (res.error) {
       let msg = res.error;
-      if (res.need_unlock === true) msg = "Unlock the wallet first.";
+      if (res.error === "settings_auth_required") {
+        msg = settingsGateBlockedMsg();
+        void updateSettingsAccessGate();
+      } else if (res.need_unlock === true) msg = "Unlock the wallet first.";
       alert(msg);
       return;
     }
@@ -2512,6 +2853,44 @@ document.getElementById("btn-sync-tx").addEventListener("click", async () => {
   await refreshTxList(true, { full: true });
 });
 
+const btnSpvFull = $("btn-spv-full-rescan");
+if (btnSpvFull) {
+  btnSpvFull.addEventListener("click", async () => {
+    const syncSel = $("spv-rescan-sync-mode");
+    const ckSel = $("spv-rollback-checkpoint-select");
+    const useCP = !!(syncSel && syncSel.value === "checkpoints");
+    let heightLine = "existing prefs (no checkpoint height sent)";
+    const body = { confirm: "RESCAN", use_checkpoint: useCP };
+    if (ckSel && ckSel.value && ckSel.value.startsWith("h-")) {
+      const h = parseInt(ckSel.value.slice(2), 10);
+      if (Number.isFinite(h) && h >= 0) {
+        body.rollback_height = h;
+        heightLine = h === 0 ? "genesis (block 0)" : `bundled checkpoint height ${h}`;
+      }
+    }
+    if (!confirm(`Stop SPV, delete headers.db, clear local SPV wallet cache, then restart using ${syncSel && syncSel.value === "genesis" ? "genesis header sync (no -p)" : "bundled checkpoints (-p)"} and ${heightLine}?`)) return;
+    const out = $("spv-rescan-out");
+    btnSpvFull.disabled = true;
+    btnSpvFull.setAttribute("aria-busy", "true");
+    try {
+      const auth = await getPinForSensitiveAction("SPV full rescan");
+      if (!auth.ok) return;
+      body.pin = auth.pin;
+      const res = await api("/api/spv/rescan", { method: "POST", body: JSON.stringify(body) });
+      if (out) out.textContent = JSON.stringify(res, null, 2);
+      if (res.error) {
+        let msg = res.error;
+        if (res.hint) msg += "\n\n" + res.hint;
+        alert(msg);
+      }
+      await refreshDashboard();
+    } finally {
+      btnSpvFull.disabled = false;
+      btnSpvFull.removeAttribute("aria-busy");
+    }
+  });
+}
+
 const btnSpvRb = $("btn-spv-rollback");
 if (btnSpvRb) {
   btnSpvRb.addEventListener("click", async () => {
@@ -2524,7 +2903,7 @@ if (btnSpvRb) {
         alert("Invalid checkpoint selection.");
         return;
       }
-      if (!confirm(`Stop SPV, remove header rows above height ${h}, delete spv_wallet.db, and restart? (checkpoint rollback)`)) return;
+      if (!confirm(`Stop SPV, remove headers.db, clear SPV wallet state, and restart syncing from checkpoint height ${h} (or truncate headers if the chain already includes that height)?`)) return;
       body.rollback_height = h;
     } else {
       alert("Choose a bundled checkpoint from the list.");
@@ -2648,6 +3027,92 @@ if (btnCarrierRefresh) {
     refreshPQCarrierStatus();
   });
 }
+
+const btnSettingsGateUnlock = $("btn-settings-gate-unlock");
+if (btnSettingsGateUnlock) {
+  btnSettingsGateUnlock.addEventListener("click", async () => {
+    const inp = $("settings-gate-pin-input");
+    const errEl = $("settings-auth-err");
+    if (errEl) errEl.textContent = "";
+    const pin = normalizePin4((inp && inp.value) || "");
+    if (!isPin4(pin)) {
+      if (errEl) errEl.textContent = "PIN must be exactly 4 numbers.";
+      return;
+    }
+    const res = await api("/api/security/unlock", { method: "POST", body: JSON.stringify({ pin }) });
+    if (res.error) {
+      if (errEl) {
+        let t = res.detail || res.error;
+        if (res.error === "pin_locked" && res.pin_lockout_until) {
+          t = `Too many incorrect PIN attempts. Locked until ${res.pin_lockout_until} (UTC).`;
+        }
+        errEl.textContent = t;
+      }
+      return;
+    }
+    if (inp) {
+      inp.value = "";
+      renderPinDisplay(inp);
+    }
+    await refreshWallet();
+    await updateSettingsAccessGate();
+    if (!state.settingsGateActive) startSettingsLogPollers();
+  });
+}
+
+const btnSettingsGateBio = $("btn-settings-gate-biometric");
+if (btnSettingsGateBio) {
+  btnSettingsGateBio.addEventListener("click", async () => {
+    const errEl = $("settings-auth-err");
+    if (errEl) errEl.textContent = "";
+    try {
+      const pin = await unlockPinViaBiometric();
+      const res = await api("/api/security/unlock", { method: "POST", body: JSON.stringify({ pin }) });
+      if (res.error) {
+        if (errEl) errEl.textContent = res.detail || res.error;
+        return;
+      }
+      await refreshWallet();
+      await updateSettingsAccessGate();
+      if (!state.settingsGateActive) startSettingsLogPollers();
+    } catch (e) {
+      if (errEl) errEl.textContent = e && e.message ? e.message : String(e);
+    }
+  });
+}
+
+const btnSaveStrictSettings = $("btn-save-strict-settings");
+if (btnSaveStrictSettings) {
+  btnSaveStrictSettings.addEventListener("click", async () => {
+    const chk = $("chk-strict-settings");
+    const msg = $("strict-settings-msg");
+    const v = !!(chk && chk.checked);
+    const auth = await getPinForSensitiveAction("changing strict settings mode");
+    if (!auth.ok) {
+      if (msg) msg.textContent = "Cancelled.";
+      return;
+    }
+    const res = await api("/api/settings/prefs", {
+      method: "POST",
+      body: JSON.stringify({ strict_settings_auth: v, pin: auth.pin }),
+    });
+    if (res.error) {
+      if (msg) msg.textContent = res.error;
+      await updateSettingsAccessGate();
+      return;
+    }
+    if (msg) msg.textContent = "Saved.";
+    await updateSettingsAccessGate();
+    if (!state.settingsGateActive) startSettingsLogPollers();
+  });
+}
+
+const btnBioEnroll = $("btn-bio-enroll");
+if (btnBioEnroll) btnBioEnroll.addEventListener("click", () => void enrollBiometricForSettings());
+
+const btnBioDisable = $("btn-bio-disable");
+if (btnBioDisable) btnBioDisable.addEventListener("click", () => void disableBiometricForSettings());
+
 const btnCarrierRecover = $("btn-pq-carrier-recover");
 if (btnCarrierRecover) {
   btnCarrierRecover.addEventListener("click", async () => {
@@ -2715,6 +3180,12 @@ if (btnSpvRestProbe) {
     if (out) out.textContent = "…";
     try {
       const j = await api(`/api/debug/spv-rest?path=${encodeURIComponent(path)}`, { timeout_ms: 25000 });
+      if (j && j.error === "settings_auth_required") {
+        if (msg) msg.textContent = settingsGateBlockedMsg();
+        if (out) out.textContent = "";
+        void updateSettingsAccessGate();
+        return;
+      }
       if (j && j.error && !j.path) {
         if (msg) msg.textContent = String(j.error);
         if (out) out.textContent = JSON.stringify(j, null, 2);
@@ -2866,7 +3337,13 @@ if (btnUnlock) {
       body: JSON.stringify({ pin }),
     });
     if (res.error) {
-      if (errEl) errEl.textContent = res.error;
+      if (errEl) {
+        let t = res.detail || res.error;
+        if (res.error === "pin_locked" && res.pin_lockout_until) {
+          t = `Too many incorrect PIN attempts. Locked until ${res.pin_lockout_until} (UTC).`;
+        }
+        errEl.textContent = t;
+      }
       return;
     }
     const inp = $("unlock-pin-input");
@@ -2931,7 +3408,13 @@ if (btnUnseal) {
       body: JSON.stringify({ pin }),
     });
     if (res.error) {
-      if (msg) msg.textContent = res.error;
+      if (msg) {
+        let t = res.detail || res.error;
+        if (res.error === "pin_locked" && res.pin_lockout_until) {
+          t = `Too many incorrect PIN attempts. Locked until ${res.pin_lockout_until} (UTC).`;
+        }
+        msg.textContent = t;
+      }
       return;
     }
     if (msg) msg.textContent = "Encryption disabled.";

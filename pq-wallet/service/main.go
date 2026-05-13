@@ -26,10 +26,10 @@ import (
 var staticFS embed.FS
 
 // pqWalletAppVersion is shown in /api/health, education JSON, and the UI footer (keep in sync with manifest.json).
-const pqWalletAppVersion = "0.0.60"
+const pqWalletAppVersion = "0.0.61"
 
 // pqWalletBuildHash is a release fingerprint (SHA-256 hex of "pq-wallet-<version>"); bump when cutting a release.
-const pqWalletBuildHash = "6c18e76553ca9c4bd3ad1037ff0fd5f45d7c438755491287b26a42cb5bc7f03d"
+const pqWalletBuildHash = "611846360c8ad7ebed6498c61b6a3df4bda7419d7c8adfa77df17b4fa8b33bbd"
 
 type Server struct {
 	mu                    sync.Mutex
@@ -243,6 +243,16 @@ func main() {
 	mux.HandleFunc("/api/security/lock", srv.handleSecurityLock)
 	mux.HandleFunc("/api/security/seal", srv.handleSecuritySeal)
 	mux.HandleFunc("/api/security/unseal", srv.handleSecurityUnseal)
+	mux.HandleFunc("/api/settings/prefs", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			srv.handleSettingsPrefsGet(w, r)
+		case http.MethodPost:
+			srv.handleSettingsPrefsPost(w, r)
+		default:
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET or POST only"})
+		}
+	})
 	mux.HandleFunc("/api/education", srv.handleEducation)
 	mux.HandleFunc("/api/wallet/export", srv.handleWalletExport)
 	mux.HandleFunc("/api/wallet", func(w http.ResponseWriter, r *http.Request) {

@@ -77,6 +77,10 @@ func (s *Server) handleDebugSPVLedger(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET only"})
 		return
 	}
+	if s.strictSettingsPeekBlocked() {
+		writeStrictSettingsAuthRequired(w)
+		return
+	}
 	s.mu.Lock()
 	_, werr := s.loadWallet()
 	s.mu.Unlock()

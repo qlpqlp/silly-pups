@@ -1813,6 +1813,56 @@ body {
   margin-bottom: 0.75rem;
 }
 
+/* Settings: strict lock overlay */
+#view-settings {
+  position: relative;
+  min-height: 0;
+}
+
+.settings-inner {
+  transition: filter 0.2s ease, opacity 0.2s ease;
+}
+
+.settings-inner.settings-inner--locked {
+  filter: blur(3px);
+  opacity: 0.58;
+  pointer-events: none;
+  user-select: none;
+}
+
+.settings-auth-gate {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 1rem 0.75rem 2rem;
+  background: rgba(11, 15, 20, 0.75);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  overflow: auto;
+}
+
+.settings-auth-gate.hidden {
+  display: none;
+}
+
+.settings-auth-gate-card {
+  max-width: 28rem;
+  width: 100%;
+  margin-top: 0.35rem;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+.settings-auth-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.15rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 /* Settings: collapsible sections (native <details>, closed by default) */
 #view-settings .settings-details {
   margin-bottom: 0.85rem;

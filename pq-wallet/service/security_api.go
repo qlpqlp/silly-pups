@@ -17,11 +17,21 @@ func (s *Server) handleSecurityStatus(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.Unlock()
 	sealed := s.hasSealedWallet()
 	unlocked := !sealed || (s.memWallet != nil && time.Now().Before(s.unlockUntil))
-	writeJSON(w, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"sealed":               sealed,
 		"unlocked":             unlocked,
 		"has_plaintext_wallet": fileExists(s.walletPath),
-	})
+		"strict_settings_auth": s.readServicePrefs().StrictSettingsAuth,
+	}
+	if sealed {
+		if locked, until := s.pinLockoutStatusForAPI(); locked && until != nil {
+			out["pin_locked"] = true
+			out["pin_lockout_until"] = until.UTC().Format(time.RFC3339)
+		} else {
+			out["pin_locked"] = false
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func fileExists(p string) bool {
@@ -45,8 +55,12 @@ func (s *Server) handleSecurityUnlock(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "wallet is not sealed"})
 		return
 	}
+	if err := s.pinLockoutCheck(); err != nil {
+		writePINUnlockError(w, err)
+		return
+	}
 	if err := s.unlockSealedWallet(pin); err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
+		writePINUnlockError(w, err)
 		return
 	}
 	if s.memWallet != nil {
@@ -107,8 +121,12 @@ func (s *Server) handleSecurityUnseal(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "wallet is not sealed"})
 		return
 	}
+	if err := s.pinLockoutCheck(); err != nil {
+		writePINUnlockError(w, err)
+		return
+	}
 	if err := s.unlockSealedWallet(strings.TrimSpace(body.PIN)); err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
+		writePINUnlockError(w, err)
 		return
 	}
 	wf := s.memWallet

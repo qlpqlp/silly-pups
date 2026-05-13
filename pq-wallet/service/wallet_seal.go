@@ -129,6 +129,7 @@ func (s *Server) sealWalletFromPlaintext(pin string) error {
 	if err := os.Rename(tmp, s.sealedPath()); err != nil {
 		return err
 	}
+	s.clearPINLockoutState()
 	_ = os.Remove(s.walletPath)
 	s.walletKey = key
 	s.sealSalt = append([]byte(nil), salt...)
@@ -138,6 +139,11 @@ func (s *Server) sealWalletFromPlaintext(pin string) error {
 }
 
 func (s *Server) unlockSealedWallet(pin string) error {
+	if s.hasSealedWallet() {
+		if err := s.pinLockoutCheck(); err != nil {
+			return err
+		}
+	}
 	var err error
 	pin, err = normalizePIN4(pin)
 	if err != nil {
@@ -164,6 +170,9 @@ func (s *Server) unlockSealedWallet(pin string) error {
 	}
 	plain, err := gcm.Open(nil, nonce, ct, nil)
 	if err != nil {
+		if rerr := s.recordPINUnlockFailure(); rerr != nil {
+			return rerr
+		}
 		return errors.New("wrong PIN or corrupt wallet")
 	}
 	var wf WalletFile
@@ -178,6 +187,7 @@ func (s *Server) unlockSealedWallet(pin string) error {
 	s.sealSalt = salt
 	s.memWallet = &wf
 	s.unlockUntil = time.Now().Add(unlockTTL)
+	s.clearPINLockoutState()
 	return nil
 }
 

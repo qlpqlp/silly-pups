@@ -4,75 +4,250 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Quantum Dogecoin Explorer</title>
-  <meta name="theme-color" content="#0b0f14" />
+  <meta name="theme-color" content="#070b10" />
   <link rel="manifest" href="/static/manifest.webmanifest" />
   <link rel="icon" href="/logo.png" type="image/png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:ital,wght@0,300;0,400;0,700;1,400&display=swap" rel="stylesheet" />
-  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@400" rel="stylesheet" />
   <style>
     :root {
-      --bg: #0b0f14;
-      --bg2: #121922;
-      --card: #161f2c;
-      --text: #e9f0fa;
-      --muted: #8a9bb3;
-      --accent: #d4b84a;
+      --bg: #070b10;
+      --surface: #0f1620;
+      --card: #121a26;
+      --text: #e8eef8;
+      --txt: #e8eef8;
+      --muted: #8b9cb8;
       --doge: #f2cb2c;
-      --border: #273447;
-      --danger: #c44c4c;
-      --ok: #3ecf8e;
+      --accent: #5ecfff;
+      --border: #2a3a52;
+      --line: #2a3a52;
+      --danger: #ff7a7a;
+      --ok: #3dd68f;
+      --input-bg: #0c121a;
       --sidebar-w: 260px;
-      --input-bg: #0e141c;
+      --sidebar-collapsed: 72px;
     }
-    .material-symbols-outlined { font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24; vertical-align: middle; }
+    .material-symbols-outlined {
+      font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+      vertical-align: middle;
+    }
     .icon-inline { font-size: 1.25rem !important; margin-right: 0.25rem; vertical-align: -0.25rem; }
     .btn-ico { font-size: 1.15rem !important; vertical-align: -0.2rem; margin-right: 0.15rem; }
+    .icon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.35rem;
+    }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: "Comic Neue", "Comic Sans MS", "Segoe UI", cursive, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; min-height: 100vh; }
+    body {
+      margin: 0;
+      font-family: "DM Sans", system-ui, sans-serif;
+      background: radial-gradient(1200px 800px at 100% -20%, #1a2840 0, var(--bg) 55%);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+    }
     a { color: var(--doge); text-decoration: none; }
     a:hover { text-decoration: underline; }
     .app { display: flex; min-height: 100vh; }
     .sidebar {
-      width: var(--sidebar-w); min-height: 100vh; position: sticky; top: 0; align-self: flex-start;
-      background: linear-gradient(180deg, #121a26 0%, #0d1218 100%); border-right: 1px solid var(--border);
-      display: flex; flex-direction: column; flex-shrink: 0;
+      width: var(--sidebar-w);
+      min-height: 100vh;
+      height: 100vh;
+      position: sticky;
+      top: 0;
+      align-self: flex-start;
+      background: linear-gradient(180deg, #121a26 0%, #0d1218 100%);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      transition: width 0.22s ease, transform 0.22s ease;
+      flex-shrink: 0;
+      overflow: hidden;
     }
-    .sidebar-brand { display: flex; align-items: center; gap: 0.65rem; padding: 1rem 0.85rem; border-bottom: 1px solid var(--border); }
-    .sidebar-logo { width: 36px; height: 36px; border-radius: 10px; }
+    @media (min-width: 901px) {
+      .sidebar.collapsed { width: var(--sidebar-collapsed); }
+      .sidebar.collapsed .sidebar-titles,
+      .sidebar.collapsed .nav-txt,
+      .sidebar.collapsed .sidebar-sub,
+      .sidebar.collapsed .sidebar-foot { display: none; }
+      .sidebar.collapsed .sidebar-logo { display: none; }
+      .sidebar.collapsed .sidebar-brand {
+        justify-content: center;
+        padding: 0.85rem 0.35rem;
+        gap: 0;
+      }
+      .sidebar.collapsed .sidebar-toggle { margin-left: 0; }
+    }
+    .sidebar-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      padding: 1rem 0.85rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-logo {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: #0b121a;
+      object-fit: cover;
+      flex-shrink: 0;
+    }
     .sidebar-titles { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-    .sidebar-name { font-weight: 700; font-size: 1.02rem; line-height: 1.2; }
-    .sidebar-sub { font-size: 0.78rem; color: var(--muted); }
-    .sidebar-nav { display: flex; flex-direction: column; padding: 0.5rem 0.35rem; gap: 0.15rem; flex: 1; }
-    .nav-item {
-      display: flex; align-items: center; gap: 0.5rem; width: 100%; text-align: left;
-      border: none; background: transparent; color: var(--text); font: inherit; cursor: pointer;
-      border-radius: 10px; padding: 0.55rem 0.65rem; transition: background 0.15s;
+    .sidebar-name { font-weight: 700; font-size: 0.95rem; letter-spacing: -0.02em; }
+    .sidebar-sub { font-size: 0.72rem; color: var(--muted); }
+    .sidebar-toggle {
+      margin-left: auto;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 8px;
+      width: 2rem;
+      height: 2rem;
+      cursor: pointer;
+      flex-shrink: 0;
     }
-    .nav-item:hover, .nav-item:focus-visible { background: rgba(212, 184, 74, 0.12); outline: none; }
-    .nav-item.active { background: rgba(212, 184, 74, 0.2); color: var(--doge); }
-    .nav-ico { font-size: 1.35rem !important; opacity: 0.95; }
-    .sidebar-foot { padding: 0.75rem; border-top: 1px solid var(--border); }
-    .sidebar-foundation { display: block; opacity: 0.9; }
-    .sidebar-foundation-logo { width: 100%; max-width: 180px; height: auto; display: block; }
-    .main-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 100vh; }
+    .sidebar-toggle:hover { color: var(--text); }
+    .sidebar-nav {
+      display: flex;
+      flex-direction: column;
+      padding: 0.75rem 0.5rem;
+      gap: 0.25rem;
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      width: 100%;
+      text-align: left;
+      padding: 0.55rem 0.65rem;
+      border-radius: 10px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.92rem;
+      font-family: inherit;
+    }
+    .nav-item:hover { background: rgba(255, 255, 255, 0.04); color: var(--text); }
+    .nav-item.active {
+      background: rgba(242, 203, 44, 0.12);
+      border-color: rgba(242, 203, 44, 0.35);
+      color: var(--text);
+    }
+    .nav-ico { width: 1.5rem; text-align: center; opacity: 0.9; font-size: 1.25rem !important; }
+    .sidebar-foot {
+      flex-shrink: 0;
+      margin-top: auto;
+      padding: 0.75rem 0.65rem 0.85rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+    .sidebar-foot-row {
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+      gap: 0.5rem;
+    }
+    .sidebar-foundation {
+      display: flex;
+      justify-content: flex-start;
+      align-items: center;
+      line-height: 0;
+      opacity: 0.92;
+    }
+    .sidebar-foundation:hover { opacity: 1; }
+    .sidebar-foundation-logo {
+      display: block;
+      height: 22px;
+      width: auto;
+      max-width: min(130px, 48vw);
+      object-fit: contain;
+      object-position: left center;
+      filter: invert(1) brightness(1.15);
+    }
+    .sidebar-pup-version {
+      flex: 0 0 auto;
+      font-size: 0.72rem;
+      color: var(--muted);
+      text-align: right;
+      letter-spacing: 0.02em;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+    }
+    .main-wrap {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      background: radial-gradient(900px 500px at 80% -10%, #1a2334 0%, var(--bg) 55%);
+    }
     .topbar {
-      display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem;
-      border-bottom: 1px solid var(--border); background: var(--bg2); position: sticky; top: 0; z-index: 30;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1.25rem 1.5rem 0.5rem;
+      gap: 1rem;
+      position: sticky;
+      top: 0;
+      z-index: 10;
     }
     .topbar-titles { flex: 1; min-width: 0; }
-    .page-title-row { margin: 0; font-size: 1.15rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; }
-    .page-sub { margin: 0.15rem 0 0; font-size: 0.82rem; color: var(--muted); }
-    .content { flex: 1; padding: 1rem; max-width: 1180px; margin: 0 auto; width: 100%; }
-    .footer {
-      margin-top: auto; padding: 0.85rem 1rem; border-top: 1px solid var(--border); color: var(--muted);
-      font-size: 0.85rem; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem;
-      background: var(--bg2);
+    .page-title-row {
+      margin: 0;
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
     }
-    .footer-version { font-family: ui-monospace, monospace; font-size: 0.78rem; }
-    .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 1rem; margin-bottom: 1rem; }
-    .card h2 { margin: 0 0 0.65rem; font-size: 1.05rem; display: flex; align-items: center; gap: 0.35rem; }
+    .page-sub { margin: 0.25rem 0 0; font-size: 0.9rem; color: var(--muted); }
+    .wrap {
+      flex: 1;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 1rem 1.25rem 2rem;
+      width: 100%;
+      min-width: 0;
+    }
+    .footer {
+      margin-top: auto;
+      padding: 0.85rem 1.25rem;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.85rem;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      background: var(--surface);
+    }
+    .footer-version { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.78rem; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 1rem 1.15rem;
+      margin-bottom: 1rem;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+      position: relative;
+      overflow: hidden;
+    }
+    .card h2 { margin: 0 0 0.65rem; font-size: 1.05rem; font-weight: 700; display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
     .grid-kpi { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.65rem; }
     .kpi {
       background: var(--input-bg); border: 1px solid var(--border); border-radius: 12px; padding: 0.65rem 0.75rem;
@@ -82,7 +257,7 @@
     .kpi-value.accent { color: var(--doge); }
     .kpi-value.ok { color: var(--ok); }
     .muted { color: var(--muted); font-size: 0.86rem; }
-    .mono { font-family: ui-monospace, Consolas, monospace; font-size: 0.82rem; word-break: break-all; }
+    .mono { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; font-size: 0.82rem; word-break: break-all; }
     .field { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.75rem; }
     .field-label { font-size: 0.82rem; color: var(--muted); }
     .input-modern {
@@ -110,53 +285,116 @@
     .err-banner { background: rgba(196, 76, 76, 0.15); border: 1px solid rgba(196, 76, 76, 0.45); color: #ffc8c8; border-radius: 12px; padding: 0.75rem; margin-bottom: 1rem; }
     .link-row { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.5rem; }
     pre.json { background: #0a1018; border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem; overflow: auto; max-height: 52vh; font-size: 0.78rem; }
-    .mobile-menu-btn { display: none; }
-    @media (max-width: 900px) {
-      .sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 50; transform: translateX(-102%); transition: transform 0.2s; box-shadow: 4px 0 24px rgba(0,0,0,0.4); }
-      .sidebar.open { transform: translateX(0); }
-      .mobile-menu-btn { display: inline-flex; }
+    .mobile-menu-btn {
+      display: none;
+      flex-shrink: 0;
+      align-items: center;
+      justify-content: center;
+      width: 2.5rem;
+      height: 2.5rem;
+      padding: 0;
+      border-radius: 10px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--doge);
+      cursor: pointer;
     }
-    .backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 40; }
-    .backdrop.show { display: block; }
+    .mobile-menu-btn:hover { color: var(--text); border-color: var(--accent); }
+    @media (max-width: 900px) {
+      .mobile-menu-btn { display: inline-flex; }
+      .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        z-index: 40;
+        width: var(--sidebar-w) !important;
+        height: 100svh;
+        max-height: 100svh;
+        min-height: 0;
+        box-shadow: 8px 0 32px rgba(0, 0, 0, 0.35);
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+      }
+      @supports (height: 100dvh) {
+        .sidebar { height: 100dvh; max-height: 100dvh; }
+      }
+      .sidebar .sidebar-nav { flex: 1 1 0%; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+      .sidebar .sidebar-foot { flex-shrink: 0; margin-top: auto; }
+      .sidebar.sidebar-drawer-closed { transform: translateX(-100%); pointer-events: none; }
+      .sidebar:not(.sidebar-drawer-closed) { pointer-events: auto; z-index: 60; }
+      .main-wrap { margin-left: 0; }
+    }
+    .live-dot {
+      display: inline-block;
+      width: 0.5rem;
+      height: 0.5rem;
+      border-radius: 50%;
+      background: var(--ok);
+      margin-right: 0.15rem;
+      animation: qe-pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes qe-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+    .card-loading tbody { opacity: 0.55; transition: opacity 0.15s; }
+    .card-loading::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 2px;
+      width: 35%;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      animation: qe-scan 1.1s linear infinite;
+    }
+    @keyframes qe-scan {
+      0% { transform: translateX(-20%); }
+      100% { transform: translateX(320%); }
+    }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
   </style>
 </head>
 <body>
-  <div class="backdrop" id="sidebar-backdrop" aria-hidden="true"></div>
   <div class="app">
-    <aside class="sidebar" id="sidebar" aria-label="Explorer navigation">
+    <aside class="sidebar sidebar-drawer-closed" id="sidebar" aria-label="Explorer navigation">
       <div class="sidebar-brand">
-        <img src="/logo.png" alt="" class="sidebar-logo" width="36" height="36" />
+        <img src="/logo.png" alt="" class="sidebar-logo" width="40" height="40" />
         <div class="sidebar-titles">
           <span class="sidebar-name">Quantum Explorer</span>
           <span class="sidebar-sub">Post-quantum aware</span>
         </div>
+        <button type="button" class="sidebar-toggle icon-btn" id="btn-sidebar-toggle" title="Collapse sidebar" aria-expanded="true">
+          <span class="material-symbols-outlined" aria-hidden="true">menu_open</span>
+        </button>
       </div>
       <nav class="sidebar-nav">
         <button type="button" class="nav-item active" data-route="home">
           <span class="material-symbols-outlined nav-ico" aria-hidden="true">explore</span>
-          <span>Home</span>
+          <span class="nav-txt">Home</span>
         </button>
         <button type="button" class="nav-item" data-route="mempool">
           <span class="material-symbols-outlined nav-ico" aria-hidden="true">pending</span>
-          <span>Mempool</span>
+          <span class="nav-txt">Mempool</span>
         </button>
         <button type="button" class="nav-item" data-route="api">
           <span class="material-symbols-outlined nav-ico" aria-hidden="true">api</span>
-          <span>Public API</span>
+          <span class="nav-txt">Public API</span>
         </button>
       </nav>
       <div class="sidebar-foot">
-        <a class="sidebar-foundation" href="https://foundation.dogecoin.com/" target="_blank" rel="noopener noreferrer" title="Dogecoin Foundation">
-          <img src="https://lib.dogecoin.org/img/dogecoin-foundation.svg" alt="Dogecoin Foundation" class="sidebar-foundation-logo" />
-        </a>
+        <div class="sidebar-foot-row">
+          <a class="sidebar-foundation" href="https://foundation.dogecoin.com/" target="_blank" rel="noopener noreferrer" title="Dogecoin Foundation">
+            <img src="https://lib.dogecoin.org/img/dogecoin-foundation.svg" alt="Dogecoin Foundation" class="sidebar-foundation-logo" />
+          </a>
+          <span class="sidebar-pup-version mono" id="sidebar-pup-version" title="Quantum Explorer">—</span>
+        </div>
       </div>
     </aside>
 
     <div class="main-wrap">
       <header class="topbar">
-        <button type="button" class="btn mobile-menu-btn" id="btn-sidebar" aria-label="Open menu">
-          <span class="material-symbols-outlined">menu</span>
+        <button type="button" class="mobile-menu-btn icon-btn" id="btn-mobile-menu" aria-label="Open navigation menu" title="Menu">
+          <span class="material-symbols-outlined" aria-hidden="true">menu</span>
         </button>
         <div class="topbar-titles">
           <h1 class="page-title-row" id="page-title">
@@ -167,7 +405,7 @@
         </div>
       </header>
 
-      <main class="content" id="main"></main>
+      <main class="wrap" id="main"></main>
 
       <footer class="footer">
         <span>Coded with love to all Dogecoin Community</span>
@@ -214,24 +452,90 @@
 
   const main = $('#main');
   const sidebar = $('#sidebar');
-  const backdrop = $('#sidebar-backdrop');
   var explorerCfg = { block_decode_limit_default: 200, mempool_recent_limit: 25 };
+  var homePollTimer = null;
+  var homePollSig = '';
+
+  function stopHomeLive() {
+    if (homePollTimer) {
+      clearInterval(homePollTimer);
+      homePollTimer = null;
+    }
+  }
+
+  function isNarrowViewport() {
+    var iw = window.innerWidth;
+    var cw = document.documentElement ? document.documentElement.clientWidth : iw;
+    var x = Math.min(typeof iw === 'number' ? iw : 9999, typeof cw === 'number' ? cw : 9999);
+    if (x <= 900) return true;
+    try {
+      if (window.matchMedia('(max-width: 900px)').matches) return true;
+    } catch (e) { /* ignore */ }
+    return false;
+  }
+
+  var lastViewportNarrow = isNarrowViewport();
+  function syncSidebarToggleIcon() {
+    var btn = $('#btn-sidebar-toggle');
+    if (!sidebar || !btn) return;
+    var icon = btn.querySelector('.material-symbols-outlined');
+    if (!icon) return;
+    if (isNarrowViewport()) {
+      var shut = sidebar.classList.contains('sidebar-drawer-closed');
+      icon.textContent = shut ? 'menu' : 'menu_open';
+      btn.setAttribute('aria-expanded', shut ? 'false' : 'true');
+    } else {
+      var collapsed = sidebar.classList.contains('collapsed');
+      icon.textContent = collapsed ? 'menu' : 'menu_open';
+      btn.setAttribute('aria-expanded', (!collapsed).toString());
+    }
+  }
+
+  function ensurePublicMobileSidebar() {
+    if (!sidebar) return;
+    var narrow = isNarrowViewport();
+    if (narrow) {
+      sidebar.classList.remove('collapsed');
+      if (lastViewportNarrow === false) sidebar.classList.add('sidebar-drawer-closed');
+    } else {
+      sidebar.classList.remove('sidebar-drawer-closed');
+    }
+    lastViewportNarrow = narrow;
+    syncSidebarToggleIcon();
+  }
+
+  function openSidebarNav() {
+    if (!sidebar) return;
+    sidebar.classList.remove('collapsed');
+    sidebar.classList.remove('sidebar-drawer-closed');
+    syncSidebarToggleIcon();
+  }
+
+  function closeSidebar() {
+    if (!sidebar) return;
+    if (isNarrowViewport()) sidebar.classList.add('sidebar-drawer-closed');
+    syncSidebarToggleIcon();
+  }
+
   function loadExplorerConfig() {
     return api('/api/public/explorer-config').then(function (c) {
       explorerCfg = c || explorerCfg;
     }).catch(function () { /* keep defaults */ });
   }
 
-  function closeSidebar() {
-    sidebar.classList.remove('open');
-    backdrop.classList.remove('show');
+  var btnToggle = $('#btn-sidebar-toggle');
+  if (btnToggle) {
+    btnToggle.addEventListener('click', function () {
+      if (!sidebar) return;
+      if (isNarrowViewport()) sidebar.classList.toggle('sidebar-drawer-closed');
+      else sidebar.classList.toggle('collapsed');
+      syncSidebarToggleIcon();
+    });
   }
-
-  $('#btn-sidebar').addEventListener('click', function () {
-    sidebar.classList.toggle('open');
-    backdrop.classList.toggle('show');
-  });
-  backdrop.addEventListener('click', closeSidebar);
+  var btnMob = $('#btn-mobile-menu');
+  if (btnMob) btnMob.addEventListener('click', function () { openSidebarNav(); });
+  window.addEventListener('resize', function () { ensurePublicMobileSidebar(); });
+  ensurePublicMobileSidebar();
 
   function setNav(route) {
     $$('.nav-item').forEach(function (b) {
@@ -252,13 +556,82 @@
     return '<span class="badge badge-warn">Standard</span>';
   }
 
+  function wireTxRows(tb) {
+    if (!tb) return;
+    $$('.tx-row', tb).forEach(function (tr) {
+      tr.addEventListener('click', function () {
+        location.hash = '#/tx/' + tr.getAttribute('data-txid');
+      });
+    });
+  }
+
+  function rowHtmlFromIndexedTx(r) {
+    var id = String(r.txid || '').toLowerCase();
+    var hint = r.pq_carrier_role_hint ? ' <span class="muted mono">(' + esc(r.pq_carrier_role_hint) + ')</span>' : '';
+    var role = String(r.pq_carrier_role || '').trim();
+    if (role && !r.pq_carrier_role_hint) hint = ' <span class="muted mono">(' + esc(role) + ')</span>';
+    return '<tr class="tx-row" data-txid="' + esc(id) + '"><td>' + esc(fmtTimeUnix(r.time_unix)) + '</td><td class="mono">' + esc(id) + '</td><td>' + esc(r.block_height) + '</td><td>' + esc(satsToDoge(r.value_out_sats)) + '</td><td>' + pqBadge(r.quantum_state) + hint + '</td></tr>';
+  }
+
+  async function refreshHomeTxTable() {
+    var card = $('#card-live-txs');
+    var tb = $('#live-tx-body');
+    var status = $('#live-tx-status');
+    if (!tb || !card) return;
+    card.classList.add('card-loading');
+    try {
+      var r = await fetch('/api/public/core/recent-txs?limit=42&lite=1', { headers: { Accept: 'application/json' } });
+      var j = await r.json().catch(function () { return {}; });
+      if (!r.ok) throw new Error(j.error || j.message || ('HTTP ' + r.status));
+      var rows = j.rows || [];
+      var prevFirst = homePollSig;
+      var first = rows.length ? String(rows[0].txid || '').toLowerCase() : '';
+      var newN = 0;
+      if (first && prevFirst && first !== prevFirst) {
+        var seenOld = false;
+        for (var i = 0; i < rows.length; i++) {
+          var tid = String(rows[i].txid || '').toLowerCase();
+          if (tid === prevFirst) {
+            seenOld = true;
+            break;
+          }
+          newN++;
+        }
+        if (!seenOld && prevFirst) newN = rows.length;
+      }
+      homePollSig = first || homePollSig;
+      tb.innerHTML = rows.length === 0
+        ? '<tr><td colspan="5" class="muted">No indexed transactions yet. Start the Core indexer to populate the chain index.</td></tr>'
+        : rows.map(rowHtmlFromIndexedTx).join('');
+      wireTxRows(tb);
+      if (status) {
+        var t = new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC');
+        status.textContent = t + ' · ' + rows.length + ' rows' + (newN > 0 ? ' · +' + newN + ' new' : '');
+      }
+    } catch (e) {
+      if (status) status.textContent = 'Live feed: ' + (e.message || e);
+    } finally {
+      card.classList.remove('card-loading');
+    }
+  }
+
+  function startHomeLive() {
+    stopHomeLive();
+    homePollSig = '';
+    refreshHomeTxTable();
+    homePollTimer = setInterval(refreshHomeTxTable, 4200);
+  }
+
   async function viewHome() {
     setNav('home');
     setTitle('Dashboard', 'space_dashboard', 'Indexed metrics + Core live stats (one fast request)');
     main.innerHTML = '<p class="muted">Loading dashboard…</p>';
     try {
       const d = await api('/api/public/dashboard');
-      $('#footer-version').textContent = 'v' + esc(d.app_version || '—');
+      var ver = 'v' + esc(d.app_version || '—');
+      $('#footer-version').textContent = ver;
+      var sv = $('#sidebar-pup-version');
+      if (sv) sv.textContent = ver;
       const rows = (d.indexer && d.indexer.rows) || {};
       const pq = d.pq_totals || {};
       const roles = d.pq_phase1_roles || {};
@@ -271,7 +644,6 @@
       const circ = d.circulation || {};
       const circStr = circ.available ? circ.total_doge : (circ.note ? '—' : '—');
       const circHint = circ.available ? '' : ('<div class="muted" style="margin-top:0.25rem;font-size:0.72rem">' + esc(circ.note || '') + '</div>');
-      const latest = d.latest_transactions || [];
       const mpre = d.mempool_recent || [];
       var mempoolHtml = '<div class="card"><h2><span class="material-symbols-outlined icon-inline">pending</span> Mempool sample (Core)</h2>';
       if (!mpre.length) {
@@ -314,8 +686,10 @@
         '<input class="input-modern" id="search-q" placeholder="e.g. 6093890 or D… or txid…" style="flex:1;min-width:200px" />' +
         '<button type="submit" class="btn primary"><span class="material-symbols-outlined btn-ico">search</span> Go</button></form></div>' +
 
-        '<div class="card"><h2><span class="material-symbols-outlined icon-inline">swap_horiz</span> Latest 10 transactions (indexed)</h2>' +
-        '<table class="data"><thead><tr><th>Time</th><th>Txid</th><th>Block</th><th>Out (Ð)</th><th>PQ</th></tr></thead><tbody id="latest-tx-body"></tbody></table></div>' +
+        '<div class="card" id="card-live-txs"><h2><span class="live-dot" aria-hidden="true"></span><span class="material-symbols-outlined icon-inline">swap_horiz</span> Latest indexed transactions <span class="muted" style="font-size:0.78rem;font-weight:500">(live)</span></h2>' +
+        '<p class="muted" style="margin-top:0">Newest first from the Postgres chain index. Updates every few seconds while you stay on Home — watch for <strong>+N new</strong> as the indexer ingests blocks.</p>' +
+        '<p class="muted mono" style="margin:0.35rem 0 0.5rem;font-size:0.78rem" id="live-tx-status">Connecting…</p>' +
+        '<table class="data"><thead><tr><th>Time</th><th>Txid</th><th>Block</th><th>Out (Ð)</th><th>PQ</th></tr></thead><tbody id="live-tx-body"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody></table></div>' +
         mempoolHtml;
 
       const mpb = $('#mp-body');
@@ -324,27 +698,9 @@
           const ts = r.mempool_time ? fmtTimeUnix(r.mempool_time) : '—';
           return '<tr class="tx-row" data-txid="' + esc(r.txid) + '"><td>' + esc(ts) + '</td><td class="mono">' + esc(r.txid) + '</td><td>' + esc(r.vsize != null ? r.vsize : '—') + '</td><td>' + esc(r.fee != null ? r.fee : '—') + '</td></tr>';
         }).join('');
-        $$('.tx-row', mpb).forEach(function (tr) {
-          tr.addEventListener('click', function () {
-            location.hash = '#/tx/' + tr.getAttribute('data-txid');
-          });
-        });
+        wireTxRows(mpb);
       }
-      const tb = $('#latest-tx-body');
-      if (latest.length === 0) {
-        tb.innerHTML = '<tr><td colspan="5" class="muted">No indexed transactions yet.</td></tr>';
-      } else {
-        tb.innerHTML = latest.map(function (r) {
-          const id = String(r.txid || '');
-          const hint = r.pq_carrier_role_hint ? ' <span class="muted mono">(' + esc(r.pq_carrier_role_hint) + ')</span>' : '';
-          return '<tr class="tx-row" data-txid="' + esc(id) + '"><td>' + esc(fmtTimeUnix(r.time_unix)) + '</td><td class="mono">' + esc(id) + '</td><td>' + esc(r.block_height) + '</td><td>' + esc(satsToDoge(r.value_out_sats)) + '</td><td>' + pqBadge(r.quantum_state) + hint + '</td></tr>';
-        }).join('');
-        $$('.tx-row', tb).forEach(function (tr) {
-          tr.addEventListener('click', function () {
-            location.hash = '#/tx/' + tr.getAttribute('data-txid');
-          });
-        });
-      }
+      startHomeLive();
 
       $('#form-search').addEventListener('submit', function (ev) {
         ev.preventDefault();
@@ -353,6 +709,7 @@
         doSearch(q);
       });
     } catch (e) {
+      stopHomeLive();
       main.innerHTML = '<div class="err-banner">' + esc(e.message || e) + '</div>';
     }
   }
@@ -591,12 +948,13 @@
       '<li><strong>GET</strong> /api/public/mempool-recent?limit=…&amp;decode_pq=1</li>' +
       '<li><strong>GET</strong> /api/public/block?height=… OR &amp;hash=…&amp;decode_limit=…</li>' +
       '<li><strong>GET</strong> /api/public/tx?txid=…</li>' +
-      '<li><strong>GET</strong> /api/public/core/recent-txs?limit=…&amp;mode=quantum&amp;lite=1</li>' +
+      '<li><strong>GET</strong> /api/public/core/recent-txs?limit=…&amp;lite=1 — newest indexed txs (homepage live feed)</li>' +
       '</ul>' +
       '<p class="muted">Configure <span class="mono">QE_PUBLIC_RATE_LIMIT</span>, <span class="mono">QE_PUBLIC_API_TOKEN</span>, <span class="mono">QE_PUBLIC_API_ALLOWLIST</span>, and protected paths via <span class="mono">/admin/&lt;token&gt;</span>.</p></div>';
   }
 
   function route() {
+    stopHomeLive();
     const { parts } = hashRoute();
     if (parts[0] === 'tx' && parts[1]) viewTx(decodeURIComponent(parts[1].toLowerCase()));
     else if (parts[0] === 'block' && parts[1]) viewBlock(decodeURIComponent(parts[1]));
@@ -612,6 +970,7 @@
   $$('.nav-item').forEach(function (b) {
     b.addEventListener('click', function () {
       const r = b.getAttribute('data-route');
+      if (isNarrowViewport()) closeSidebar();
       if (r === 'home') location.hash = '#/';
       else if (r === 'mempool') location.hash = '#/mempool';
       else if (r === 'api') location.hash = '#/api';

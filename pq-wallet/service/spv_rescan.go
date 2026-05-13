@@ -77,6 +77,42 @@ func (s *Server) migrateLegacyHeadersDB() (migrated bool, backupPath string, err
 	return true, backupPath, nil
 }
 
+// spvFullResyncClearingHeadersAndWallet stops SPV, writes prefs, removes headers.db (or migrates legacy aside),
+// clears SPV wallet DB and related state, and restarts spvnode. Caller must hold s.mu.
+func (s *Server) spvFullResyncClearingHeadersAndWallet(wf *WalletFile, prefs spvSyncPrefs) (map[string]any, error) {
+	headersPath := filepath.Join(s.storageDir, "headers.db")
+	walletDB := filepath.Join(s.storageDir, "spv_wallet.db")
+	s.stopSPVNode()
+	if err := s.writeSPVSyncPrefs(prefs); err != nil {
+		return nil, err
+	}
+	migrated, legacyBackup, migErr := s.migrateLegacyHeadersDB()
+	if migErr != nil {
+		return nil, migErr
+	}
+	if !migrated {
+		_ = os.Remove(headersPath)
+	}
+	_ = os.Remove(walletDB)
+	_ = os.Remove(s.spvWatchAddrPath())
+	s.wipeAuxiliaryWalletRuntimeState()
+	s.startSPVNode(wf)
+	out := map[string]any{
+		"ok":                      true,
+		"action":                  "full_rescan",
+		"removed_headers":         headersPath,
+		"removed_wallet":          walletDB,
+		"use_checkpoint":          prefs.UseCheckpoint,
+		"restore_checkpoint_hint": prefs.RestoreCheckpointHint,
+		"note": "SPV stopped; local headers.db and SPV wallet state cleared; SPV restarted. With use_checkpoint true and restore_checkpoint_hint > 0, the next run seeds that bundled checkpoint when headers.db is empty.",
+	}
+	if migrated && legacyBackup != "" {
+		out["legacy_headers_renamed_to"] = legacyBackup
+		out["note"] = "Unknown-format headers.db (legacy install) was renamed aside; SPV will create a new libdogecoin headers file and rescan watched addresses."
+	}
+	return out, nil
+}
+
 func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST only"})
@@ -87,6 +123,7 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 		Mode              string `json:"mode"`
 		RollbackBlockHash string `json:"rollback_block_hash"`
 		// RollbackHeight is a pointer so JSON rollback_height: 0 is valid (genesis checkpoint).
+		// Also accepted on RESCAN to set restore_checkpoint_hint when rebuilding headers.
 		RollbackHeight *int64 `json:"rollback_height"`
 		UseCheckpoint  *bool  `json:"use_checkpoint"`
 		PIN            string `json:"pin"`
@@ -98,7 +135,7 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 	confirm := strings.TrimSpace(body.Confirm)
 	mode := strings.ToLower(strings.TrimSpace(body.Mode))
 	if confirm == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `send {"confirm":"RESCAN"} for full reset or {"confirm":"ROLLBACK"} with rollback_block_hash or rollback_height (including 0 for genesis block)`})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `send {"confirm":"RESCAN"} (optional rollback_height, use_checkpoint) for full reset, or {"confirm":"ROLLBACK"} with rollback_block_hash or rollback_height (including 0 for genesis block)`})
 		return
 	}
 
@@ -130,35 +167,22 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": `mode must be "full" or omitted`})
 			return
 		}
+		testnet := strings.EqualFold(wf.Network, "testnet")
 		prefs := s.readSPVSyncPrefs()
-		if body.UseCheckpoint != nil {
+		var mergeErr error
+		if body.RollbackHeight != nil {
+			prefs, mergeErr = buildSPVPrefsForCheckpointResync(testnet, *body.RollbackHeight, body.UseCheckpoint, prefs)
+		} else if body.UseCheckpoint != nil {
 			prefs.UseCheckpoint = *body.UseCheckpoint
 		}
-		_ = s.writeSPVSyncPrefs(prefs)
-		s.stopSPVNode()
-		migrated, legacyBackup, migErr := s.migrateLegacyHeadersDB()
-		if migErr != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": migErr.Error()})
+		if mergeErr != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": mergeErr.Error()})
 			return
 		}
-		_ = os.Remove(walletDB)
-		if !migrated {
-			_ = os.Remove(headersPath)
-		}
-		_ = os.Remove(s.spvWatchAddrPath())
-		s.wipeAuxiliaryWalletRuntimeState()
-		s.startSPVNode(wf)
-		out := map[string]any{
-			"ok":              true,
-			"action":          "full_rescan",
-			"removed_headers": headersPath,
-			"removed_wallet":  walletDB,
-			"use_checkpoint":  prefs.UseCheckpoint,
-			"note":            "SPV will rescan watched addresses after clearing local header + wallet DB state. With use_checkpoint true (spvnode -p), libdogecoin may seed sync from its embedded checkpoint table; with false, header sync starts from genesis in the block locator.",
-		}
-		if migrated && legacyBackup != "" {
-			out["legacy_headers_renamed_to"] = legacyBackup
-			out["note"] = "Unknown-format headers.db (legacy install) was renamed aside; SPV will create a new libdogecoin headers file from the bundled checkpoint and rescan watched addresses."
+		out, rerr := s.spvFullResyncClearingHeadersAndWallet(wf, prefs)
+		if rerr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": rerr.Error()})
+			return
 		}
 		writeJSON(w, http.StatusOK, out)
 		return
@@ -194,12 +218,52 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if _, err := os.Stat(headersPath); err != nil {
+		testnet := strings.EqualFold(wf.Network, "testnet")
+
+		_, statErr := os.Stat(headersPath)
+		headersMissing := statErr != nil && errors.Is(statErr, os.ErrNotExist)
+
+		tryHeaderRebuild := headersMissing
+		if statErr == nil && isLibdogecoinHeadersFileFormat(headersPath) {
+			if fh, fhErr := libdogecoinHeadersFileFirstHeight(headersPath); fhErr == nil && int64(fh) > keepHeight {
+				tryHeaderRebuild = true
+			}
+		}
+
+		if tryHeaderRebuild {
+			prefs := s.readSPVSyncPrefs()
+			var perr error
+			if body.RollbackHeight != nil {
+				prefs, perr = buildSPVPrefsForCheckpointResync(testnet, keepHeight, body.UseCheckpoint, s.readSPVSyncPrefs())
+				if perr != nil {
+					writeJSON(w, http.StatusBadRequest, map[string]string{"error": perr.Error()})
+					return
+				}
+			}
+			out, rerr := s.spvFullResyncClearingHeadersAndWallet(wf, prefs)
+			if rerr != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": rerr.Error()})
+				return
+			}
+			out["action"] = "rollback_via_header_rebuild"
+			out["requested_rollback_height"] = keepHeight
+			out["height_source"] = heightSource
+			out["rollback_block_hash"] = hash
+			if headersMissing {
+				out["note"] = "headers.db was not present; SPV prefs were applied and local SPV wallet/header cache cleared so sync can start from your selected bundled checkpoint (when rollback_height was sent) or from existing SPV prefs."
+			} else {
+				out["note"] = "The stored header chain begins above the height you rolled back to (common when SPV previously synced from a newer bundled checkpoint). SPV was stopped, headers.db removed, prefs updated when you chose a bundled checkpoint height, local SPV wallet state cleared, and SPV restarted."
+			}
+			writeJSON(w, http.StatusOK, out)
+			return
+		}
+
+		if statErr != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]any{
-				"error":        "headers.db missing — rollback needs the on-disk header store",
+				"error":        statErr.Error(),
 				"headers_path": headersPath,
 				"storage_dir":  s.storageDir,
-				"hint":         "Dashboard chain tip comes from SPV REST status and metrics. Use Full SPV rescan (RESCAN), or wait until GET /api/spv/status shows headers_db_present true.",
+				"hint":         "Could not read headers.db; check storage permissions.",
 			})
 			return
 		}
@@ -208,14 +272,43 @@ func (s *Server) handleSPVRescan(w http.ResponseWriter, r *http.Request) {
 			s.stopSPVNode()
 			maxKept, newSz, terr := truncateLibdogecoinHeadersFile(headersPath, keepHeight)
 			if terr != nil {
+				if strings.Contains(terr.Error(), "on-disk header chain starts at height") {
+					prefs := s.readSPVSyncPrefs()
+					var perr error
+					if body.RollbackHeight != nil {
+						prefs, perr = buildSPVPrefsForCheckpointResync(testnet, keepHeight, body.UseCheckpoint, prefs)
+						if perr != nil {
+							s.startSPVNode(wf)
+							writeJSON(w, http.StatusConflict, map[string]any{
+								"ok":    false,
+								"error": terr.Error(),
+								"hint":  perr.Error(),
+							})
+							return
+						}
+					}
+					out, rerr := s.spvFullResyncClearingHeadersAndWallet(wf, prefs)
+					if rerr != nil {
+						s.startSPVNode(wf)
+						writeJSON(w, http.StatusInternalServerError, map[string]string{"error": rerr.Error()})
+						return
+					}
+					out["action"] = "rollback_via_header_rebuild"
+					out["requested_rollback_height"] = keepHeight
+					out["height_source"] = heightSource
+					out["rollback_block_hash"] = hash
+					out["note"] = "headers.db could not be truncated to that height; performed a full header store rebuild instead."
+					writeJSON(w, http.StatusOK, out)
+					return
+				}
 				s.startSPVNode(wf)
 				writeJSON(w, http.StatusConflict, map[string]any{
-					"ok":           false,
-					"error":        terr.Error(),
-					"headers_db":   headersPath,
-					"keep_height":  keepHeight,
+					"ok":            false,
+					"error":         terr.Error(),
+					"headers_db":    headersPath,
+					"keep_height":   keepHeight,
 					"height_source": heightSource,
-					"hint":         "If your SPV chain started at a bundled checkpoint above this height, pick rollback_height ≥ that start, or use Full SPV rescan (RESCAN) to rebuild headers.db.",
+					"hint":          "Try a different rollback height, or POST {\"confirm\":\"RESCAN\"} for a full header rebuild (optionally with use_checkpoint).",
 				})
 				return
 			}

@@ -79,6 +79,10 @@ func (s *Server) handleLogsSPV(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET only"})
 		return
 	}
+	if s.strictSettingsPeekBlocked() {
+		writeStrictSettingsAuthRequired(w)
+		return
+	}
 	n := 260
 	if v := r.URL.Query().Get("lines"); v != "" {
 		if x, err := strconv.Atoi(v); err == nil && x > 0 && x <= 4000 {
@@ -135,6 +139,10 @@ func clampInt(v, lo, hi, def int) int {
 func (s *Server) handleLogsSPVDeep(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET only"})
+		return
+	}
+	if s.strictSettingsPeekBlocked() {
+		writeStrictSettingsAuthRequired(w)
 		return
 	}
 	q := r.URL.Query()
@@ -353,6 +361,10 @@ func (s *Server) handleLogsMempoolTracker(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET only"})
 		return
 	}
+	if s.strictSettingsPeekBlocked() {
+		writeStrictSettingsAuthRequired(w)
+		return
+	}
 	s.mu.Lock()
 	wf, err := s.loadWallet()
 	s.mu.Unlock()
@@ -391,6 +403,10 @@ func (s *Server) handleLogsMempoolTracker(w http.ResponseWriter, r *http.Request
 func (s *Server) handleLogsBroadcast(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET only"})
+		return
+	}
+	if s.strictSettingsPeekBlocked() {
+		writeStrictSettingsAuthRequired(w)
 		return
 	}
 	n := 200

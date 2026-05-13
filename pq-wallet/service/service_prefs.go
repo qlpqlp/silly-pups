@@ -11,8 +11,9 @@ import (
 var servicePrefsFileMu sync.Mutex
 
 type servicePrefs struct {
-	SpvEnabled         bool `json:"spv_enabled"`
-	MemetrackerEnabled bool `json:"memetracker_enabled"`
+	SpvEnabled           bool `json:"spv_enabled"`
+	MemetrackerEnabled   bool `json:"memetracker_enabled"`
+	StrictSettingsAuth   bool `json:"strict_settings_auth"`
 }
 
 func (s *Server) servicePrefsPath() string {

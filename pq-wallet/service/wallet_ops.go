@@ -140,6 +140,10 @@ func (s *Server) requireSealedWalletPINForAction(w http.ResponseWriter, pin stri
 	if !s.hasSealedWallet() {
 		return true
 	}
+	if err := s.pinLockoutCheck(); err != nil {
+		writePINUnlockError(w, err)
+		return false
+	}
 	pin = strings.TrimSpace(pin)
 	if pin == "" {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{
@@ -150,7 +154,7 @@ func (s *Server) requireSealedWalletPINForAction(w http.ResponseWriter, pin stri
 		return false
 	}
 	if err := s.unlockSealedWallet(pin); err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
+		writePINUnlockError(w, err)
 		return false
 	}
 	if s.memWallet != nil {
@@ -181,6 +185,7 @@ func (s *Server) handleWalletDelete(w http.ResponseWriter, r *http.Request) {
 	s.stopSPVNode()
 	s.wipeAuxiliaryWalletRuntimeState()
 	s.lockWalletSession()
+	s.clearPINLockoutState()
 	_ = os.Remove(s.walletPath)
 	_ = os.Remove(s.sealedPath())
 	_ = os.Remove(filepath.Join(s.storageDir, "headers.db"))
@@ -290,6 +295,7 @@ func (s *Server) handleWalletImport(w http.ResponseWriter, r *http.Request) {
 			log.Printf("[pq-wallet] wallet import spv_on_restore prefs: %v", err)
 		}
 	}
+	s.clearPINLockoutState()
 	// Import/restore is typically an existing wallet history, not a new wallet.
 	// Force SPV replay for restored keys (Dogecoin Wallet-style behavior):
 	// clear chain DB, SPV wallet DB, tx/mempool caches, logs, and tracker data so history can resync.

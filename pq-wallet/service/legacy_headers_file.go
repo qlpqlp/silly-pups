@@ -115,6 +115,29 @@ func truncateLibdogecoinHeadersFile(path string, keepHeight int64) (maxKeptHeigh
 	return maxKept, cut, nil
 }
 
+// libdogecoinHeadersFileFirstHeight returns the height field of the first stored header record (after the file header).
+func libdogecoinHeadersFileFirstHeight(path string) (uint32, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return 0, err
+	}
+	size := fi.Size()
+	if size < int64(libdogeHeadersFileHdrLen)+int64(libdogeHeadersFileRecLen) {
+		return 0, fmt.Errorf("headers.db has no full header records")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	rec := make([]byte, libdogeHeadersFileRecLen)
+	n, err := f.ReadAt(rec, int64(libdogeHeadersFileHdrLen))
+	if err != nil || n < libdogeHeadersFileRecLen {
+		return 0, fmt.Errorf("headers.db read first record: %w", err)
+	}
+	return binary.LittleEndian.Uint32(rec[32:36]), nil
+}
+
 // libdogecoinHeadersFileTipHeight returns the largest header height stored in a libdogecoin file-based headers.db.
 func libdogecoinHeadersFileTipHeight(path string) (int64, error) {
 	fi, err := os.Stat(path)

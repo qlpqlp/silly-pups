@@ -26,6 +26,11 @@ func (s *Server) handleServicesControl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.strictSettingsPeekBlocked() {
+		writeStrictSettingsAuthRequired(w)
+		return
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	wf, err := s.loadWallet()

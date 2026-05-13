@@ -221,6 +221,15 @@ function biometricSupported() {
   }
 }
 
+/** UI policy: biometric *enrollment* is only offered on https:// (not http://). */
+function biometricEnrollRequiresHttps() {
+  try {
+    return typeof window !== "undefined" && window.location && window.location.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function idbReq(req) {
   return new Promise((res, rej) => {
     req.onerror = () => rej(req.error);
@@ -399,7 +408,37 @@ async function updateSettingsAccessGate() {
   if (!needGate && wasGate && state.view === "settings") {
     startSettingsLogPollers();
   }
+  void syncBiometricEnrollmentControls(sealed);
   return !needGate;
+}
+
+/** Show biometric enrollment only when wallet is sealed; enroll button only on https://. */
+async function syncBiometricEnrollmentControls(isSealed) {
+  const section = $("bio-enrollment-section");
+  const enroll = $("btn-bio-enroll");
+  const disable = $("btn-bio-disable");
+  const needHttps = $("bio-requires-https");
+  if (!section || !enroll || !disable) return;
+  if (!isSealed) {
+    section.classList.add("hidden");
+    enroll.classList.add("hidden");
+    disable.classList.add("hidden");
+    if (needHttps) needHttps.classList.add("hidden");
+    return;
+  }
+  section.classList.remove("hidden");
+  const https = biometricEnrollRequiresHttps();
+  let enrolled = false;
+  try {
+    enrolled = await biometricEnrolled();
+  } catch {
+    enrolled = false;
+  }
+  if (needHttps) {
+    needHttps.classList.toggle("hidden", https || enrolled);
+  }
+  enroll.classList.toggle("hidden", !https || enrolled);
+  disable.classList.toggle("hidden", !enrolled);
 }
 
 function startSettingsLogPollers() {
@@ -423,8 +462,12 @@ async function enterSettingsView() {
 async function enrollBiometricForSettings() {
   const msg = $("bio-settings-msg");
   if (msg) msg.textContent = "";
+  if (!biometricEnrollRequiresHttps()) {
+    if (msg) msg.textContent = "Biometric enrollment is only available on https:// (TLS). Open this wallet using an https:// URL.";
+    return;
+  }
   if (!biometricSupported()) {
-    if (msg) msg.textContent = "Biometric unlock needs a secure context (HTTPS or localhost).";
+    if (msg) msg.textContent = "Biometric unlock needs a browser secure context (e.g. HTTPS with a trusted certificate).";
     return;
   }
   let plat = false;
@@ -1784,6 +1827,7 @@ async function refreshWallet() {
     lockEl.setAttribute("aria-hidden", state.walletLocked ? "false" : "true");
   }
   updateEncryptionButtons(sealed, locked);
+  void syncBiometricEnrollmentControls(sealed);
   setOnboarding(data.wallet);
   if (data.wallet) {
     renderAddresses(data.wallet);

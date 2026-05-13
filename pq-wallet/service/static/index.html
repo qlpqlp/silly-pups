@@ -167,7 +167,7 @@
                     <span class="field-label">SPV header sync after restore</span>
                     <select id="import-spv-restore-select" class="input-modern" disabled aria-describedby="import-spv-restore-hint"></select>
                   </label>
-                  <p class="small muted" id="import-spv-restore-hint" style="margin:0.25rem 0 0">Pick a backup file first. Default is genesis (full headers from block 0). Other rows match bundled libdogecoin checkpoints and enable <code class="mono">spvnode -p</code> for faster catch-up (libdogecoin still chooses the seed checkpoint from your wallet time window).</p>
+                  <p class="small muted" id="import-spv-restore-hint" style="margin:0.25rem 0 0">Pick a backup file first. Default is genesis (full headers from block 0). Choosing a block height applies that bundled libdogecoin checkpoint when <code class="mono">headers.db</code> is first created (<code class="mono">spvnode -p</code> with your exact height).</p>
                 </div>
                 <div class="onboarding-actions">
                   <button type="button" class="btn" id="btn-import"><span class="material-symbols-outlined btn-ico">draw</span> Import backup</button>
@@ -356,24 +356,20 @@
           </div>
           <div id="settings-inner" class="settings-inner">
           <details class="card settings-details">
-            <summary class="settings-details-summary"><h2 class="settings-details-h2"><span class="material-symbols-outlined icon-inline">verified_user</span> Strict settings &amp; biometric</h2></summary>
+            <summary class="settings-details-summary"><h2 class="settings-details-h2"><span class="material-symbols-outlined icon-inline">verified_user</span> Strict settings</h2></summary>
             <div class="settings-details-body">
-            <p class="small muted">When <strong>strict settings</strong> is on and the wallet is sealed, the server refuses logs, SPV debug, MemeTracker log, broadcast log, carrier status, and background service toggles until you unlock (same session as the rest of the app). Biometric stores your PIN encrypted in this browser only (IndexedDB); clearing site data removes it.</p>
-            <label class="field field-row" style="align-items:center;gap:0.5rem">
-              <input type="checkbox" id="chk-strict-settings" />
-              <span>Require wallet unlock for all settings data (strict)</span>
-            </label>
+            <p class="small muted">When <strong>strict settings</strong> is on and the wallet is sealed, the server refuses logs, SPV debug, MemeTracker log, broadcast log, carrier status, and background service toggles until you unlock (same session as the rest of the app).</p>
+            <div class="field switch-row">
+              <span id="chk-strict-settings-label">Require wallet unlock for all settings data (strict)</span>
+              <label class="switch">
+                <input type="checkbox" id="chk-strict-settings" aria-labelledby="chk-strict-settings-label" />
+                <span class="slider" aria-hidden="true"></span>
+              </label>
+            </div>
             <div class="toolbar toolbar-actions">
               <button type="button" class="btn btn-sm primary" id="btn-save-strict-settings"><span class="material-symbols-outlined btn-ico">save</span> Save strict setting</button>
             </div>
             <p class="small muted" id="strict-settings-msg"></p>
-            <hr style="border:0;border-top:1px solid var(--line,#2a3340);margin:0.75rem 0" />
-            <p class="small muted"><strong>Biometric unlock</strong> (WebAuthn platform authenticator). Similar idea to <a href="https://github.com/qlpqlp/biometric-dogecoin-wallet" target="_blank" rel="noopener noreferrer">DogeLock / biometric Dogecoin wallet</a>: your device proves presence, then this app sends your PIN to the server over HTTPS. Works only on <code class="mono">https://</code> or <code class="mono">localhost</code>.</p>
-            <div class="toolbar toolbar-actions">
-              <button type="button" class="btn btn-sm" id="btn-bio-enroll"><span class="material-symbols-outlined btn-ico">fingerprint</span> Enable biometric unlock</button>
-              <button type="button" class="btn btn-sm" id="btn-bio-disable"><span class="material-symbols-outlined btn-ico">delete</span> Remove biometric from this browser</button>
-            </div>
-            <p class="small muted" id="bio-settings-msg"></p>
             </div>
           </details>
           <details class="card settings-details">
@@ -394,6 +390,15 @@
             </div>
             <p class="small muted" id="seal-msg"></p>
             <button type="button" class="btn" id="btn-lock-session"><span class="material-symbols-outlined btn-ico">logout</span> Lock session</button>
+            <div id="bio-enrollment-section" class="hidden" style="margin-top:0.85rem;padding-top:0.85rem;border-top:1px solid var(--border,#273447)">
+              <p class="small muted" id="bio-enrollment-lead"><strong>Biometric unlock</strong> (WebAuthn): after encryption is on, you can store your wallet PIN encrypted in this browser only (IndexedDB). Unlocking still sends the PIN to the server over TLS. Clearing site data removes it. Similar idea to <a href="https://github.com/qlpqlp/biometric-dogecoin-wallet" target="_blank" rel="noopener noreferrer">DogeLock / biometric Dogecoin wallet</a>.</p>
+              <p class="small muted hidden" id="bio-requires-https" style="color:var(--doge,#f2cb2c)">Biometric <strong>enrollment</strong> is only offered on <code class="mono">https://</code> (not plain <code class="mono">http://</code>). Open the wallet over HTTPS to enable it.</p>
+              <div class="toolbar toolbar-actions" id="bio-enrollment-toolbar">
+                <button type="button" class="btn btn-sm hidden" id="btn-bio-enroll"><span class="material-symbols-outlined btn-ico">fingerprint</span> Enable biometric unlock</button>
+                <button type="button" class="btn btn-sm hidden" id="btn-bio-disable"><span class="material-symbols-outlined btn-ico">delete</span> Remove biometric from this browser</button>
+              </div>
+              <p class="small muted" id="bio-settings-msg"></p>
+            </div>
             </div>
           </details>
           <details class="card settings-details">

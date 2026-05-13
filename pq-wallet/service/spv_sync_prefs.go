@@ -50,12 +50,13 @@ func (s *Server) applySPVSyncPrefsFromWalletRestore(o *spvOnRestoreOpts, testnet
 	prefs := s.readSPVSyncPrefs()
 	switch sync {
 	case "bundled_checkpoints", "checkpoints":
-		prefs.UseCheckpoint = true
 		h := o.Height
 		if h > 0 && !bundledCheckpointHeightKnown(testnet, h) {
 			h = 0
 		}
 		prefs.RestoreCheckpointHint = h
+		// Without a valid bundled height, do not leave -p on with hint 0 (spvnode would ignore PQ_SPV_CHECKPOINT_HEIGHT).
+		prefs.UseCheckpoint = h > 0
 	default:
 		prefs.UseCheckpoint = false
 		prefs.RestoreCheckpointHint = 0

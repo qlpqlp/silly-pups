@@ -1863,6 +1863,12 @@ body {
   gap: 0.35rem;
 }
 
+/* Strict settings: long label + switch on small widths */
+#view-settings .settings-details-body .switch-row > span:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
 /* Settings: collapsible sections (native <details>, closed by default) */
 #view-settings .settings-details {
   margin-bottom: 0.85rem;

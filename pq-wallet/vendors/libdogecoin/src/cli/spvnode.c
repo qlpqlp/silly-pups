@@ -790,6 +790,56 @@ int main(int argc, char* argv[]) {
                     }
                 }
             }
+            /* PQ Wallet: honor explicit bundled checkpoint height when non-interactive (-l). */
+            if (!spv_select_checkpoint && use_checkpoint) {
+                const char* env_h = getenv("PQ_SPV_CHECKPOINT_HEIGHT");
+                if (env_h && env_h[0]) {
+                    long wantl = strtol(env_h, NULL, 10);
+                    if (wantl > 0L && wantl <= 200000000L) {
+                        int want = (int)wantl;
+                        int loaded_start_height = -1;
+                        dogecoin_blockindex* loaded_tip = client->headers_db->getchaintip(client->headers_db_ctx);
+                        if (loaded_tip) {
+                            dogecoin_blockindex* start_cursor = loaded_tip;
+                            while (start_cursor && start_cursor->prev) start_cursor = start_cursor->prev;
+                            if (start_cursor && start_cursor->height > 0) {
+                                loaded_start_height = (int)start_cursor->height;
+                            }
+                        }
+                        if (!in_memory_headers && loaded_start_height > 0) {
+                            printf("Ignoring PQ_SPV_CHECKPOINT_HEIGHT: existing headers are already loaded (start height %d).\n", loaded_start_height);
+                        } else {
+                            const dogecoin_checkpoint* checkpoints = (chain == &dogecoin_chainparams_main) ?
+                                dogecoin_mainnet_checkpoint_array : dogecoin_testnet_checkpoint_array;
+                            int cp_count = (int)((chain == &dogecoin_chainparams_main) ?
+                                (sizeof(dogecoin_mainnet_checkpoint_array) / sizeof(dogecoin_mainnet_checkpoint_array[0])) :
+                                (sizeof(dogecoin_testnet_checkpoint_array) / sizeof(dogecoin_testnet_checkpoint_array[0])));
+                            int idx = -1;
+                            int i;
+                            for (i = 0; i < cp_count; i++) {
+                                if ((int)checkpoints[i].height == want) {
+                                    idx = i;
+                                    break;
+                                }
+                            }
+                            if (idx >= 0) {
+                                uint256_t hash;
+                                utils_uint256_sethex((char*)checkpoints[idx].hash, (uint8_t*)&hash);
+                                arith_uint256 checkpoint_chainwork;
+                                uint_to_arith(&checkpoint_chainwork, &client->chainparams->minimumchainwork);
+                                client->headers_db->set_checkpoint_start(
+                                    client->headers_db_ctx,
+                                    hash,
+                                    checkpoints[idx].height,
+                                    checkpoint_chainwork);
+                                printf("Applied bundled checkpoint height %u (PQ_SPV_CHECKPOINT_HEIGHT).\n", checkpoints[idx].height);
+                            } else {
+                                fprintf(stderr, "PQ_SPV_CHECKPOINT_HEIGHT=%d: no matching bundled checkpoint for this network (ignored).\n", want);
+                            }
+                        }
+                    }
+                }
+            }
             if (have_decl_daemon) {
 #if defined(HAVE_DECL_DAEMON) && !defined(WIN32)
                 const char *LOGNAME = "libdogecoin-spvnode";

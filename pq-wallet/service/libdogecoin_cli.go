@@ -996,8 +996,11 @@ func (s *Server) spvHTTPBaseURL() string {
 // spvnodeArgs builds argv for libdogecoin spvnode. We intentionally omit -f:
 // with -f 0, spvnode treats headers as in-memory only and ignores -h, so
 // headers.db never appears on disk and file-based header rollback cannot run.
+// -g enables BIP37 filtered blocks: after header sync, historical merkleblocks+tx
+// are requested so PQ commitment logs run for wallet-related txs (full MSG_BLOCK
+// bodies are only fetched near the tip without -g).
 func spvnodeArgs(testnet bool, addrs []string, storageDir string, useCheckpoint bool, httpAddr string) []string {
-	args := []string{"-c", "-l"}
+	args := []string{"-c", "-l", "-g"}
 	if useCheckpoint {
 		args = append(args, "-p")
 	}
@@ -1194,7 +1197,8 @@ func (s *Server) readSPVStatus() map[string]any {
 		"mainnet": spvMainnetCheckpoints,
 		"testnet": spvTestnetCheckpoints,
 		"note": "Rollback uses the height you pick from this list (must match vendored chainparams.c). " +
-			"With use_checkpoint, spvnode runs with -p. After wallet restore with bundled_checkpoints, pq-wallet sets PQ_SPV_CHECKPOINT_HEIGHT from restore_checkpoint_hint so the first sync anchors that exact height when headers.db is still empty (8-byte header only).",
+			"With use_checkpoint, spvnode runs with -p. pq-wallet exports PQ_SPV_CHECKPOINT_HEIGHT=restore_checkpoint_hint; " +
+			"patched spvnode applies that exact bundled checkpoint when headers.db is new or empty (not when an on-disk header chain already starts above height 0).",
 	}
 	if _, err := os.Stat(wdb); err == nil {
 		out["spv_wallet_db"] = wdb

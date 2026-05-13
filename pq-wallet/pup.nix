@@ -60,15 +60,14 @@ let
             v=$(jq -r '.use_checkpoint // true' "$STORAGE/spv_sync_prefs.json" 2>/dev/null || echo true)
             if [ "$v" = "false" ] || [ "$v" = "0" ]; then CP_FLAG=""; fi
           fi
-          SPV_ARGS=()
-          for a in "''${SPV_ADDRS[@]}"; do
-            SPV_ARGS+=(-a "$a")
-          done
+          # One -a with space-separated addrs (spvnode getopt overwrites repeated -a). -g = BIP37 filtered
+          # merkleblocks + txs after headers so PQ scans see wallet-related tx bytes during rescan.
+          SPV_ADDR_JOINED="''${SPV_ADDRS[*]}"
           printf '\n--- spvnode (pup entrypoint) starting pid pending ---\n' >>"$STORAGE/spv.log"
           if command -v stdbuf >/dev/null 2>&1; then
-            nohup stdbuf -oL -eL spvnode $TN_FLAG $CP_FLAG -u "$SPV_HTTP_ADDR" -c -l "''${SPV_ARGS[@]}" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >>"$STORAGE/spv.log" 2>&1 &
+            nohup stdbuf -oL -eL spvnode $TN_FLAG $CP_FLAG -u "$SPV_HTTP_ADDR" -c -l -g -a "$SPV_ADDR_JOINED" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >>"$STORAGE/spv.log" 2>&1 &
           else
-            nohup spvnode $TN_FLAG $CP_FLAG -u "$SPV_HTTP_ADDR" -c -l "''${SPV_ARGS[@]}" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >>"$STORAGE/spv.log" 2>&1 &
+            nohup spvnode $TN_FLAG $CP_FLAG -u "$SPV_HTTP_ADDR" -c -l -g -a "$SPV_ADDR_JOINED" -w "$STORAGE/spv_wallet.db" -h "$STORAGE/headers.db" -b scan >>"$STORAGE/spv.log" 2>&1 &
           fi
           echo $! >"$STORAGE/spv.pid"
         fi

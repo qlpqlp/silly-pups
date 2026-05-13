@@ -999,6 +999,7 @@ func (s *Server) spvHTTPBaseURL() string {
 // -g enables BIP37 filtered blocks: after header sync, historical merkleblocks+tx
 // are requested so PQ commitment logs run for wallet-related txs (full MSG_BLOCK
 // bodies are only fetched near the tip without -g).
+// Pass all watch addresses in a single -a "addr1 addr2" (spvnode getopt keeps only the last -a).
 func spvnodeArgs(testnet bool, addrs []string, storageDir string, useCheckpoint bool, httpAddr string) []string {
 	args := []string{"-c", "-l", "-g"}
 	if useCheckpoint {
@@ -1008,12 +1009,17 @@ func spvnodeArgs(testnet bool, addrs []string, storageDir string, useCheckpoint 
 	if httpAddr != "" {
 		args = append(args, "-u", httpAddr)
 	}
+	// spvnode getopt keeps only the last -a; wallet.c expects space-separated watch list on one -a.
+	var watch []string
 	for _, a := range addrs {
 		a = strings.TrimSpace(a)
 		if a == "" {
 			continue
 		}
-		args = append(args, "-a", a)
+		watch = append(watch, a)
+	}
+	if len(watch) > 0 {
+		args = append(args, "-a", strings.Join(watch, " "))
 	}
 	args = append(args,
 		"-w", filepath.Join(storageDir, "spv_wallet.db"),

@@ -720,7 +720,7 @@ int main(int argc, char* argv[]) {
                 dogecoin_bip37_filter_add(filter, pq_opret_rcg4, sizeof(pq_opret_rcg4));
             }
 #endif
-            debug_print("  - bloom: PQC Phase-1 OP_RETURN tag prefixes added for filtered scan\n");
+            debug_print("%s", "  - bloom: PQC Phase-1 OP_RETURN tag prefixes added for filtered scan\n");
 #endif
 
             dogecoin_bool loaded = dogecoin_spv_client_filterload(client,

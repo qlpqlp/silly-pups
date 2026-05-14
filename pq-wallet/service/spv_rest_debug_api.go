@@ -181,6 +181,10 @@ func (s *Server) handleDebugSPVREST(w http.ResponseWriter, r *http.Request) {
 		"bytes_read":    len(body),
 		"docs":          "https://lib.dogecoin.org/docs/rest",
 		"spv_http_base": s.spvHTTPBaseURL(),
+		"libdogecoin_spvnode": s.spvnodePath(),
+	}
+	if path == "/getSpends" && status == 404 {
+		out["hint"] = "This spvnode was built without GET /getSpends (old libdogecoin). Rebuild spvnode from pq-wallet/vendors/libdogecoin, set LIBDOGECOIN_SPVNODE to that binary if needed so it wins over PATH, restart SPV, then probe again."
 	}
 	bin := spvRESTResponseLooksBinary(path, ct, body)
 	out["binary"] = bin

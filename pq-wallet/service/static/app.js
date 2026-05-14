@@ -3235,7 +3235,12 @@ if (btnSpvRestProbe) {
         if (out) out.textContent = JSON.stringify(j, null, 2);
         return;
       }
-      if (msg && j.spv_http_base) msg.textContent = `Base: ${j.spv_http_base} — HTTP ${j.status}`;
+      if (msg && j.spv_http_base) {
+        let line = `Base: ${j.spv_http_base} — HTTP ${j.status}`;
+        if (j.libdogecoin_spvnode) line += `\nspvnode: ${j.libdogecoin_spvnode}`;
+        if (j.hint) line += `\n${j.hint}`;
+        msg.textContent = line;
+      }
       if (out) out.textContent = JSON.stringify(j, null, 2);
     } catch (e) {
       if (msg) msg.textContent = e && e.message ? e.message : String(e);

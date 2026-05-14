@@ -701,6 +701,28 @@ int main(int argc, char* argv[]) {
                             txid_hex, utxo->vout, utxo->height);
             }
 
+#if defined(USE_LIBOQS) || defined(USE_RACCOON_G)
+            /* BIP37 matches pushdata chunks in outputs. Add canonical Phase-1 PQ
+             * OP_RETURN prefixes (6a 24 + 4-byte tag + 32-byte commit) so filtered
+             * history returns TX_C commitment txs even when they pay no P2PKH in
+             * our watch set — same txs PR #294 validates from full blocks. */
+#ifdef USE_LIBOQS
+            {
+                static const uint8_t pq_opret_flc1[] = { 0x6a, 0x24, 'F', 'L', 'C', '1' };
+                static const uint8_t pq_opret_dil2[] = { 0x6a, 0x24, 'D', 'I', 'L', '2' };
+                dogecoin_bip37_filter_add(filter, pq_opret_flc1, sizeof(pq_opret_flc1));
+                dogecoin_bip37_filter_add(filter, pq_opret_dil2, sizeof(pq_opret_dil2));
+            }
+#endif
+#ifdef USE_RACCOON_G
+            {
+                static const uint8_t pq_opret_rcg4[] = { 0x6a, 0x24, 'R', 'C', 'G', '4' };
+                dogecoin_bip37_filter_add(filter, pq_opret_rcg4, sizeof(pq_opret_rcg4));
+            }
+#endif
+            debug_print("  - bloom: PQC Phase-1 OP_RETURN tag prefixes added for filtered scan\n");
+#endif
+
             dogecoin_bool loaded = dogecoin_spv_client_filterload(client,
                                                                  filter->data,
                                                                  filter->data_len,

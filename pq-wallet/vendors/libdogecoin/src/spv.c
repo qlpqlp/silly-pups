@@ -1630,9 +1630,8 @@ void dogecoin_net_spv_post_cmd(dogecoin_node *node, dogecoin_p2p_msg_hdr *hdr, s
                     if (client->bloom_filter && client->bloom_filter_len > 0) {
                         for (vout_i = 0; vout_i < (uint32_t)tx->vout->len; vout_i++) {
                             uint8_t outpoint[36];
-                            unsigned int b = 0;
-                            /* COutPoint serializes txid little-endian on the wire. */
-                            for (b = 0; b < 32; b++) outpoint[b] = txid[31 - b];
+                            /* Same layout as spvnode.c filter + tx ser_u256(prevout.hash): raw 32-byte txid + le32 vout. */
+                            memcpy(outpoint, txid, 32);
                             outpoint[32] = (uint8_t)(vout_i & 0xffu);
                             outpoint[33] = (uint8_t)((vout_i >> 8) & 0xffu);
                             outpoint[34] = (uint8_t)((vout_i >> 16) & 0xffu);

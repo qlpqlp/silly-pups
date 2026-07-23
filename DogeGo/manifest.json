@@ -16,7 +16,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "bf53cc2c664158d25b0e7bb36d7fbfbf644b472c4c7ce6e84eb655d983ac3084"
+      "nixFileSha256": "9a6246047be4aa17f9a973f60f3bd83af764278ef0964ba6485dac64e55a3a53"
     },
     "services": [
       {

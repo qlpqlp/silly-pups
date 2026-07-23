@@ -12,8 +12,8 @@
 # top-level CGO_ENABLED = "0" (legacy/injected) makes evaluation fail with
 # overlapping env vs derivation attributes.
 #
-# After first build, replace src.hash / goModules outputHash with nix "got:" values,
-# then recompute manifest.json container.build.nixFileSha256 (LF SHA-256 of this file).
+# Includes native -notls / DOGEGO_NO_TLS. Keep src.hash / goModules outputHash in sync
+# with the pinned rev, then recompute manifest.json nixFileSha256 (LF SHA-256 of this file).
 { pkgs ? import <nixpkgs> {} }:
 
 let
@@ -21,8 +21,7 @@ let
     url = "https://github.com/qlpqlp/dogego.git";
     # Includes native -notls / DOGEGO_NO_TLS (02932c9) and later fixes.
     rev = "2eb7e69da8712ee40563d7541455681e35ffd2c7";
-    # Bootstrap: first nix build fails and prints the correct sha256-...
-    hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    hash = "sha256-7k4s++fGztuRlyvzT9rZ5C4CMMRInyY+wcen4jdPA3E=";
   };
 
   goModules = pkgs.stdenv.mkDerivation {
@@ -59,8 +58,7 @@ let
     '';
     dontFixup = true;
     outputHashMode = "recursive";
-    # Bootstrap: replace with got: from first failed build.
-    outputHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    outputHash = "sha256-xwHNyDyPMEXSY7A71/t/mGdgtoXxibiHghu8OvfVOYI=";
   };
 
   dogego_bin = pkgs.stdenv.mkDerivation {

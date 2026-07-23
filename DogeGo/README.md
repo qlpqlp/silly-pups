@@ -1,57 +1,31 @@
-# DogeGo PUP (silly-pups / DogeBox)
+# DogeGo on DogeBox
 
 Installs **[DogeGo](https://github.com/qlpqlp/dogego)** (Go Dogecoin full node + web dashboard) on DogeBox via this silly-pups source.
 
-Source is built from `https://github.com/qlpqlp/dogego` with `modRoot = "DogeGo"` (see [DogeGo app tree](https://github.com/qlpqlp/dogego/tree/main/DogeGo)).
+## Why TLS was still enabling
 
-There is **no DogeBox pup config UI**. The pup starts the DogeGo **setup wizard** (plain HTTP via `-notls`). Use datadir `./dogedata` (under `/storage/dogego`) and finish setup in the web UI.
+Older pins (`9d88c34` and earlier) **do not** implement `-notls`. The wizard always defaulted to `webui_tls_local` + OS CA install. Nix `postPatch` workarounds were fragile, and the old setup UI treated missing `webui_tls_local` in JSON (`omitempty`) as “TLS on”, so saving the wizard could turn HTTPS back on.
 
-## Install
+This pup pins DogeGo **`2eb7e69`** (native `-notls` / `DOGEGO_NO_TLS`) and starts with:
 
-1. On DogeBox, add this silly-pups repo as a pup source (if not already).
-2. Install the **DogeGo** pup from the catalog.
-3. Open the WebUI (port **2013**) and finish setup in-app.
+```bash
+DOGEGO_NO_TLS=1 DOGEGO_NOTLS=1 dogego node -webui $DBX_PUP_IP:2013 -nobrowser -notls
+```
 
-## Layout
+## Setup
 
-| File | Role |
-|------|------|
-| `manifest.json` | Pup metadata, ports, services, Dogebox metrics |
-| `pup.nix` | Build DogeGo + metrics `monitor` + `run.sh` |
-| `monitor/monitor.go` | Polls `GET /api/summary`, POSTs to `/dbx/metrics` |
-| `logo.png` | Pup icon in DogeBox UI |
+Source is built from `https://github.com/qlpqlp/dogego` with `modRoot = "DogeGo"`.
 
-## Runtime
+There is **no DogeBox pup config UI**. The pup starts the DogeGo **setup wizard** over **plain HTTP**. Use datadir `./dogedata` (under `/storage/dogego`) and finish setup in the web UI.
 
-```text
-cd /storage/dogego && dogego node -webui $DBX_PUP_IP:2013 -nobrowser -notls
+After the first Nix build, paste the `got: sha256-…` values into `pup.nix` (`src.hash` and `goModules` `outputHash`), then set `manifest.json` → `container.build.nixFileSha256` to the **LF-normalized** SHA-256 of `pup.nix`.
+
+### Manual equivalent
+
+```bash
+cd /storage/dogego && DOGEGO_NO_TLS=1 dogego node -webui $DBX_PUP_IP:2013 -nobrowser -notls
 ```
 
 Wizard default data dir is `./dogedata` → `/storage/dogego/dogedata`.
-## Ports
 
-| Port | Use |
-|------|-----|
-| 2013 | Web dashboard (host) |
-| 22556 | Mainnet P2P (host) |
-| 44556 | Testnet P2P (host) |
-| 22557 | Mainnet JSON-RPC (container) |
-| 44555 | Testnet JSON-RPC (container) |
-
-## Updating the upstream pin
-
-When bumping `pup.nix` `fetchgit.rev`:
-
-1. Update `rev` and recompute `src.hash` / `vendorHash` (Nix will print `got: sha256-...` on mismatch).
-2. Recompute `manifest.json` → `container.build.nixFileSha256` (LF-normalized SHA-256 of `pup.nix`).
-
-**PowerShell (LF-normalized):**
-
-```powershell
-$p = 'DogeGo\pup.nix'
-$raw = [System.IO.File]::ReadAllText($p)
-$lf = $raw -replace "`r`n", "`n"
-$b = [System.Text.Encoding]::UTF8.GetBytes($lf)
-$h = [System.Security.Cryptography.SHA256]::Create().ComputeHash($b)
-($h | ForEach-Object ToString x2) -join ''
-```
+If an old install already wrote `webui_tls_local: true` into `dogecoinconf.json`, this entrypoint clears those flags on start (or delete the conf and re-run the wizard).

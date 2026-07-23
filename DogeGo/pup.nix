@@ -8,6 +8,9 @@
 # pre-notls revs (e.g. 9d88c34) — wizard defaults force webui_tls_local + CA install,
 # and omitempty JSON makes the old setup UI treat "TLS off" as "TLS on" when saving.
 #
+# DogeBox proxies from a private IP: set DOGEGO_TRUST_PRIVATE_CLIENTS=1 so setup
+# wallet-backup and other loopback-gated APIs accept the proxy (else 403).
+#
 # Avoid pkgs.buildGoModule: DogeBox nixpkgs sets env.CGO_ENABLED, and a
 # top-level CGO_ENABLED = "0" (legacy/injected) makes evaluation fail with
 # overlapping env vs derivation attributes.
@@ -19,9 +22,9 @@
 let
   src = pkgs.fetchgit {
     url = "https://github.com/qlpqlp/dogego.git";
-    # Includes native -notls / DOGEGO_NO_TLS (02932c9) and later fixes.
-    rev = "2eb7e69da8712ee40563d7541455681e35ffd2c7";
-    hash = "sha256-7k4s++fGztuRlyvzT9rZ5C4CMMRInyY+wcen4jdPA3E=";
+    # Includes -notls, DOGEGO_TRUST_PRIVATE_CLIENTS, setup uacomment-preview.
+    rev = "f3fd3a56a628699a6fa0bf6f5ca68b7d826a67bf";
+    hash = "sha256-ikmuCWwYfxCtGWZK8KHqq4uVow6niequQJXOZAnc44w=";
   };
 
   goModules = pkgs.stdenv.mkDerivation {
@@ -150,7 +153,7 @@ PY
 
     cd "$WORKDIR"
 
-    echo "DogeGo pup: wizard HTTP webui=''${BIND}:''${WEBUI_PORT} workdir=$WORKDIR (native -notls)"
+    echo "DogeGo pup: wizard HTTP webui=''${BIND}:''${WEBUI_PORT} workdir=$WORKDIR (native -notls, trust private clients)"
     exec ${pkgs.coreutils}/bin/env \
       HOME="$WORKDIR" \
       XDG_CONFIG_HOME="$WORKDIR/.config" \
@@ -158,6 +161,7 @@ PY
       XDG_CACHE_HOME="$WORKDIR/.cache" \
       DOGEGO_NO_TLS=1 \
       DOGEGO_NOTLS=1 \
+      DOGEGO_TRUST_PRIVATE_CLIENTS=1 \
       ${dogego_bin}/bin/dogego node \
         -webui "''${BIND}:''${WEBUI_PORT}" \
         -nobrowser \

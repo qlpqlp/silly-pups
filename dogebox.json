@@ -20,8 +20,7 @@
     },
     {
       "location": "arcade"
-    }
-    ,
+    },
     {
       "location": "memetracker"
     },
@@ -36,6 +35,9 @@
     },
     {
       "location": "quantum-explorer"
+    },
+    {
+      "location": "DogeGo"
     }
   ]
 }

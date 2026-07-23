@@ -5,7 +5,7 @@
     "version": "0.1.0",
     "logoPath": "logo.png",
     "shortDescription": "Much Faster Full Dogecoin Node",
-    "longDescription": "DogeGo is an open-source Dogecoin full node written in Go, with a built-in web dashboard, BlockStep explorer, HD wallet, and Core-compatible JSON-RPC. This PUP builds DogeGo from the qlpqlp/dogego GitHub source on DogeBox. On first start, open the WebUI and complete the DogeGo setup wizard (no pre-seeded dogecoinconf.json).",
+    "longDescription": "DogeGo is an open-source Dogecoin full node written in Go, with a built-in web dashboard, BlockStep explorer, HD wallet, and Core-compatible JSON-RPC. This PUP starts the DogeGo setup wizard over plain HTTP (-notls) for DogeBox. Use ./dogedata under /storage/dogego in the wizard, then configure the node in the web UI.",
     "upstreamVersions": {
       "DogeGo": "0.1.0-beta"
     }
@@ -16,7 +16,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "96eabe1ef218510b2255a113f6948ac5ca2376785a5167dc8c94b3aa239ce31f"
+      "nixFileSha256": "34f4d17c24a3f1c88767e51436e2c2bf23f380b8c47d7baf6825ea712f1578aa"
     },
     "services": [
       {

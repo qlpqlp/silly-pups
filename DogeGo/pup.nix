@@ -93,15 +93,20 @@ let
 
     # Writable home for the pup user (passwd HOME is /var/empty).
     # No dogecoinconf.json is seeded — the WebUI setup wizard creates it.
+    # CWD must be under /storage: wizard defaults datadir to relative "dogedata"
+    # and local HTTPS writes tls material there (nix store is read-only).
     STOREROOT="/storage/dogego"
     WEBUI_PORT="2013"
     BIND="''${DBX_PUP_IP:-0.0.0.0}"
 
     mkdir -p "$STOREROOT/.config/DogeGo" \
       "$STOREROOT/.local/share" \
-      "$STOREROOT/.cache"
+      "$STOREROOT/.cache" \
+      "$STOREROOT/dogedata"
 
-    echo "DogeGo pup: webui=''${BIND}:''${WEBUI_PORT} (setup wizard; no pre-seeded conf)"
+    cd "$STOREROOT"
+
+    echo "DogeGo pup: webui=''${BIND}:''${WEBUI_PORT} cwd=$STOREROOT (setup wizard; no pre-seeded conf)"
     exec ${pkgs.coreutils}/bin/env \
       HOME="$STOREROOT" \
       XDG_CONFIG_HOME="$STOREROOT/.config" \

@@ -27,7 +27,7 @@ There is **no DogeBox pup config UI**. After start, open the DogeGo web dashboar
 dogego node -webui $DBX_PUP_IP:2013 -nobrowser
 ```
 
-(`HOME` / `XDG_*` point at `/storage/dogego` so the wizard can save config. No `-datadir` and no pre-seeded `dogecoinconf.json`.)
+(`HOME` / `XDG_*` and cwd are `/storage/dogego` so the wizard’s default relative `dogedata` and local HTTPS certs are writable. No `-datadir` and no pre-seeded `dogecoinconf.json`.)
 
 ## Ports
 

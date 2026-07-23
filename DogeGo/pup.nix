@@ -96,16 +96,13 @@ let
     WEBUI_PORT="2013"
     BIND="''${DBX_PUP_IP:-0.0.0.0}"
 
-    mkdir -p "$DATADIR"
+    mkdir -p "$DATADIR" \
+      "$DATADIR/.config/DogeGo" \
+      "$DATADIR/.local/share" \
+      "$DATADIR/.cache"
 
-    # Pup HOME is /var/empty (not writable). DogeGo ResolveSavePath mkdirs
-    # $UserConfigDir/DogeGo unless a conf file is already loaded.
-    export HOME="$DATADIR"
-    export XDG_CONFIG_HOME="$DATADIR/.config"
-    export XDG_DATA_HOME="$DATADIR/.local/share"
-    export XDG_CACHE_HOME="$DATADIR/.cache"
-    mkdir -p "$XDG_CONFIG_HOME/DogeGo" "$XDG_DATA_HOME" "$XDG_CACHE_HOME"
-
+    # Seed conf so LoadFirst finds ./dogecoinconf.json (SearchPaths) and never
+    # calls PreferredSaveDir → mkdir $HOME/.config (HOME is /var/empty here).
     if [ ! -f "$CONF" ]; then
       cat > "$CONF" <<EOF
 {
@@ -116,14 +113,21 @@ let
 }
 EOF
     fi
-    export DOGECOINCONF="$CONF"
+
     cd "$DATADIR"
 
-    echo "DogeGo pup: webui=''${BIND}:''${WEBUI_PORT} datadir=$DATADIR conf=$CONF home=$HOME"
-    exec ${dogego_bin}/bin/dogego node \
-      -datadir "$DATADIR" \
-      -webui "''${BIND}:''${WEBUI_PORT}" \
-      -nobrowser
+    echo "DogeGo pup: webui=''${BIND}:''${WEBUI_PORT} datadir=$DATADIR conf=$CONF home=$DATADIR"
+    # env forces HOME/XDG/DOGECOINCONF onto the binary even if the unit resets them.
+    exec ${pkgs.coreutils}/bin/env \
+      HOME="$DATADIR" \
+      XDG_CONFIG_HOME="$DATADIR/.config" \
+      XDG_DATA_HOME="$DATADIR/.local/share" \
+      XDG_CACHE_HOME="$DATADIR/.cache" \
+      DOGECOINCONF="$CONF" \
+      ${dogego_bin}/bin/dogego node \
+        -datadir "$DATADIR" \
+        -webui "''${BIND}:''${WEBUI_PORT}" \
+        -nobrowser
   '';
 
   # Dogebox metrics sidecar (same /dbx/metrics contract as CORE monitor).

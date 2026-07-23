@@ -91,41 +91,23 @@ let
   dogego = pkgs.writeShellScriptBin "run.sh" ''
     set -euo pipefail
 
-    DATADIR="/storage/dogego"
-    CONF="$DATADIR/dogecoinconf.json"
+    # Writable home for the pup user (passwd HOME is /var/empty).
+    # No dogecoinconf.json is seeded — the WebUI setup wizard creates it.
+    STOREROOT="/storage/dogego"
     WEBUI_PORT="2013"
     BIND="''${DBX_PUP_IP:-0.0.0.0}"
 
-    mkdir -p "$DATADIR" \
-      "$DATADIR/.config/DogeGo" \
-      "$DATADIR/.local/share" \
-      "$DATADIR/.cache"
+    mkdir -p "$STOREROOT/.config/DogeGo" \
+      "$STOREROOT/.local/share" \
+      "$STOREROOT/.cache"
 
-    # Seed conf so LoadFirst finds ./dogecoinconf.json (SearchPaths) and never
-    # calls PreferredSaveDir → mkdir $HOME/.config (HOME is /var/empty here).
-    if [ ! -f "$CONF" ]; then
-      cat > "$CONF" <<EOF
-{
-  "datadir": "$DATADIR",
-  "webui": "$BIND:$WEBUI_PORT",
-  "nobrowser": true,
-  "network": "mainnet"
-}
-EOF
-    fi
-
-    cd "$DATADIR"
-
-    echo "DogeGo pup: webui=''${BIND}:''${WEBUI_PORT} datadir=$DATADIR conf=$CONF home=$DATADIR"
-    # env forces HOME/XDG/DOGECOINCONF onto the binary even if the unit resets them.
+    echo "DogeGo pup: webui=''${BIND}:''${WEBUI_PORT} (setup wizard; no pre-seeded conf)"
     exec ${pkgs.coreutils}/bin/env \
-      HOME="$DATADIR" \
-      XDG_CONFIG_HOME="$DATADIR/.config" \
-      XDG_DATA_HOME="$DATADIR/.local/share" \
-      XDG_CACHE_HOME="$DATADIR/.cache" \
-      DOGECOINCONF="$CONF" \
+      HOME="$STOREROOT" \
+      XDG_CONFIG_HOME="$STOREROOT/.config" \
+      XDG_DATA_HOME="$STOREROOT/.local/share" \
+      XDG_CACHE_HOME="$STOREROOT/.cache" \
       ${dogego_bin}/bin/dogego node \
-        -datadir "$DATADIR" \
         -webui "''${BIND}:''${WEBUI_PORT}" \
         -nobrowser
   '';

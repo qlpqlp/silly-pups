@@ -4,7 +4,7 @@ Installs **[DogeGo](https://github.com/qlpqlp/dogego)** (Go Dogecoin full node +
 
 Source is built from `https://github.com/qlpqlp/dogego` with `modRoot = "DogeGo"` (see [DogeGo app tree](https://github.com/qlpqlp/dogego/tree/main/DogeGo)).
 
-There is **no DogeBox pup config UI**. After start, open the DogeGo web dashboard and configure network, wallet, RPC, etc. there (or via `dogecoinconf.json` under `/storage/dogego`).
+There is **no DogeBox pup config UI**. After start, open the DogeGo web dashboard and complete the **setup wizard** (network, datadir, wallet, RPC, etc.). DogeGo writes `dogecoinconf.json` itself under the pup home (`/storage/dogego/.config/DogeGo/`).
 
 ## Install
 
@@ -24,8 +24,10 @@ There is **no DogeBox pup config UI**. After start, open the DogeGo web dashboar
 ## Runtime
 
 ```text
-dogego node -datadir /storage/dogego -webui $DBX_PUP_IP:2013 -nobrowser
+dogego node -webui $DBX_PUP_IP:2013 -nobrowser
 ```
+
+(`HOME` / `XDG_*` point at `/storage/dogego` so the wizard can save config. No `-datadir` and no pre-seeded `dogecoinconf.json`.)
 
 ## Ports
 

@@ -97,6 +97,13 @@ let
 
     mkdir -p "$DATADIR"
 
+    # Pup service user has HOME=/var/empty; DogeGo (and Go libs) try ~/.config.
+    export HOME="$DATADIR"
+    export XDG_CONFIG_HOME="$DATADIR/.config"
+    export XDG_DATA_HOME="$DATADIR/.local/share"
+    export XDG_CACHE_HOME="$DATADIR/.cache"
+    mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME"
+
     echo "DogeGo pup: webui=''${BIND}:''${WEBUI_PORT} datadir=$DATADIR (configure in the DogeGo web UI)"
     exec ${dogego_bin}/bin/dogego node \
       -datadir "$DATADIR" \

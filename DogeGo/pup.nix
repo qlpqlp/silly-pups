@@ -92,25 +92,60 @@ let
     set -euo pipefail
 
     DATADIR="/storage/dogego"
+    CONF="$DATADIR/dogecoinconf.json"
     WEBUI_PORT="2013"
     BIND="''${DBX_PUP_IP:-0.0.0.0}"
 
     mkdir -p "$DATADIR"
 
-    # Pup service user has HOME=/var/empty; DogeGo (and Go libs) try ~/.config.
+    # Pup HOME is /var/empty (not writable). DogeGo ResolveSavePath mkdirs
+    # $UserConfigDir/DogeGo unless a conf file is already loaded.
     export HOME="$DATADIR"
     export XDG_CONFIG_HOME="$DATADIR/.config"
     export XDG_DATA_HOME="$DATADIR/.local/share"
     export XDG_CACHE_HOME="$DATADIR/.cache"
-    mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME"
+    mkdir -p "$XDG_CONFIG_HOME/DogeGo" "$XDG_DATA_HOME" "$XDG_CACHE_HOME"
 
-    echo "DogeGo pup: webui=''${BIND}:''${WEBUI_PORT} datadir=$DATADIR (configure in the DogeGo web UI)"
+    if [ ! -f "$CONF" ]; then
+      cat > "$CONF" <<EOF
+{
+  "datadir": "$DATADIR",
+  "webui": "$BIND:$WEBUI_PORT",
+  "nobrowser": true,
+  "network": "mainnet"
+}
+EOF
+    fi
+    export DOGECOINCONF="$CONF"
+    cd "$DATADIR"
+
+    echo "DogeGo pup: webui=''${BIND}:''${WEBUI_PORT} datadir=$DATADIR conf=$CONF home=$HOME"
     exec ${dogego_bin}/bin/dogego node \
       -datadir "$DATADIR" \
       -webui "''${BIND}:''${WEBUI_PORT}" \
       -nobrowser
   '';
+
+  # Dogebox metrics sidecar (same /dbx/metrics contract as CORE monitor).
+  monitor = pkgs.stdenv.mkDerivation {
+    pname = "dogego-monitor";
+    version = "0.1.0";
+    src = ./monitor;
+    nativeBuildInputs = [ pkgs.go_1_24 ];
+    dontConfigure = true;
+    buildPhase = ''
+      export GOCACHE=$TMPDIR/go-cache
+      export GOPATH=$TMPDIR/go
+      export GO111MODULE=off
+      export CGO_ENABLED=0
+      go build -trimpath -ldflags="-s -w" -o monitor monitor.go
+    '';
+    installPhase = ''
+      mkdir -p $out/bin
+      cp monitor $out/bin/monitor
+    '';
+  };
 in
 {
-  inherit dogego;
+  inherit dogego monitor;
 }

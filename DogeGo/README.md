@@ -16,8 +16,9 @@ There is **no DogeBox pup config UI**. After start, open the DogeGo web dashboar
 
 | File | Role |
 |------|------|
-| `manifest.json` | Pup metadata, ports, service name |
-| `pup.nix` | `fetchgit` + `buildGoModule` + `run.sh` |
+| `manifest.json` | Pup metadata, ports, services, Dogebox metrics |
+| `pup.nix` | Build DogeGo + metrics `monitor` + `run.sh` |
+| `monitor/monitor.go` | Polls `GET /api/summary`, POSTs to `/dbx/metrics` |
 | `logo.png` | Pup icon in DogeBox UI |
 
 ## Runtime

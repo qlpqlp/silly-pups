@@ -16,13 +16,21 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "d0358d6501a2a21280c0096a3ac3fc3782c3a96daea49331eb3b1feda33e29f7"
+      "nixFileSha256": "070540b74d136996f7d0d90c9529eccfe747675c21c1df739902357abcaff521"
     },
     "services": [
       {
         "name": "dogego",
         "command": {
           "exec": "/bin/run.sh",
+          "cwd": "",
+          "env": null
+        }
+      },
+      {
+        "name": "monitor",
+        "command": {
+          "exec": "/bin/monitor",
           "cwd": "",
           "env": null
         }
@@ -127,5 +135,132 @@
     }
   ],
   "dependencies": [],
-  "metrics": null
+  "metrics": [
+    {
+      "name": "chain",
+      "label": "Chain",
+      "type": "string",
+      "history": 1
+    },
+    {
+      "name": "network",
+      "label": "Network",
+      "type": "string",
+      "history": 1
+    },
+    {
+      "name": "node_mode",
+      "label": "Node mode",
+      "type": "string",
+      "history": 1
+    },
+    {
+      "name": "blocks",
+      "label": "Block height",
+      "type": "int",
+      "history": 30
+    },
+    {
+      "name": "headers",
+      "label": "Headers",
+      "type": "int",
+      "history": 30
+    },
+    {
+      "name": "peers",
+      "label": "Peers",
+      "type": "int",
+      "history": 30
+    },
+    {
+      "name": "connections_in",
+      "label": "Inbound peers",
+      "type": "int",
+      "history": 30
+    },
+    {
+      "name": "connections_out",
+      "label": "Outbound peers",
+      "type": "int",
+      "history": 30
+    },
+    {
+      "name": "mempool_txs",
+      "label": "Mempool txs",
+      "type": "int",
+      "history": 30
+    },
+    {
+      "name": "blocks_behind",
+      "label": "Blocks behind headers",
+      "type": "int",
+      "history": 30
+    },
+    {
+      "name": "blocks_per_minute",
+      "label": "Blocks / min",
+      "type": "float",
+      "history": 30
+    },
+    {
+      "name": "verification_progress",
+      "label": "Verification progress",
+      "type": "string",
+      "history": 1
+    },
+    {
+      "name": "initial_block_download",
+      "label": "Initial download",
+      "type": "string",
+      "history": 1
+    },
+    {
+      "name": "sync_status",
+      "label": "Sync status",
+      "type": "string",
+      "history": 1
+    },
+    {
+      "name": "sync_health",
+      "label": "Sync health",
+      "type": "string",
+      "history": 1
+    },
+    {
+      "name": "sync_phase",
+      "label": "Sync phase",
+      "type": "string",
+      "history": 1
+    },
+    {
+      "name": "primary_peer",
+      "label": "Primary peer",
+      "type": "string",
+      "history": 1
+    },
+    {
+      "name": "best_hash",
+      "label": "Best hash",
+      "type": "string",
+      "history": 1
+    },
+    {
+      "name": "raw_blocks",
+      "label": "Raw blocks stored",
+      "type": "int",
+      "history": 30
+    },
+    {
+      "name": "contiguous_raw_height",
+      "label": "Contiguous raw height",
+      "type": "int",
+      "history": 30
+    },
+    {
+      "name": "chain_size_human",
+      "label": "Chain size",
+      "type": "string",
+      "history": 1
+    }
+  ]
 }

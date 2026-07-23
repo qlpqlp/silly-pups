@@ -23,7 +23,8 @@ let
     modRoot = "DogeGo";
     vendorHash = "sha256-xwHNyDyPMEXSY7A71/t/mGdgtoXxibiHghu8OvfVOYI=";
 
-    CGO_ENABLED = "0";
+    # Do not set CGO_ENABLED here: DogeBox nixpkgs already puts it in env,
+    # and a top-level CGO_ENABLED overlaps (install fails).
     doCheck = false;
 
     subPackages = [ "cmd/dogego" ];

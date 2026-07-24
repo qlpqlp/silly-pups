@@ -10,6 +10,9 @@
 #
 # DogeBox proxies from a private IP: set DOGEGO_TRUST_PRIVATE_CLIENTS=1 so setup
 # wallet-backup and other loopback-gated APIs accept the proxy (else 403).
+# Force webui=$DBX_PUP_IP:2013 in conf + CLI (wizard defaults to localhost and
+# would break the proxy right after first setup until container restart).
+# DOGEGO_HEADLESS=1 / -tray=false avoid desktop tray/DBus noise in the pup.
 #
 # Avoid pkgs.buildGoModule: DogeBox nixpkgs sets env.CGO_ENABLED, and a
 # top-level CGO_ENABLED = "0" (legacy/injected) makes evaluation fail with
@@ -22,9 +25,10 @@
 let
   src = pkgs.fetchgit {
     url = "https://github.com/qlpqlp/dogego.git";
-    # Includes -notls, DOGEGO_TRUST_PRIVATE_CLIENTS, setup uacomment-preview.
-    rev = "f3fd3a56a628699a6fa0bf6f5ca68b7d826a67bf";
-    hash = "sha256-ikmuCWwYfxCtGWZK8KHqq4uVow6niequQJXOZAnc44w=";
+    # Includes -notls, DOGEGO_TRUST_PRIVATE_CLIENTS, setup uacomment-preview,
+    # and post-wizard webui align (keep pup IP bind after setup).
+    rev = "8add68ec33219167b018ee6b94bd33f2e9d8dbfe";
+    hash = "sha256-3NDKeO4ZZmhkKKxPmDDwqF5O3JPbBRykaEGEZOJ8Vcc=";
   };
 
   goModules = pkgs.stdenv.mkDerivation {
@@ -103,6 +107,7 @@ let
     WORKDIR="/storage/dogego"
     WEBUI_PORT="2013"
     BIND="''${DBX_PUP_IP:-0.0.0.0}"
+    WEBUI="''${BIND}:''${WEBUI_PORT}"
 
     mkdir -p "$WORKDIR/dogedata" \
       "$WORKDIR/.config/DogeGo" \
@@ -120,11 +125,16 @@ let
         rm -f "$WORKDIR/.config/DogeGo/dogecoinconf.json"
       fi
     fi
-    # If conf still has TLS on from a prior wizard save, strip it for this host.
-    if [ -f "$WORKDIR/dogecoinconf.json" ] && command -v ${pkgs.python3}/bin/python3 >/dev/null 2>&1; then
-      ${pkgs.python3}/bin/python3 - "$WORKDIR/dogecoinconf.json" <<'PY' || true
+    # Keep conf aligned with the pup IP: wizard defaults write localhost:2013, which
+    # breaks the DogeBox reverse proxy after setup until the container restarts.
+    CONF="$WORKDIR/dogecoinconf.json"
+    if [ ! -f "$CONF" ] && [ -f "$WORKDIR/.config/DogeGo/dogecoinconf.json" ]; then
+      CONF="$WORKDIR/.config/DogeGo/dogecoinconf.json"
+    fi
+    if [ -f "$CONF" ] && command -v ${pkgs.python3}/bin/python3 >/dev/null 2>&1; then
+      ${pkgs.python3}/bin/python3 - "$CONF" "$WEBUI" <<'PY' || true
 import json, sys
-path = sys.argv[1]
+path, webui = sys.argv[1], sys.argv[2]
 try:
     with open(path, encoding="utf-8") as f:
         conf = json.load(f)
@@ -132,10 +142,13 @@ except Exception:
     raise SystemExit(0)
 changed = False
 for k, v in (
+    ("webui", webui),
     ("webui_tls_local", False),
     ("rpc_tls_local", False),
     ("local_tls_trust_ca", False),
     ("no_tls", True),
+    ("tray", False),
+    ("nobrowser", True),
 ):
     if conf.get(k) != v:
         conf[k] = v
@@ -147,13 +160,13 @@ if changed:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(conf, f, indent=2)
         f.write("\n")
-    print("DogeGo pup: cleared local HTTPS flags in", path)
+    print("DogeGo pup: aligned conf", path, "webui=", webui)
 PY
     fi
 
     cd "$WORKDIR"
 
-    echo "DogeGo pup: wizard HTTP webui=''${BIND}:''${WEBUI_PORT} workdir=$WORKDIR (native -notls, trust private clients)"
+    echo "DogeGo pup: HTTP webui=$WEBUI workdir=$WORKDIR (native -notls, trust private clients, headless)"
     exec ${pkgs.coreutils}/bin/env \
       HOME="$WORKDIR" \
       XDG_CONFIG_HOME="$WORKDIR/.config" \
@@ -162,9 +175,11 @@ PY
       DOGEGO_NO_TLS=1 \
       DOGEGO_NOTLS=1 \
       DOGEGO_TRUST_PRIVATE_CLIENTS=1 \
+      DOGEGO_HEADLESS=1 \
       ${dogego_bin}/bin/dogego node \
-        -webui "''${BIND}:''${WEBUI_PORT}" \
+        -webui "$WEBUI" \
         -nobrowser \
+        -tray=false \
         -notls
   '';
 

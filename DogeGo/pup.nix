@@ -27,8 +27,8 @@ let
     url = "https://github.com/qlpqlp/dogego.git";
     # Includes -notls, DOGEGO_TRUST_PRIVATE_CLIENTS, setup uacomment-preview,
     # and post-wizard webui align (keep pup IP bind after setup).
-    rev = "8add68ec33219167b018ee6b94bd33f2e9d8dbfe";
-    hash = "sha256-3NDKeO4ZZmhkKKxPmDDwqF5O3JPbBRykaEGEZOJ8Vcc=";
+    rev = "c10436499df1262c2a947cac0c13a9daf4c863be";
+    hash = "sha256-yklJv1GzYOG4zrTLIuwNwZV1RhXlU55sTBh+6WuO8o4=";
   };
 
   goModules = pkgs.stdenv.mkDerivation {

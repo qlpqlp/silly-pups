@@ -25,10 +25,10 @@
 let
   src = pkgs.fetchgit {
     url = "https://github.com/qlpqlp/dogego.git";
-    # Includes -notls, DOGEGO_TRUST_PRIVATE_CLIENTS, setup uacomment-preview,
-    # and post-wizard webui align (keep pup IP bind after setup).
-    rev = "c10436499df1262c2a947cac0c13a9daf4c863be";
-    hash = "sha256-yklJv1GzYOG4zrTLIuwNwZV1RhXlU55sTBh+6WuO8o4=";
+    # Pins DogeGo v0.1.0 pre-release (0.1.0-beta): -notls, private-client trust,
+    # post-wizard webui align for DogeBox.
+    rev = "0a825fb2f230f881b5bb8fc9628cb504e2a695c5";
+    hash = "sha256-AX6uT24jyYu3CyOmNZh9YUCloqUCzVV0ztncwk8VDns=";
   };
 
   goModules = pkgs.stdenv.mkDerivation {

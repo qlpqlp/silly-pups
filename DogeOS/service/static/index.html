@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DogeOS Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg0: #0b0a08;
+      --bg1: #16130f;
+      --bg2: #221c14;
+      --ink: #f7f1e4;
+      --muted: #b7aa95;
+      --line: rgba(247, 241, 228, 0.12);
+      --gold: #f5c518;
+      --gold-soft: #ffe28a;
+      --ok: #7dcf8a;
+      --bad: #ff7a6e;
+      --accent: #3db8ff;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background:
+        radial-gradient(1200px 600px at 10% -10%, rgba(245, 197, 24, 0.18), transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, rgba(61, 184, 255, 0.12), transparent 50%),
+        linear-gradient(180deg, var(--bg0), #120f0c 40%, var(--bg0));
+      color: var(--ink);
+      font-family: "Space Grotesk", system-ui, sans-serif;
+    }
+    body { padding: 28px 20px 64px; }
+    .wrap { max-width: 1100px; margin: 0 auto; }
+    header {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 18px;
+      align-items: center;
+      margin-bottom: 28px;
+    }
+    .logo {
+      width: 72px;
+      height: 72px;
+      border-radius: 18px;
+      background: var(--gold);
+      object-fit: cover;
+      box-shadow: 0 10px 30px rgba(245, 197, 24, 0.25);
+    }
+    h1 {
+      margin: 0;
+      font-size: clamp(1.8rem, 4vw, 2.6rem);
+      letter-spacing: -0.03em;
+      line-height: 1.05;
+    }
+    .tag {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 0.98rem;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.03);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.78rem;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--bad);
+    }
+    .dot.ok { background: var(--ok); box-shadow: 0 0 10px rgba(125,207,138,0.7); }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 14px;
+    }
+    section {
+      grid-column: span 12;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));
+      border-radius: 18px;
+      padding: 18px 18px 14px;
+    }
+    section.half { grid-column: span 6; }
+    section.third { grid-column: span 4; }
+    @media (max-width: 860px) {
+      header { grid-template-columns: auto 1fr; }
+      .pill { grid-column: 1 / -1; justify-self: start; }
+      section.half, section.third { grid-column: span 12; }
+    }
+    h2 {
+      margin: 0 0 12px;
+      font-size: 0.85rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--gold-soft);
+      font-weight: 600;
+    }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+    }
+    .metric .label {
+      color: var(--muted);
+      font-size: 0.78rem;
+      margin-bottom: 4px;
+    }
+    .metric .value {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 1.05rem;
+      font-weight: 500;
+      word-break: break-word;
+    }
+    .metric .value.big { font-size: 1.35rem; color: var(--gold); }
+    p.note, .note {
+      margin: 12px 0 0;
+      color: var(--muted);
+      font-size: 0.86rem;
+      line-height: 1.45;
+    }
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    a:hover { text-decoration: underline; }
+    .links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .links a {
+      display: inline-block;
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: rgba(61,184,255,0.08);
+      color: var(--ink);
+      font-weight: 500;
+    }
+    .links a:hover { background: rgba(61,184,255,0.16); text-decoration: none; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.86rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 8px 6px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    th { color: var(--muted); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    td { font-family: "IBM Plex Mono", monospace; }
+    .mono { font-family: "IBM Plex Mono", monospace; }
+    .err {
+      margin-top: 10px;
+      color: var(--bad);
+      font-size: 0.85rem;
+    }
+    footer {
+      margin-top: 22px;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <img class="logo" src="/logo.png" alt="DogeOS logo" width="72" height="72" />
+      <div>
+        <h1>DogeOS</h1>
+        <p class="tag">Live Chikyu testnet status from public RPC and Blockscout</p>
+      </div>
+      <div class="pill"><span id="statusDot" class="dot"></span><span id="statusText">connecting</span></div>
+    </header>
+
+    <div class="grid">
+      <section class="third">
+        <h2>Network</h2>
+        <div class="metrics">
+          <div class="metric"><div class="label">Name</div><div class="value" id="netName">-</div></div>
+          <div class="metric"><div class="label">Chain ID</div><div class="value" id="chainId">-</div></div>
+          <div class="metric"><div class="label">Currency</div><div class="value" id="currency">DOGE</div></div>
+          <div class="metric"><div class="label">Client</div><div class="value" id="client">-</div></div>
+          <div class="metric"><div class="label">Peers</div><div class="value" id="peers">-</div></div>
+          <div class="metric"><div class="label">Syncing</div><div class="value" id="syncing">-</div></div>
+        </div>
+      </section>
+
+      <section class="third">
+        <h2>Chain</h2>
+        <div class="metrics">
+          <div class="metric"><div class="label">Block height</div><div class="value big" id="blockHeight">-</div></div>
+          <div class="metric"><div class="label">Avg block time</div><div class="value" id="blockTime">-</div></div>
+          <div class="metric"><div class="label">Blocks / min</div><div class="value" id="bpm">-</div></div>
+          <div class="metric"><div class="label">Utilization</div><div class="value" id="util">-</div></div>
+        </div>
+      </section>
+
+      <section class="third">
+        <h2>Activity</h2>
+        <div class="metrics">
+          <div class="metric"><div class="label">Total blocks</div><div class="value" id="totalBlocks">-</div></div>
+          <div class="metric"><div class="label">Total txs</div><div class="value" id="totalTxs">-</div></div>
+          <div class="metric"><div class="label">Addresses</div><div class="value" id="addresses">-</div></div>
+          <div class="metric"><div class="label">Txs today</div><div class="value" id="txsToday">-</div></div>
+        </div>
+      </section>
+
+      <section class="half">
+        <h2>Execution fees</h2>
+        <div class="metrics">
+          <div class="metric"><div class="label">Gas price</div><div class="value" id="gasPrice">-</div></div>
+          <div class="metric"><div class="label">Base fee</div><div class="value" id="baseFee">-</div></div>
+          <div class="metric"><div class="label">Explorer slow / avg / fast</div><div class="value" id="gasBands">-</div></div>
+          <div class="metric"><div class="label">~21k transfer</div><div class="value" id="xferCost">-</div></div>
+          <div class="metric"><div class="label">~50k approve</div><div class="value" id="approveCost">-</div></div>
+          <div class="metric"><div class="label">Gas used today</div><div class="value" id="gasToday">-</div></div>
+        </div>
+        <p class="note" id="feeNote"></p>
+      </section>
+
+      <section class="half">
+        <h2>Data and finality fee (L1 oracle)</h2>
+        <div class="metrics">
+          <div class="metric"><div class="label">Oracle</div><div class="value mono" id="oracleAddr">-</div></div>
+          <div class="metric"><div class="label">L1 base fee</div><div class="value" id="l1Base">-</div></div>
+          <div class="metric"><div class="label">Scalar</div><div class="value" id="scalar">-</div></div>
+          <div class="metric"><div class="label">Overhead</div><div class="value" id="overhead">-</div></div>
+          <div class="metric"><div class="label">Sample L1 fee (100 zero bytes)</div><div class="value" id="sampleL1">-</div></div>
+        </div>
+        <p class="note" id="l1Note"></p>
+      </section>
+
+      <section>
+        <h2>Bridge</h2>
+        <div class="metrics">
+          <div class="metric"><div class="label">Deposit</div><div class="value" id="bridgeDeposit">-</div></div>
+          <div class="metric"><div class="label">Withdraw</div><div class="value" id="bridgeWithdraw">-</div></div>
+          <div class="metric"><div class="label">Relay</div><div class="value" id="bridgeRelay">-</div></div>
+        </div>
+        <p class="note" id="bridgeNote"></p>
+        <div class="links" style="margin-top:14px">
+          <a id="bridgeLink" href="https://portal.testnet.dogeos.com/bridge" target="_blank" rel="noopener">Open bridge portal</a>
+          <a href="https://docs.dogeos.com/en/getting-started/user-guide/bridge" target="_blank" rel="noopener">Bridge docs</a>
+        </div>
+      </section>
+
+      <section class="half">
+        <h2>Latest blocks</h2>
+        <table>
+          <thead><tr><th>Height</th><th>Txs</th><th>Time</th></tr></thead>
+          <tbody id="blocksBody"><tr><td colspan="3">Loading…</td></tr></tbody>
+        </table>
+      </section>
+
+      <section class="half">
+        <h2>Latest transactions</h2>
+        <table>
+          <thead><tr><th>Method</th><th>Fee (wei)</th><th>Hash</th></tr></thead>
+          <tbody id="txsBody"><tr><td colspan="3">Loading…</td></tr></tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Quick links</h2>
+        <div class="links">
+          <a id="linkPortal" href="https://portal.testnet.dogeos.com" target="_blank" rel="noopener">Portal</a>
+          <a id="linkFaucet" href="https://faucet.testnet.dogeos.com" target="_blank" rel="noopener">Faucet</a>
+          <a id="linkExplorer" href="https://blockscout.testnet.dogeos.com" target="_blank" rel="noopener">Explorer</a>
+          <a id="linkDocs" href="https://docs.dogeos.com/en/developers" target="_blank" rel="noopener">Developer docs</a>
+          <a id="linkFees" href="https://docs.dogeos.com/en/developers/transaction-fees-on-dogeos" target="_blank" rel="noopener">Fee model</a>
+          <a id="linkRpc" href="https://rpc.testnet.dogeos.com/" target="_blank" rel="noopener">Public RPC</a>
+        </div>
+        <p class="note">Add MetaMask network: RPC https://rpc.testnet.dogeos.com/ · Chain ID 6281971 · Symbol DOGE · Explorer https://blockscout.testnet.dogeos.com</p>
+        <div class="err" id="err" hidden></div>
+      </section>
+    </div>
+
+    <footer>
+      Updated <span id="fetchedAt">-</span> · refreshes every ~3s · data from DogeOS public endpoints
+    </footer>
+  </div>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const fmt = (n) => {
+      if (n === null || n === undefined || n === "") return "-";
+      const x = Number(n);
+      if (!Number.isFinite(x)) return String(n);
+      return x.toLocaleString();
+    };
+    const shortHash = (h) => (!h || h.length < 12) ? (h || "-") : (h.slice(0, 10) + "…" + h.slice(-6));
+    const gwei = (v) => (v === null || v === undefined) ? "-" : (Number(v).toFixed(4) + " gwei");
+
+    async function refresh() {
+      try {
+        const res = await fetch("/api/status", { cache: "no-store" });
+        const d = await res.json();
+        const ok = !!(d.network && (d.network.rpc_reachable || d.network.explorer_reachable));
+        $("statusDot").className = "dot" + (ok ? " ok" : "");
+        $("statusText").textContent = ok ? "live" : "degraded";
+        $("fetchedAt").textContent = d.fetched_at ? new Date(d.fetched_at).toLocaleString() : "-";
+
+        $("netName").textContent = d.network?.name || "-";
+        $("chainId").textContent = d.network?.chain_id || "-";
+        $("currency").textContent = d.network?.currency || "DOGE";
+        $("client").textContent = d.network?.client_version || "-";
+        $("peers").textContent = fmt(d.network?.peer_count);
+        $("syncing").textContent = d.network?.syncing ? "yes" : "no";
+
+        $("blockHeight").textContent = fmt(d.chain?.block_number);
+        $("blockTime").textContent = d.chain?.avg_block_time_sec
+          ? (Number(d.chain.avg_block_time_sec).toFixed(2) + " s")
+          : "-";
+        $("bpm").textContent = d.chain?.blocks_per_minute
+          ? Number(d.chain.blocks_per_minute).toFixed(1)
+          : "-";
+        $("util").textContent = d.fees?.network_utilization_pct != null
+          ? (Number(d.fees.network_utilization_pct).toFixed(2) + "%")
+          : "-";
+
+        $("totalBlocks").textContent = fmt(d.stats?.total_blocks);
+        $("totalTxs").textContent = fmt(d.stats?.total_transactions);
+        $("addresses").textContent = fmt(d.stats?.total_addresses);
+        $("txsToday").textContent = fmt(d.stats?.transactions_today);
+
+        $("gasPrice").textContent = gwei(d.fees?.gas_price_gwei);
+        $("baseFee").textContent = gwei(d.fees?.base_fee_gwei);
+        $("gasBands").textContent = [
+          d.fees?.explorer_slow_gwei,
+          d.fees?.explorer_average_gwei,
+          d.fees?.explorer_fast_gwei
+        ].map(v => Number(v || 0).toFixed(2)).join(" / ") + " gwei";
+        $("xferCost").textContent = (d.fees?.simple_transfer_doge || "-") + " DOGE";
+        $("approveCost").textContent = (d.fees?.token_approve_doge || "-") + " DOGE";
+        $("gasToday").textContent = fmt(d.fees?.gas_used_today);
+        $("feeNote").textContent = d.fees?.note || "";
+
+        $("oracleAddr").textContent = d.l1_oracle?.address || "-";
+        $("l1Base").textContent = gwei(d.l1_oracle?.l1_base_fee_gwei);
+        $("scalar").textContent = fmt(d.l1_oracle?.scalar);
+        $("overhead").textContent = fmt(d.l1_oracle?.overhead);
+        $("sampleL1").textContent = (d.l1_oracle?.sample_l1_fee_doge_100_zero_bytes || "-") + " DOGE";
+        $("l1Note").textContent = d.l1_oracle?.note || "";
+
+        $("bridgeDeposit").textContent = d.bridge?.deposit_summary || "-";
+        $("bridgeWithdraw").textContent = d.bridge?.withdraw_summary || "-";
+        $("bridgeRelay").textContent = d.bridge?.relay_hint || "-";
+        $("bridgeNote").textContent = d.bridge?.note || "";
+        if (d.links?.bridge) $("bridgeLink").href = d.links.bridge;
+        if (d.links?.portal) $("linkPortal").href = d.links.portal;
+        if (d.links?.faucet) $("linkFaucet").href = d.links.faucet;
+        if (d.links?.explorer) $("linkExplorer").href = d.links.explorer;
+        if (d.links?.docs) $("linkDocs").href = d.links.docs;
+        if (d.links?.fees_docs) $("linkFees").href = d.links.fees_docs;
+        if (d.links?.rpc) $("linkRpc").href = d.links.rpc;
+
+        const blocks = d.recent?.latest_blocks || [];
+        $("blocksBody").innerHTML = blocks.length
+          ? blocks.map(b => `<tr><td>${fmt(b.number)}</td><td>${fmt(b.tx_count)}</td><td>${b.timestamp ? new Date(b.timestamp).toLocaleString() : "-"}</td></tr>`).join("")
+          : `<tr><td colspan="3">No blocks yet</td></tr>`;
+
+        const txs = d.recent?.latest_txs || [];
+        $("txsBody").innerHTML = txs.length
+          ? txs.map(t => {
+              const href = (d.links?.explorer || "") + "/tx/" + t.hash;
+              return `<tr><td>${t.method || "-"}</td><td>${t.fee_wei || "-"}</td><td><a href="${href}" target="_blank" rel="noopener">${shortHash(t.hash)}</a></td></tr>`;
+            }).join("")
+          : `<tr><td colspan="3">No transactions yet</td></tr>`;
+
+        if (d.error) {
+          $("err").hidden = false;
+          $("err").textContent = d.error;
+        } else {
+          $("err").hidden = true;
+        }
+      } catch (e) {
+        $("statusDot").className = "dot";
+        $("statusText").textContent = "error";
+        $("err").hidden = false;
+        $("err").textContent = String(e);
+      }
+    }
+    refresh();
+    setInterval(refresh, 3000);
+  </script>
+</body>
+</html>

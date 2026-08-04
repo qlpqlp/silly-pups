@@ -1,0 +1,114 @@
+{
+  "manifestVersion": 1,
+  "meta": {
+    "name": "DogeOS",
+    "version": "0.1.0",
+    "logoPath": "logo.png",
+    "shortDescription": "DogeOS Chikyu testnet status, fees, and bridge links",
+    "longDescription": "DogeOS Portal shows live Chikyu testnet metrics from the public RPC and Blockscout explorer: chain height, block time, gas and fee estimates, L1GasPriceOracle data/finality fee samples, activity totals, and recent blocks/transactions. Includes links to the bridge portal, faucet, explorer, and developer docs. Requires internet. Does not run a DogeOS sequencer.",
+    "upstreamVersions": {
+      "DogeOS Chikyu Testnet": "public RPC"
+    }
+  },
+  "config": {
+    "sections": [
+      {
+        "name": "Endpoints",
+        "description": "Optional overrides for public DogeOS endpoints (defaults target Chikyu testnet).",
+        "fields": [
+          {
+            "name": "DOGEOS_PORT",
+            "label": "HTTP Port",
+            "type": "text",
+            "default": "8091"
+          },
+          {
+            "name": "DOGEOS_RPC_URL",
+            "label": "DogeOS RPC URL",
+            "type": "text",
+            "default": "https://rpc.testnet.dogeos.com/"
+          },
+          {
+            "name": "DOGEOS_EXPLORER_URL",
+            "label": "Blockscout explorer URL",
+            "type": "text",
+            "default": "https://blockscout.testnet.dogeos.com"
+          },
+          {
+            "name": "DOGEOS_BRIDGE_URL",
+            "label": "Bridge portal URL",
+            "type": "text",
+            "default": "https://portal.testnet.dogeos.com/bridge"
+          },
+          {
+            "name": "DOGEOS_FAUCET_URL",
+            "label": "Faucet URL",
+            "type": "text",
+            "default": "https://faucet.testnet.dogeos.com"
+          }
+        ]
+      }
+    ]
+  },
+  "container": {
+    "build": {
+      "nixFile": "pup.nix",
+      "nixFileSha256": "d1d62889273519c7fc382fb982e37a90c124918cb839d1bfb659f23d4b9e9b45"
+    },
+    "services": [
+      {
+        "name": "dogeos",
+        "command": {
+          "exec": "/bin/run.sh",
+          "cwd": "",
+          "env": null
+        }
+      }
+    ],
+    "exposes": [
+      {
+        "name": "http",
+        "type": "http",
+        "port": 8091,
+        "interfaces": [
+          "dogeos-http"
+        ],
+        "listenOnHost": true,
+        "webUI": true
+      }
+    ],
+    "requiresInternet": true
+  },
+  "interfaces": [
+    {
+      "name": "dogeos-http",
+      "version": "0.1.0",
+      "permissionGroups": [
+        {
+          "name": "HTTP",
+          "description": "DogeOS portal web UI and status API",
+          "severity": 2,
+          "routes": [
+            "/*"
+          ],
+          "port": 0
+        }
+      ]
+    }
+  ],
+  "dependencies": [],
+  "metrics": [
+    {
+      "name": "block_height",
+      "label": "Block height",
+      "type": "int",
+      "history": 30
+    },
+    {
+      "name": "txs_today",
+      "label": "Transactions today",
+      "type": "int",
+      "history": 30
+    }
+  ]
+}

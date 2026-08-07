@@ -27,8 +27,8 @@ let
     url = "https://github.com/qlpqlp/dogego.git";
     # Pins DogeGo v0.1.0 pre-release (0.1.0-beta): -notls, private-client trust,
     # post-wizard webui align for DogeBox (incl. tray/redirect fixes).
-    rev = "0efa375272e9b7d3b575acb6476479ce51afaab4";
-    hash = "sha256-xPGK6MZHXqCZpeYk45Du3aBeJjho0aC2jOUFSsSIFkk=";
+    rev = "d0ce2ae522f5a9caa157109f462519a9d193fda7";
+    hash = "sha256-6d8zXbOwXibycRO3d/9SAjbeajRg/QQ8QylFoBPgYLE=";
   };
 
   goModules = pkgs.stdenv.mkDerivation {

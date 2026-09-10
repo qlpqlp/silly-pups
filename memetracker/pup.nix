@@ -1,17 +1,30 @@
+# MemeTracker PUP for DogeBox / silly-pups.
+# Service attr name MUST match manifest container.services[0].name ("memetracker").
+#
+# Builds from https://github.com/qlpqlp/memetracker (pinned rev below).
+# Keep src.hash in sync with the pin, then recompute manifest.json nixFileSha256
+# (LF SHA-256 of this file).
 { pkgs ? import <nixpkgs> {} }:
 
 let
+  src = pkgs.fetchgit {
+    url = "https://github.com/qlpqlp/memetracker.git";
+    # Tip: 24h header/block safeguard + release workflow (main @ 2026-09-10).
+    rev = "2233bdeba8a5fd336f7bfed01c71476bd3bf8fa0";
+    hash = "sha256-17wPc4nJnR0qGljMUHnhSJniRWh7FZvzhV6PQ+qMH+U=";
+  };
+
   memetracker_bin = pkgs.buildGoModule {
     pname = "memetracker";
-    version = "0.0.4";
-    src = ./service;
+    version = "0.0.5";
+    inherit src;
     vendorHash = null;
     go = pkgs.go_1_24;
 
+    # No third-party modules; build the whole module (main.go + headers.go + embed).
     buildPhase = ''
-      export GO111MODULE=off
       export GOCACHE=$(pwd)/.gocache
-      go build -o memetracker main.go
+      go build -o memetracker .
     '';
 
     installPhase = ''

@@ -11,12 +11,13 @@ let
     url = "https://github.com/qlpqlp/memetracker.git";
     # Tip: mempool-first matching, confirmations UI, large-mempool getdata fix.
     rev = "133c0df505362a6edb3f3c6623f0136ca6120e57";
-    hash = "sha256-Wjjk8JLqOn2kbD0sbFawQd4AaktAAT7HPPkQvutFHRc=";
+    # Hash from DogeBox nix fetchgit (local NAR hasher drifts on Windows).
+    hash = "sha256-EXNgK+BjUuZd6MKsvlq/mZxjyzcaOefqrtioI1DVSAM=";
   };
 
   memetracker_bin = pkgs.buildGoModule {
     pname = "memetracker";
-    version = "0.0.6";
+    version = "0.0.7";
     inherit src;
     vendorHash = null;
     go = pkgs.go_1_24;

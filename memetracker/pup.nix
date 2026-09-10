@@ -9,14 +9,14 @@
 let
   src = pkgs.fetchgit {
     url = "https://github.com/qlpqlp/memetracker.git";
-    # Tip: 24h header/block safeguard + release workflow (main @ 2026-09-10).
-    rev = "2233bdeba8a5fd336f7bfed01c71476bd3bf8fa0";
-    hash = "sha256-17wPc4nJnR0qGljMUHnhSJniRWh7FZvzhV6PQ+qMH+U=";
+    # Tip: mempool-first matching, confirmations UI, large-mempool getdata fix.
+    rev = "133c0df505362a6edb3f3c6623f0136ca6120e57";
+    hash = "sha256-Wjjk8JLqOn2kbD0sbFawQd4AaktAAT7HPPkQvutFHRc=";
   };
 
   memetracker_bin = pkgs.buildGoModule {
     pname = "memetracker";
-    version = "0.0.5";
+    version = "0.0.6";
     inherit src;
     vendorHash = null;
     go = pkgs.go_1_24;

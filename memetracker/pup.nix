@@ -1,26 +1,32 @@
 # MemeTracker PUP for DogeBox / silly-pups.
 # Service attr name MUST match manifest container.services[0].name ("memetracker").
 #
-# Builds from https://github.com/qlpqlp/memetracker (pinned rev below).
-# Prefer fetchFromGitHub over fetchgit. Always take `hash` from DogeBox's
-# install log `got:` line when local prefetch differs.
-# Keep src.hash in sync with the pin, then recompute manifest.json nixFileSha256
+# Source: GitHub archive via fetchurl (flat file hash — stable from Windows) then
+# unpack. Avoids recursive NAR mismatches from fetchgit/fetchFromGitHub on DogeBox.
+# Keep tarball hash in sync with the pin, then recompute manifest.json nixFileSha256
 # (LF SHA-256 of this file).
 { pkgs ? import <nixpkgs> {} }:
 
 let
-  src = pkgs.fetchFromGitHub {
-    owner = "qlpqlp";
-    repo = "memetracker";
-    # v0.0.5: config form dirty-guard + web UI IP/token gate.
-    rev = "7e0db9e35363c98443b7b1a6f528b9414f5983cb";
-    # Hash from DogeBox nix fetchFromGitHub (local archive NAR differs).
-    hash = "sha256-Gvfw1+LlS48L9TKGb7qi36y6CJgKVI/2bLoENBg6TZo=";
+  rev = "e29ced781881b1c6f9867efe2492ac49cd465ba4";
+  shortRev = builtins.substring 0 7 rev;
+
+  tarball = pkgs.fetchurl {
+    # Upstream v0.0.6: split user/admin tokens + confirmation UX polish.
+    url = "https://github.com/qlpqlp/memetracker/archive/${rev}.tar.gz";
+    hash = "sha256-BiQyFGgqB9783MbIKotuG6ONOZE9dzadJpn8+a6XQlI=";
   };
+
+  src = pkgs.runCommand "memetracker-${shortRev}-src" {
+    nativeBuildInputs = [ pkgs.gnutar pkgs.gzip ];
+  } ''
+    mkdir -p $out
+    tar -xzf ${tarball} --strip-components=1 -C $out
+  '';
 
   memetracker_bin = pkgs.buildGoModule {
     pname = "memetracker";
-    version = "0.0.9";
+    version = "0.0.10";
     inherit src;
     vendorHash = null;
     go = pkgs.go_1_24;
@@ -51,6 +57,8 @@ let
     P2P_PARALLEL="''${P2P_PARALLEL:-3}"
     API_ALLOWED_IPS="''${API_ALLOWED_IPS:-}"
     TRUST_XFF_RAW="''${MTR_TRUST_XFF:-0}"
+    USER_TOKEN="''${MTR_USER_TOKEN:-}"
+    ADMIN_TOKEN="''${MTR_ADMIN_TOKEN:-}"
 
     STORAGE_DIR="/storage/memetracker"
     mkdir -p "$STORAGE_DIR/addresses"
@@ -67,6 +75,8 @@ let
     export MTR_STORAGE_DIR="$STORAGE_DIR"
     export MTR_CONFIG_PATH="$STORAGE_DIR/memetracker_config.json"
     export MTR_NO_BROWSER=1
+    export MTR_USER_TOKEN="$USER_TOKEN"
+    export MTR_ADMIN_TOKEN="$ADMIN_TOKEN"
 
     export MTR_TRUST_XFF="0"
     case "$TRUST_XFF_RAW" in 1|true|TRUE|yes|YES) export MTR_TRUST_XFF=1 ;; esac
@@ -91,6 +101,11 @@ let
         IFS="$_oifs"
         IPS_JSON="$IPS_JSON]"
       fi
+      _json_escape() {
+        printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+      }
+      USER_TOKEN_JSON=$(_json_escape "$USER_TOKEN")
+      ADMIN_TOKEN_JSON=$(_json_escape "$ADMIN_TOKEN")
       printf '%s\n' "{" \
         "  \"http_port\": $PUBLIC_PORT," \
         "  \"http_bind\": \"0.0.0.0\"," \
@@ -102,7 +117,9 @@ let
         "  \"p2p_port\": $P2P_PORT," \
         "  \"p2p_parallel\": $P2P_PARALLEL," \
         "  \"p2p_log\": $P2P_LOG," \
-        "  \"api_allowed_ips\": $IPS_JSON" \
+        "  \"api_allowed_ips\": $IPS_JSON," \
+        "  \"user_token\": \"$USER_TOKEN_JSON\"," \
+        "  \"admin_token\": \"$ADMIN_TOKEN_JSON\"" \
         "}" > "$STORAGE_DIR/memetracker_config.json"
     fi
 

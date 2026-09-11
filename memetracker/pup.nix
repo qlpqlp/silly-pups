@@ -2,22 +2,24 @@
 # Service attr name MUST match manifest container.services[0].name ("memetracker").
 #
 # Builds from https://github.com/qlpqlp/memetracker (pinned rev below).
+# Prefer fetchFromGitHub (archive NAR) over fetchgit — Windows NAR-of-git-tree
+# hashes do not match DogeBox fetchgit FODs.
 # Keep src.hash in sync with the pin, then recompute manifest.json nixFileSha256
 # (LF SHA-256 of this file).
 { pkgs ? import <nixpkgs> {} }:
 
 let
-  src = pkgs.fetchgit {
-    url = "https://github.com/qlpqlp/memetracker.git";
-    # Tip: mempool-first matching, confirmations UI, large-mempool getdata fix.
-    rev = "133c0df505362a6edb3f3c6623f0136ca6120e57";
-    # Hash from DogeBox nix fetchgit (local NAR hasher drifts on Windows).
-    hash = "sha256-EXNgK+BjUuZd6MKsvlq/mZxjyzcaOefqrtioI1DVSAM=";
+  src = pkgs.fetchFromGitHub {
+    owner = "qlpqlp";
+    repo = "memetracker";
+    # v0.0.5: config form dirty-guard + web UI IP/token gate.
+    rev = "7e0db9e35363c98443b7b1a6f528b9414f5983cb";
+    hash = "sha256-DVhNr+nX1OQxu/idSNBodHgymS1yxQFrFfSjVFdz+tY=";
   };
 
   memetracker_bin = pkgs.buildGoModule {
     pname = "memetracker";
-    version = "0.0.7";
+    version = "0.0.8";
     inherit src;
     vendorHash = null;
     go = pkgs.go_1_24;

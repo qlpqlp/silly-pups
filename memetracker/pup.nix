@@ -8,13 +8,13 @@
 { pkgs ? import <nixpkgs> {} }:
 
 let
-  rev = "6a2b2686711455428d8672babcd80abeb4d6d36c";
+  rev = "1a8e5fbad80d516aed0efd576677f3d53f1b5112";
   shortRev = builtins.substring 0 7 rev;
 
   tarball = pkgs.fetchurl {
-    # Upstream v0.0.7: signed tx broadcast to peers (admin API + user /broadcast).
+    # Upstream v0.0.8: sequential confirmation body scans + resume cursor + live UI.
     url = "https://github.com/qlpqlp/memetracker/archive/${rev}.tar.gz";
-    hash = "sha256-me5D82nZSz/50SK03HPG/7R2+5GYhdMUXJJNr80Gqfk=";
+    hash = "sha256-1s08E6n9Qntn0x1eUxeigjY2oZ4h261Hf6NWHw9lZBo=";
   };
 
   src = pkgs.runCommand "memetracker-${shortRev}-src" {
@@ -26,7 +26,7 @@ let
 
   memetracker_bin = pkgs.buildGoModule {
     pname = "memetracker";
-    version = "0.0.11";
+    version = "0.0.12";
     inherit src;
     vendorHash = null;
     go = pkgs.go_1_24;

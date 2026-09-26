@@ -2,13 +2,13 @@
   "manifestVersion": 1,
   "meta": {
     "name": "MemeTracker",
-    "version": "0.0.11",
+    "version": "0.0.12",
     "logoPath": "logo.png",
     "shortDescription": "Track Dogecoin payments to an address (mempool + tip blocks)",
-    "longDescription": "MemeTracker watches Dogecoin P2P for payments to tracked P2PKH addresses. Mempool matching is primary; a tip-focused header/block safeguard (~24h of headers) is backup for payments that skip relay and mine immediately. Matched txs show confirmations (0–5). Optional access control: IP allowlist (full admin), admin_token (web UI + API via /{admin_token}/), and user_token (/{user_token}/track, /healthz, and /broadcast). Admins can transmit a fully signed raw tx to connected peers (POST /api/broadcast). Built from https://github.com/qlpqlp/memetracker (v0.0.7). DogeBOX env seeds memetracker_config.json on first boot so P2P can auto-start. Parallel P2P sessions (default 3); for maximum reliability set P2P_HOST to your own Dogecoin Core.",
+    "longDescription": "MemeTracker watches Dogecoin P2P for payments to tracked P2PKH addresses. Mempool matching is primary; tip-focused header/block scans confirm payments in chain order from a persisted cursor (so confirmations advance 0→5 without tip-skipping). Optional access control: IP allowlist (full admin), admin_token (web UI + API via /{admin_token}/), and user_token (/{user_token}/track, /healthz, and /broadcast). Admins can transmit a fully signed raw tx to connected peers (POST /api/broadcast). Built from https://github.com/qlpqlp/memetracker (v0.0.8). DogeBOX env seeds memetracker_config.json on first boot so P2P can auto-start. Parallel P2P sessions (default 3); for maximum reliability set P2P_HOST to your own Dogecoin Core.",
     "upstreamVersions": {
       "Go": "1.24",
-      "memetracker": "v0.0.7"
+      "memetracker": "v0.0.8"
     }
   },
   "config": {
@@ -114,7 +114,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "12241ea85094c234b48742644f71d3062cc732ed63884610700feb8f870638e9"
+      "nixFileSha256": "7353849d9ca13aabc2453407d013618b2d985b9824758ba1bda73e9a127a9a1a"
     },
     "services": [
       {
@@ -143,7 +143,7 @@
   "interfaces": [
     {
       "name": "memetracker-public",
-      "version": "0.0.11",
+      "version": "0.0.12",
       "permissionGroups": [
         {
           "name": "MemeTracker HTTP",

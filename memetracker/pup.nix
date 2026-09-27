@@ -8,13 +8,13 @@
 { pkgs ? import <nixpkgs> {} }:
 
 let
-  rev = "1a8e5fbad80d516aed0efd576677f3d53f1b5112";
+  rev = "e6f6c8afe35670ff809beda226d7fc7f76e82cd6";
   shortRev = builtins.substring 0 7 rev;
 
   tarball = pkgs.fetchurl {
-    # Upstream v0.0.8: sequential confirmation body scans + resume cursor + live UI.
+    # Upstream v0.0.9: txid index + async block scanners for confirmation scale.
     url = "https://github.com/qlpqlp/memetracker/archive/${rev}.tar.gz";
-    hash = "sha256-1s08E6n9Qntn0x1eUxeigjY2oZ4h261Hf6NWHw9lZBo=";
+    hash = "sha256-5kuho5p0Q78MlYSJKfMZ3sv4CWTzR3jOJtxUX7CZ2PE=";
   };
 
   src = pkgs.runCommand "memetracker-${shortRev}-src" {
@@ -26,7 +26,7 @@ let
 
   memetracker_bin = pkgs.buildGoModule {
     pname = "memetracker";
-    version = "0.0.12";
+    version = "0.0.13";
     inherit src;
     vendorHash = null;
     go = pkgs.go_1_24;

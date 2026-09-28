@@ -2,8 +2,10 @@
 # Service attr name MUST match manifest container.services[0].name ("memetracker").
 #
 # Source: GitHub archive via fetchurl (flat file hash — stable from Windows) then
-# unpack. Avoids recursive NAR mismatches from fetchgit/fetchFromGitHub on DogeBox.
-# Keep tarball hash in sync with the pin, then recompute manifest.json nixFileSha256
+# unpack. Vendor golang.org/x/crypto from the module proxy the same way (flat hash).
+# Upstream go.mod may require a newer Go than DogeBox nixpkgs provides; we rewrite
+# the go directive to 1.24 at unpack time so pkgs.go_1_24 can build.
+# Keep tarball hashes in sync with the pin, then recompute manifest.json nixFileSha256
 # (LF SHA-256 of this file).
 { pkgs ? import <nixpkgs> {} }:
 
@@ -17,23 +19,44 @@ let
     hash = "sha256-NqyTVROlP3x+FyRHImoxwMZA/zKGr8ocwmnMNMBZdSI=";
   };
 
+  # Only ripemd160 is imported; ship a minimal vendor tree for sandboxed builds.
+  xcrypto = pkgs.fetchurl {
+    url = "https://proxy.golang.org/golang.org/x/crypto/@v/v0.57.0.zip";
+    hash = "sha256-hWyRa5Lx/FtTmDwE9iSfYy9WxH68ADu838UDUA37WLg=";
+  };
+
   src = pkgs.runCommand "memetracker-${shortRev}-src" {
-    nativeBuildInputs = [ pkgs.gnutar pkgs.gzip ];
+    nativeBuildInputs = [ pkgs.gnutar pkgs.gzip pkgs.unzip ];
   } ''
     mkdir -p $out
     tar -xzf ${tarball} --strip-components=1 -C $out
+
+    # DogeBox Go is 1.24/1.25; upstream may declare go 1.26+.
+    sed -i 's/^go .*/go 1.24/' $out/go.mod
+
+    mkdir -p $out/vendor/golang.org/x/crypto
+    unzip -q ${xcrypto} -d $TMPDIR/xcrypto
+    cp -a $TMPDIR/xcrypto/golang.org/x/crypto@v0.57.0/ripemd160 \
+      $out/vendor/golang.org/x/crypto/ripemd160
+
+    cat > $out/vendor/modules.txt <<'EOF'
+# golang.org/x/crypto v0.57.0
+## explicit; go 1.24
+golang.org/x/crypto/ripemd160
+EOF
   '';
 
   memetracker_bin = pkgs.buildGoModule {
     pname = "memetracker";
-    version = "0.0.14";
+    version = "0.0.15";
     inherit src;
     vendorHash = null;
     go = pkgs.go_1_24;
 
-    # No third-party modules; build the whole module (main.go + headers.go + embed).
+    # Source already includes vendor/; build offline with -mod=vendor.
     buildPhase = ''
       export GOCACHE=$(pwd)/.gocache
+      export GOFLAGS=-mod=vendor
       go build -o memetracker .
     '';
 

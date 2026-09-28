@@ -2,13 +2,13 @@
   "manifestVersion": 1,
   "meta": {
     "name": "MemeTracker",
-    "version": "0.0.16",
+    "version": "0.0.17",
     "logoPath": "logo.png",
     "shortDescription": "Track Dogecoin payments to an address (mempool + tip blocks)",
-    "longDescription": "MemeTracker watches Dogecoin P2P for payments to tracked P2PKH addresses. Mempool matching is primary; confirmations use tip headers plus either full block bodies (msg_block) or BIP-37 SPV bloom/merkleblock (node_bloom). Payments are stored per UTXO (txid:vout) with optional payer from_address. Optional access control: IP allowlist (full admin), admin_token (web UI + API via /{admin_token}/), and user_token (/{user_token}/track, /healthz, and /broadcast). Admins can transmit a fully signed raw tx to connected peers (POST /api/broadcast) and mark stuck rows confirmed. Built from https://github.com/qlpqlp/memetracker (v0.0.10). DogeBOX env seeds memetracker_config.json on first boot so P2P can auto-start. Parallel P2P sessions (default 3); for maximum reliability set P2P_HOST to your own Dogecoin Core.",
+    "longDescription": "MemeTracker watches Dogecoin P2P for payments to tracked P2PKH addresses on mainnet, testnet, or reboottestnet. Mempool matching is primary; confirmations use tip headers plus either full block bodies (msg_block) or BIP-37 SPV bloom/merkleblock (node_bloom). Optional start_checkpoint_hash/height skips walking from genesis on cold start. Payments are stored per UTXO (txid:vout) with optional payer from_address. Optional access control: IP allowlist (full admin), admin_token (web UI + API via /{admin_token}/), and user_token (/{user_token}/track, /healthz, and /broadcast). Admins can transmit a fully signed raw tx to connected peers (POST /api/broadcast) and mark stuck rows confirmed. Built from https://github.com/qlpqlp/memetracker (v0.0.11). DogeBOX env seeds memetracker_config.json on first boot so P2P can auto-start.",
     "upstreamVersions": {
       "Go": "1.24",
-      "memetracker": "v0.0.10"
+      "memetracker": "v0.0.11"
     }
   },
   "config": {
@@ -25,7 +25,7 @@
           },
           {
             "name": "NETWORK",
-            "label": "Dogecoin network (mainnet or testnet)",
+            "label": "Dogecoin network (mainnet, testnet, or reboottestnet)",
             "type": "text",
             "default": "mainnet"
           },
@@ -81,7 +81,7 @@
       },
       {
         "name": "P2P Mempool Listener",
-        "description": "Peer connections for mempool monitoring and payment confirmations",
+        "description": "Peer connections for mempool monitoring and payment confirmations. Optional start checkpoint skips genesis on cold start.",
         "fields": [
           {
             "name": "P2P_HOST",
@@ -112,6 +112,18 @@
             "label": "Confirm mode: msg_block (full blocks) or node_bloom (BIP-37 SPV)",
             "type": "text",
             "default": "msg_block"
+          },
+          {
+            "name": "START_CHECKPOINT_HASH",
+            "label": "Optional cold-start checkpoint block hash (64 hex)",
+            "type": "text",
+            "default": ""
+          },
+          {
+            "name": "START_CHECKPOINT_HEIGHT",
+            "label": "Checkpoint height (-1 if unknown)",
+            "type": "text",
+            "default": "-1"
           }
         ]
       }
@@ -120,7 +132,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "8c90abeb6f0a93bbaada168a9824ccb53c08733c66cecee1ee51fb6c743786d4"
+      "nixFileSha256": "69b478d951e27f89e82bca2b40bc51a0af8dd9e1ed2e557e4b132ebac5bc39ac"
     },
     "services": [
       {
@@ -149,12 +161,12 @@
   "interfaces": [
     {
       "name": "memetracker-public",
-      "version": "0.0.16",
+      "version": "0.0.17",
       "permissionGroups": [
         {
           "name": "MemeTracker HTTP",
           "description": "Web UI, health, track, broadcast, and /{token}/ paths for P2PKH Dogecoin addresses",
-          "severity": 1,
+          "privilege": 1,
           "routes": [
             "/*"
           ],

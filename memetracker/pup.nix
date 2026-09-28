@@ -10,13 +10,13 @@
 { pkgs ? import <nixpkgs> {} }:
 
 let
-  rev = "028741ea817db17a9cda6b7d19db2f0e0c5f5e57";
+  rev = "79f251e2f0f4136f47b9e4af53720ae4ff410fb7";
   shortRev = builtins.substring 0 7 rev;
 
   tarball = pkgs.fetchurl {
-    # Upstream v0.0.10: SPV bloom confirms, UTXO rows, payer from_address.
+    # Upstream v0.0.11: cold-start headers fix, reboottestnet, start checkpoint.
     url = "https://github.com/qlpqlp/memetracker/archive/${rev}.tar.gz";
-    hash = "sha256-NqyTVROlP3x+FyRHImoxwMZA/zKGr8ocwmnMNMBZdSI=";
+    hash = "sha256-GQl+VVlVAgmy84pBfT297RQMNZG5s0pPrPMlwOL1O/A=";
   };
 
   # Only ripemd160 is imported; ship a minimal vendor tree for sandboxed builds.
@@ -48,7 +48,7 @@ EOF
 
   memetracker_bin = pkgs.buildGoModule {
     pname = "memetracker";
-    version = "0.0.16";
+    version = "0.0.17";
     inherit src;
     vendorHash = null;
     go = pkgs.go_1_24;
@@ -82,6 +82,8 @@ EOF
     P2P_LOG="''${P2P_LOG:-1}"
     P2P_PARALLEL="''${P2P_PARALLEL:-3}"
     CONFIRM_MODE="''${CONFIRM_MODE:-msg_block}"
+    START_CHECKPOINT_HASH="''${START_CHECKPOINT_HASH:-}"
+    START_CHECKPOINT_HEIGHT="''${START_CHECKPOINT_HEIGHT:--1}"
     API_ALLOWED_IPS="''${API_ALLOWED_IPS:-}"
     TRUST_XFF_RAW="''${MTR_TRUST_XFF:-0}"
     USER_TOKEN="''${MTR_USER_TOKEN:-}"
@@ -138,6 +140,10 @@ EOF
       }
       USER_TOKEN_JSON=$(_json_escape "$USER_TOKEN")
       ADMIN_TOKEN_JSON=$(_json_escape "$ADMIN_TOKEN")
+      CHECKPOINT_HASH_JSON=$(_json_escape "$START_CHECKPOINT_HASH")
+      case "$START_CHECKPOINT_HEIGHT" in
+        ''|*[!0-9-]*) START_CHECKPOINT_HEIGHT="-1" ;;
+      esac
       printf '%s\n' "{" \
         "  \"http_port\": $PUBLIC_PORT," \
         "  \"http_bind\": \"0.0.0.0\"," \
@@ -150,6 +156,8 @@ EOF
         "  \"p2p_parallel\": $P2P_PARALLEL," \
         "  \"p2p_log\": $P2P_LOG," \
         "  \"confirm_mode\": \"$CONFIRM_MODE\"," \
+        "  \"start_checkpoint_hash\": \"$CHECKPOINT_HASH_JSON\"," \
+        "  \"start_checkpoint_height\": $START_CHECKPOINT_HEIGHT," \
         "  \"api_allowed_ips\": $IPS_JSON," \
         "  \"user_token\": \"$USER_TOKEN_JSON\"," \
         "  \"admin_token\": \"$ADMIN_TOKEN_JSON\"" \

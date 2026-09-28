@@ -48,7 +48,7 @@ EOF
 
   memetracker_bin = pkgs.buildGoModule {
     pname = "memetracker";
-    version = "0.0.17";
+    version = "0.0.18";
     inherit src;
     vendorHash = null;
     go = pkgs.go_1_24;
@@ -141,9 +141,9 @@ EOF
       USER_TOKEN_JSON=$(_json_escape "$USER_TOKEN")
       ADMIN_TOKEN_JSON=$(_json_escape "$ADMIN_TOKEN")
       CHECKPOINT_HASH_JSON=$(_json_escape "$START_CHECKPOINT_HASH")
-      case "$START_CHECKPOINT_HEIGHT" in
-        ''|*[!0-9-]*) START_CHECKPOINT_HEIGHT="-1" ;;
-      esac
+      if ! printf '%s' "$START_CHECKPOINT_HEIGHT" | grep -Eq '^-?[0-9]+$'; then
+        START_CHECKPOINT_HEIGHT="-1"
+      fi
       printf '%s\n' "{" \
         "  \"http_port\": $PUBLIC_PORT," \
         "  \"http_bind\": \"0.0.0.0\"," \

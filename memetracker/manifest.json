@@ -2,13 +2,13 @@
   "manifestVersion": 1,
   "meta": {
     "name": "MemeTracker",
-    "version": "0.0.13",
+    "version": "0.0.14",
     "logoPath": "logo.png",
     "shortDescription": "Track Dogecoin payments to an address (mempool + tip blocks)",
-    "longDescription": "MemeTracker watches Dogecoin P2P for payments to tracked P2PKH addresses. Mempool matching is primary; tip-focused header/block scans confirm payments in chain order from a persisted cursor, with a txid→address index and async block workers so confirmations scale without blocking mempool gossip. Optional access control: IP allowlist (full admin), admin_token (web UI + API via /{admin_token}/), and user_token (/{user_token}/track, /healthz, and /broadcast). Admins can transmit a fully signed raw tx to connected peers (POST /api/broadcast). Built from https://github.com/qlpqlp/memetracker (v0.0.9). DogeBOX env seeds memetracker_config.json on first boot so P2P can auto-start. Parallel P2P sessions (default 3); for maximum reliability set P2P_HOST to your own Dogecoin Core.",
+    "longDescription": "MemeTracker watches Dogecoin P2P for payments to tracked P2PKH addresses. Mempool matching is primary; confirmations use tip headers plus either full block bodies (msg_block) or BIP-37 SPV bloom/merkleblock (node_bloom). Payments are stored per UTXO (txid:vout) with optional payer from_address. Optional access control: IP allowlist (full admin), admin_token (web UI + API via /{admin_token}/), and user_token (/{user_token}/track, /healthz, and /broadcast). Admins can transmit a fully signed raw tx to connected peers (POST /api/broadcast) and mark stuck rows confirmed. Built from https://github.com/qlpqlp/memetracker (v0.0.10). DogeBOX env seeds memetracker_config.json on first boot so P2P can auto-start. Parallel P2P sessions (default 3); for maximum reliability set P2P_HOST to your own Dogecoin Core.",
     "upstreamVersions": {
       "Go": "1.24",
-      "memetracker": "v0.0.9"
+      "memetracker": "v0.0.10"
     }
   },
   "config": {
@@ -45,7 +45,7 @@
       },
       {
         "name": "Access and Security",
-        "description": "IP allowlist grants full admin access. Admin token unlocks web UI and /api via /{token}/. User token only allows /{token}/track and /{token}/healthz. Tokens must differ. Values seed first-boot config and override via env on start.",
+        "description": "IP allowlist grants full admin access. Admin token unlocks web UI and /api via /{token}/. User token allows /{token}/track, /healthz, and /broadcast. Tokens must differ. Values seed first-boot config and override via env on start.",
         "fields": [
           {
             "name": "API_ALLOWED_IPS",
@@ -61,7 +61,7 @@
           },
           {
             "name": "MTR_USER_TOKEN",
-            "label": "User token (/track + /healthz only)",
+            "label": "User token (/track + /healthz + /broadcast)",
             "type": "password",
             "default": ""
           }
@@ -81,7 +81,7 @@
       },
       {
         "name": "P2P Mempool Listener",
-        "description": "Peer connections for mempool monitoring",
+        "description": "Peer connections for mempool monitoring and payment confirmations",
         "fields": [
           {
             "name": "P2P_HOST",
@@ -106,6 +106,12 @@
             "label": "P2P log verbosity (0, 1, or 2)",
             "type": "text",
             "default": "1"
+          },
+          {
+            "name": "CONFIRM_MODE",
+            "label": "Confirm mode: msg_block (full blocks) or node_bloom (BIP-37 SPV)",
+            "type": "text",
+            "default": "msg_block"
           }
         ]
       }
@@ -114,7 +120,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "239f54bf3e716c369ca3ffaeec9043e343b4944db88395b12fd5f108e536b664"
+      "nixFileSha256": "5bfa4795beafcf942fd4b26cfcbcc2a290b3eda003ddd71695e75b6ed5baf33f"
     },
     "services": [
       {
@@ -143,7 +149,7 @@
   "interfaces": [
     {
       "name": "memetracker-public",
-      "version": "0.0.13",
+      "version": "0.0.14",
       "permissionGroups": [
         {
           "name": "MemeTracker HTTP",

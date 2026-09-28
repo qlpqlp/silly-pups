@@ -8,13 +8,13 @@
 { pkgs ? import <nixpkgs> {} }:
 
 let
-  rev = "e6f6c8afe35670ff809beda226d7fc7f76e82cd6";
+  rev = "028741ea817db17a9cda6b7d19db2f0e0c5f5e57";
   shortRev = builtins.substring 0 7 rev;
 
   tarball = pkgs.fetchurl {
-    # Upstream v0.0.9: txid index + async block scanners for confirmation scale.
+    # Upstream v0.0.10: SPV bloom confirms, UTXO rows, payer from_address.
     url = "https://github.com/qlpqlp/memetracker/archive/${rev}.tar.gz";
-    hash = "sha256-5kuho5p0Q78MlYSJKfMZ3sv4CWTzR3jOJtxUX7CZ2PE=";
+    hash = "sha256-NqyTVROlP3x+FyRHImoxwMZA/zKGr8ocwmnMNMBZdSI=";
   };
 
   src = pkgs.runCommand "memetracker-${shortRev}-src" {
@@ -26,7 +26,7 @@ let
 
   memetracker_bin = pkgs.buildGoModule {
     pname = "memetracker";
-    version = "0.0.13";
+    version = "0.0.14";
     inherit src;
     vendorHash = null;
     go = pkgs.go_1_24;
@@ -55,6 +55,7 @@ let
     P2P_PORT="''${P2P_PORT:-22556}"
     P2P_LOG="''${P2P_LOG:-1}"
     P2P_PARALLEL="''${P2P_PARALLEL:-3}"
+    CONFIRM_MODE="''${CONFIRM_MODE:-msg_block}"
     API_ALLOWED_IPS="''${API_ALLOWED_IPS:-}"
     TRUST_XFF_RAW="''${MTR_TRUST_XFF:-0}"
     USER_TOKEN="''${MTR_USER_TOKEN:-}"
@@ -80,6 +81,11 @@ let
 
     export MTR_TRUST_XFF="0"
     case "$TRUST_XFF_RAW" in 1|true|TRUE|yes|YES) export MTR_TRUST_XFF=1 ;; esac
+
+    case "$CONFIRM_MODE" in
+      node_bloom|bloom|spv|bip37) CONFIRM_MODE="node_bloom" ;;
+      *) CONFIRM_MODE="msg_block" ;;
+    esac
 
     if [ ! -f "$STORAGE_DIR/memetracker_config.json" ]; then
       IPS_JSON="[]"
@@ -117,6 +123,7 @@ let
         "  \"p2p_port\": $P2P_PORT," \
         "  \"p2p_parallel\": $P2P_PARALLEL," \
         "  \"p2p_log\": $P2P_LOG," \
+        "  \"confirm_mode\": \"$CONFIRM_MODE\"," \
         "  \"api_allowed_ips\": $IPS_JSON," \
         "  \"user_token\": \"$USER_TOKEN_JSON\"," \
         "  \"admin_token\": \"$ADMIN_TOKEN_JSON\"" \

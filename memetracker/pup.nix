@@ -48,21 +48,24 @@ EOF
 
   memetracker_bin = pkgs.buildGoModule {
     pname = "memetracker";
-    version = "0.0.15";
+    version = "0.0.16";
     inherit src;
     vendorHash = null;
     go = pkgs.go_1_24;
 
-    # Source already includes vendor/; build offline with -mod=vendor.
+    nativeBuildInputs = [ pkgs.removeReferencesTo ];
+
+    # Source already includes vendor/; strip Go store refs so the binary
+    # is allowed in the pup closure (DogeBox disallows go toolchain refs).
     buildPhase = ''
       export GOCACHE=$(pwd)/.gocache
-      export GOFLAGS=-mod=vendor
-      go build -o memetracker .
+      go build -mod=vendor -trimpath -ldflags="-s -w" -o memetracker .
     '';
 
     installPhase = ''
       mkdir -p $out/bin
       cp memetracker $out/bin/
+      remove-references-to -t ${pkgs.go_1_24} $out/bin/memetracker
     '';
   };
 

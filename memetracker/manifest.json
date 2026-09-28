@@ -2,13 +2,13 @@
   "manifestVersion": 1,
   "meta": {
     "name": "MemeTracker",
-    "version": "0.0.18",
+    "version": "0.0.19",
     "logoPath": "logo.png",
     "shortDescription": "Track Dogecoin payments to an address (mempool + tip blocks)",
-    "longDescription": "MemeTracker watches Dogecoin P2P for payments to tracked P2PKH addresses on mainnet, testnet, or reboottestnet. Mempool matching is primary; confirmations use tip headers plus either full block bodies (msg_block) or BIP-37 SPV bloom/merkleblock (node_bloom). Optional start_checkpoint_hash/height skips walking from genesis on cold start. Payments are stored per UTXO (txid:vout) with optional payer from_address. Optional access control: IP allowlist (full admin), admin_token (web UI + API via /{admin_token}/), and user_token (/{user_token}/track, /healthz, and /broadcast). Admins can transmit a fully signed raw tx to connected peers (POST /api/broadcast) and mark stuck rows confirmed. Built from https://github.com/qlpqlp/memetracker (v0.0.11). DogeBOX env seeds memetracker_config.json on first boot so P2P can auto-start.",
+    "longDescription": "MemeTracker watches Dogecoin P2P for payments to tracked P2PKH addresses on mainnet, testnet, or reboottestnet. Mempool matching is primary; confirmations use tip headers plus either full block bodies (msg_block) or BIP-37 SPV bloom/merkleblock (node_bloom). Optional start_checkpoint_hash/height can jump (or reset) a tip so cold starts skip genesis; empty tips seed at genesis height 0 so sync progress is visible. Payments are stored per UTXO (txid:vout) with optional payer from_address. Optional access control: IP allowlist (full admin), admin_token (web UI + API via /{admin_token}/), and user_token (/{user_token}/track, /healthz, and /broadcast). Admins can transmit a fully signed raw tx to connected peers (POST /api/broadcast) and mark stuck rows confirmed. Built from https://github.com/qlpqlp/memetracker (v0.0.12). DogeBOX env seeds memetracker_config.json on first boot so P2P can auto-start.",
     "upstreamVersions": {
       "Go": "1.24",
-      "memetracker": "v0.0.11"
+      "memetracker": "v0.0.12"
     }
   },
   "config": {
@@ -132,7 +132,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "87cdd8f922e92a0d6ed27ef822b40c317b538ce663c714cfe4588e6bdc72cb3f"
+      "nixFileSha256": "bb2bada3902bbd282c4f6b36716a408a7e04ff4b16220302672f221fefabde93"
     },
     "services": [
       {
@@ -161,7 +161,7 @@
   "interfaces": [
     {
       "name": "memetracker-public",
-      "version": "0.0.18",
+      "version": "0.0.19",
       "permissionGroups": [
         {
           "name": "MemeTracker HTTP",

@@ -10,13 +10,13 @@
 { pkgs ? import <nixpkgs> {} }:
 
 let
-  rev = "79f251e2f0f4136f47b9e4af53720ae4ff410fb7";
+  rev = "efdfaedd3628c6bf320c1134f02dc65bb252caa8";
   shortRev = builtins.substring 0 7 rev;
 
   tarball = pkgs.fetchurl {
-    # Upstream v0.0.11: cold-start headers fix, reboottestnet, start checkpoint.
+    # Upstream v0.0.12: checkpoint resets stuck tip; genesis sync progress UI.
     url = "https://github.com/qlpqlp/memetracker/archive/${rev}.tar.gz";
-    hash = "sha256-GQl+VVlVAgmy84pBfT297RQMNZG5s0pPrPMlwOL1O/A=";
+    hash = "sha256-DGbNamAS7EqFrHpouDptuef37Qm7Xx1YmSFUakDjCj0=";
   };
 
   # Only ripemd160 is imported; ship a minimal vendor tree for sandboxed builds.
@@ -48,7 +48,7 @@ EOF
 
   memetracker_bin = pkgs.buildGoModule {
     pname = "memetracker";
-    version = "0.0.18";
+    version = "0.0.19";
     inherit src;
     vendorHash = null;
     go = pkgs.go_1_24;

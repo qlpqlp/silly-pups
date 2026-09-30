@@ -1,0 +1,132 @@
+{
+  "manifestVersion": 1,
+  "meta": {
+    "name": "NodesTracker",
+    "version": "0.1.0",
+    "logoPath": "logo.png",
+    "shortDescription": "Map live Dogecoin mainnet peers (full / pruned / light)",
+    "longDescription": "NodesTracker discovers Dogecoin mainnet peers from DNS seeds, completes P2P handshakes on port 22556, and shows who is live right now. The dashboard reports total/live/offline peers, live kind counts (full, pruned, light), and healthy full nodes on the agreed tip. Optional user/admin tokens gate peer APIs; hide_addresses can checksum public hostnames. Built from https://github.com/qlpqlp/nodestracker. DogeBOX seeds settings.json on first boot under /storage/nodestracker. Not a wallet.",
+    "upstreamVersions": {
+      "Go": "1.24",
+      "nodestracker": "ba53551"
+    }
+  },
+  "config": {
+    "sections": [
+      {
+        "name": "Web API",
+        "description": "HTTP listen port for the dashboard and JSON API (bound on 0.0.0.0 for DogeBox).",
+        "fields": [
+          {
+            "name": "PUBLIC_PORT",
+            "label": "HTTP Port",
+            "type": "text",
+            "default": "6969"
+          }
+        ]
+      },
+      {
+        "name": "Access and Security",
+        "description": "Optional tokens gate /api/peers and admin routes. Empty tokens leave those routes open. Values seed first-boot settings.json.",
+        "fields": [
+          {
+            "name": "USER_TOKEN",
+            "label": "User token (peers / clients APIs)",
+            "type": "password",
+            "default": ""
+          },
+          {
+            "name": "ADMIN_TOKEN",
+            "label": "Admin token (settings, seeds, handshake)",
+            "type": "password",
+            "default": ""
+          },
+          {
+            "name": "HIDE_ADDRESSES",
+            "label": "Hide raw IPs in the public peer list",
+            "type": "toggle",
+            "default": false
+          }
+        ]
+      },
+      {
+        "name": "Crawler",
+        "description": "How often to recheck peers, discover new addresses, and drop stale offline peers.",
+        "fields": [
+          {
+            "name": "CHECK_INTERVAL_MINUTES",
+            "label": "Peer recheck interval (minutes)",
+            "type": "text",
+            "default": "60"
+          },
+          {
+            "name": "DISCOVERY_MINUTES",
+            "label": "DNS discovery interval (minutes)",
+            "type": "text",
+            "default": "15"
+          },
+          {
+            "name": "STALE_DAYS",
+            "label": "Remove offline peers after N days",
+            "type": "text",
+            "default": "7"
+          },
+          {
+            "name": "DNS_SEEDS",
+            "label": "Optional DNS seeds (comma-separated; empty = defaults)",
+            "type": "text",
+            "default": ""
+          }
+        ]
+      }
+    ]
+  },
+  "container": {
+    "build": {
+      "nixFile": "pup.nix",
+      "nixFileSha256": "9b6fb84e280844f5deccbb037e1e0b808cfbbabdbdadab1b033eabad04c09066"
+    },
+    "services": [
+      {
+        "name": "nodestracker",
+        "command": {
+          "exec": "/bin/run.sh",
+          "cwd": "",
+          "env": null
+        }
+      }
+    ],
+    "exposes": [
+      {
+        "name": "public-port",
+        "type": "http",
+        "port": 6969,
+        "interfaces": [
+          "nodestracker-public"
+        ],
+        "listenOnHost": true,
+        "webUI": true
+      }
+    ],
+    "requiresInternet": true
+  },
+  "interfaces": [
+    {
+      "name": "nodestracker-public",
+      "version": "0.1.0",
+      "permissionGroups": [
+        {
+          "name": "NodesTracker HTTP",
+          "description": "Web dashboard and JSON APIs for Dogecoin peer discovery",
+          "privilege": 1,
+          "routes": [
+            "/*"
+          ],
+          "port": 6969
+        }
+      ]
+    }
+  ],
+  "dependencies": [],
+  "metrics": null
+}

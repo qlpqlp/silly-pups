@@ -2,13 +2,13 @@
   "manifestVersion": 1,
   "meta": {
     "name": "NodesTracker",
-    "version": "0.1.0",
+    "version": "0.0.1",
     "logoPath": "logo.png",
     "shortDescription": "Map live Dogecoin mainnet peers (full / pruned / light)",
-    "longDescription": "NodesTracker discovers Dogecoin mainnet peers from DNS seeds, completes P2P handshakes on port 22556, and shows who is live right now. The dashboard reports total/live/offline peers, live kind counts (full, pruned, light), and healthy full nodes on the agreed tip. Optional user/admin tokens gate peer APIs; hide_addresses can checksum public hostnames. Built from https://github.com/qlpqlp/nodestracker. DogeBOX seeds settings.json on first boot under /storage/nodestracker. Not a wallet.",
+    "longDescription": "NodesTracker discovers Dogecoin mainnet peers from DNS seeds, completes P2P handshakes on port 22556, and shows who is live right now. The dashboard reports total/live/offline peers, live kind counts (full, pruned, light), and healthy full nodes on the agreed tip. Optional user/admin tokens gate peer APIs; hide_addresses can checksum public hostnames. Built from https://github.com/qlpqlp/nodestracker (V0.01). DogeBOX seeds settings.json on first boot under /storage/nodestracker. Not a wallet.",
     "upstreamVersions": {
       "Go": "1.24",
-      "nodestracker": "ba53551"
+      "nodestracker": "V0.01"
     }
   },
   "config": {
@@ -84,7 +84,7 @@
   "container": {
     "build": {
       "nixFile": "pup.nix",
-      "nixFileSha256": "9b6fb84e280844f5deccbb037e1e0b808cfbbabdbdadab1b033eabad04c09066"
+      "nixFileSha256": "e8a410bad8a769de2b019671684f7ca6309e8b2a78ac1d5300797dde9cd72274"
     },
     "services": [
       {
@@ -113,7 +113,7 @@
   "interfaces": [
     {
       "name": "nodestracker-public",
-      "version": "0.1.0",
+      "version": "0.0.1",
       "permissionGroups": [
         {
           "name": "NodesTracker HTTP",

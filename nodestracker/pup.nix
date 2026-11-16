@@ -7,12 +7,12 @@
 { pkgs ? import <nixpkgs> {} }:
 
 let
-  # Upstream release v0.1.0 → 6dae09e1448c0b2ee85df18d70d38c31cd6c5011
-  tag = "v0.1.0";
+  # Upstream release v0.1.1 → 69782bad69a420558322f97838ca4629e7a749c1
+  tag = "v0.1.1";
 
   tarball = pkgs.fetchurl {
     url = "https://github.com/qlpqlp/nodestracker/archive/refs/tags/${tag}.tar.gz";
-    hash = "sha256-2bj8lTgyxvrvVX9H9W1VmL5vHphJZmDHaM9z5nmEtRU=";
+    hash = "sha256-5i0JyvD5DHPyqHIU5iCcml3TvbkprKhRDgL3XPCCBas=";
   };
 
   src = pkgs.runCommand "nodestracker-${tag}-src" {
@@ -26,7 +26,7 @@ let
 
   nodestracker_bin = pkgs.buildGoModule {
     pname = "nodestracker";
-    version = "0.1.0";
+    version = "0.1.1";
     inherit src;
     vendorHash = null;
     go = pkgs.go_1_24;
